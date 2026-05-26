@@ -4,7 +4,7 @@ const { userFromToken } = require('./auth');
 // upvote.biz uses the SMM-panel-standard API: POST form-encoded body to /api/v2
 // with key=API_KEY and action=balance|services|add|status. If their base URL
 // or shape differs, the only change required is here.
-const API_URL = 'https://upvote.biz/api/v2';
+const API_URL = 'https://upvote.biz/api/v1';
 
 function ensureSettingsTable() {
   getDb().exec(`

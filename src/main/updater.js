@@ -60,9 +60,13 @@ function quitAndInstall() {
   autoUpdater.quitAndInstall();
 }
 
+function checkNow() {
+  return autoUpdater.checkForUpdates().catch((e) => log.error('[updater] manual check failed', e));
+}
+
 function stopAutoUpdater() {
   if (intervalHandle) clearInterval(intervalHandle);
   intervalHandle = null;
 }
 
-module.exports = { initAutoUpdater, quitAndInstall, stopAutoUpdater };
+module.exports = { initAutoUpdater, quitAndInstall, stopAutoUpdater, checkNow };

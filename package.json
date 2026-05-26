@@ -1,6 +1,6 @@
 {
   "name": "oserus-management",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "Oserus Management — team Reddit & RedGifs account management for OnlyFans agencies",
   "main": "src/main/index.js",
   "scripts": {
@@ -50,6 +50,16 @@
     ],
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "build/icon.png"
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "build/icon.ico"
+      }
     ],
     "win": {
       "target": [

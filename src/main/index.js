@@ -1,7 +1,8 @@
 const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 const { initDatabase, getDb, decryptSecret } = require('./db');
-const { initAutoUpdater, quitAndInstall, stopAutoUpdater } = require('./updater');
+const { initAutoUpdater, quitAndInstall, stopAutoUpdater, checkNow } = require('./updater');
+const { createTray, destroyTray, markQuitting, isAppQuitting } = require('./tray');
 
 const registerAuthHandlers = require('./ipc/auth');
 const registerProfileHandlers = require('./ipc/profiles');
@@ -42,6 +43,15 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
   }
+
+  // Close button → hide to tray instead of quitting. Quitting goes through the
+  // tray menu (which calls markQuitting()) or window-all-closed on mac.
+  mainWindow.on('close', (e) => {
+    if (!isAppQuitting()) {
+      e.preventDefault();
+      mainWindow.hide();
+    }
+  });
 }
 
 // Prepare a session partition for an account, applying proxy if assigned.
@@ -125,13 +135,26 @@ app.whenReady().then(() => {
 
   createWindow();
   initAutoUpdater(mainWindow);
+  createTray(mainWindow, checkNow);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    else if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
   });
 });
 
+// Hide-to-tray means windows never all close on their own. Only quit when the
+// tray's Quit item explicitly flips the flag.
 app.on('window-all-closed', () => {
+  if (process.platform === 'darwin') return;
+  if (isAppQuitting()) {
+    stopAutoUpdater();
+    app.quit();
+  }
+});
+
+app.on('before-quit', () => {
+  markQuitting();
   stopAutoUpdater();
-  if (process.platform !== 'darwin') app.quit();
+  destroyTray();
 });
