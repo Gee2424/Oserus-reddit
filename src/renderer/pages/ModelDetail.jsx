@@ -31,6 +31,10 @@ export default function ModelDetailPage({ modelId, navigate }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const [showAddProxy, setShowAddProxy] = useState(false);
+  const [proxyForm, setProxyForm] = useState({ label: '', kind: 'http', host: '', port: '', username: '', password: '' });
+  const [proxyError, setProxyError] = useState(null);
+
   const canManage = user.role === 'admin' || user.role === 'manager';
 
   function blankForm() {
@@ -158,6 +162,30 @@ export default function ModelDetailPage({ modelId, navigate }) {
     navigate('reddit');
   }
 
+  async function addProxy(e) {
+    e.preventDefault();
+    setProxyError(null);
+    if (!proxyForm.host || !proxyForm.port) { setProxyError('Host and port required'); return; }
+    const res = await window.api.proxies.create({
+      token,
+      label: proxyForm.label || `${proxyForm.host}:${proxyForm.port}`,
+      kind: proxyForm.kind,
+      host: proxyForm.host,
+      port: Number(proxyForm.port),
+      username: proxyForm.username || null,
+      password: proxyForm.password || null,
+    });
+    if (!res.ok) { setProxyError(res.error); return; }
+    setProxyForm({ label: '', kind: 'http', host: '', port: '', username: '', password: '' });
+    setShowAddProxy(false);
+    await load();
+  }
+
+  // Which proxies are actually attached to this model's accounts?
+  const usedProxyIds = new Set(accounts.map(a => a.proxy_id).filter(Boolean));
+  const modelProxies = proxies.filter(p => usedProxyIds.has(p.id));
+  const proxyUsageCount = (proxyId) => accounts.filter(a => a.proxy_id === proxyId).length;
+
   if (loading) {
     return <div className="empty-state">Loading…</div>;
   }
@@ -176,12 +204,26 @@ export default function ModelDetailPage({ modelId, navigate }) {
         <button className="ghost" onClick={() => navigate('profiles')} style={{ fontSize: 12 }}>← All models</button>
       </div>
 
-      <div className="title-block" style={{ borderLeft: `4px solid ${model.avatar_color || 'var(--accent)'}`, paddingLeft: 16 }}>
+      <div className="title-block" style={{ alignItems: 'center', gap: 16 }}>
+        <div style={{
+          width: 56, height: 56, borderRadius: '50%',
+          background: model.avatar_color
+            ? `linear-gradient(135deg, ${model.avatar_color}, var(--gold))`
+            : 'var(--gradient-brand)',
+          color: '#1a1a14',
+          display: 'grid', placeItems: 'center',
+          fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700,
+          boxShadow: '0 4px 14px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06) inset',
+          flexShrink: 0,
+        }}>
+          {(model.name || '?').charAt(0).toUpperCase()}
+        </div>
         <div style={{ flex: 1 }}>
           <div className="eyebrow">Model profile</div>
-          <h1>{model.name}</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            {model.niche && <span className="pill" style={{ marginRight: 8 }}>{model.niche}</span>}
+          <h1 style={{ marginTop: 2 }}>{model.name}</h1>
+          <div className="muted" style={{ fontSize: 13, marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {model.niche && <span className="pill green">{model.niche}</span>}
+            <span className="mono dim">{accounts.filter(a => a.platform !== 'redgifs').length} Reddit · {accounts.filter(a => a.platform === 'redgifs').length} RedGifs · {modelProxies.length} proxies</span>
             {model.assigned_to_name && <>Assigned to <span style={{ color: 'var(--text-1)' }}>{model.assigned_to_username}</span></>}
           </div>
         </div>
@@ -323,6 +365,88 @@ export default function ModelDetailPage({ modelId, navigate }) {
           </div>
         );
       })}
+
+      <div style={{ marginBottom: 28 }}>
+        <div style={styles.platformHeader}>
+          <span style={{ fontSize: 20 }}>⌁</span>
+          <h2>Proxies</h2>
+          <span className="mono dim" style={{ fontSize: 12 }}>
+            {modelProxies.length} in use{proxies.length > modelProxies.length ? ` · ${proxies.length - modelProxies.length} available` : ''}
+          </span>
+          <div style={{ flex: 1 }} />
+          {canManage && (
+            <button className="primary" onClick={() => setShowAddProxy(v => !v)}>
+              {showAddProxy ? 'Cancel' : '+ Add proxy'}
+            </button>
+          )}
+        </div>
+
+        {showAddProxy && (
+          <form onSubmit={addProxy} className="card" style={{ marginBottom: 14 }}>
+            <h3 style={{ marginBottom: 14 }}>New proxy</h3>
+            {proxyError && <div className="error-banner">{proxyError}</div>}
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 2fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label>Label</label>
+                <input value={proxyForm.label} onChange={(e) => setProxyForm({ ...proxyForm, label: e.target.value })} placeholder="e.g. Mobile 1" />
+              </div>
+              <div>
+                <label>Kind</label>
+                <select value={proxyForm.kind} onChange={(e) => setProxyForm({ ...proxyForm, kind: e.target.value })}>
+                  <option value="http">HTTP</option>
+                  <option value="https">HTTPS</option>
+                  <option value="socks5">SOCKS5</option>
+                </select>
+              </div>
+              <div>
+                <label>Host</label>
+                <input value={proxyForm.host} onChange={(e) => setProxyForm({ ...proxyForm, host: e.target.value })} placeholder="proxy.example.com" />
+              </div>
+              <div>
+                <label>Port</label>
+                <input type="number" value={proxyForm.port} onChange={(e) => setProxyForm({ ...proxyForm, port: e.target.value })} placeholder="1080" />
+              </div>
+              <div>
+                <label>Username</label>
+                <input value={proxyForm.username} onChange={(e) => setProxyForm({ ...proxyForm, username: e.target.value })} placeholder="optional" />
+              </div>
+              <div style={{ gridColumn: 'span 3' }}>
+                <label>Password</label>
+                <input type="text" value={proxyForm.password} onChange={(e) => setProxyForm({ ...proxyForm, password: e.target.value })} placeholder="optional" />
+              </div>
+            </div>
+            <button type="submit" className="primary">Save proxy</button>
+          </form>
+        )}
+
+        {modelProxies.length === 0 ? (
+          <div className="empty-state" style={{ padding: 22, fontSize: 13 }}>
+            No proxies in use by this model's accounts.
+            {canManage && proxies.length > 0 && ' Open an account above to assign one of your existing proxies.'}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {modelProxies.map(p => (
+              <div key={p.id} style={styles.accountRow}>
+                <div style={{ ...styles.dot, background: 'var(--green-bright)' }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>
+                    {p.label}
+                    {p.has_password && <span className="mono dim" style={{ fontSize: 11, marginLeft: 8 }}>🔑</span>}
+                  </div>
+                  <div className="muted mono" style={{ fontSize: 12 }}>
+                    {p.kind} · {p.host}:{p.port}
+                    {p.username && ` · ${p.username}`}
+                  </div>
+                </div>
+                <span className="mono dim" style={{ fontSize: 11 }}>
+                  {proxyUsageCount(p.id)} account{proxyUsageCount(p.id) === 1 ? '' : 's'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div style={{ marginBottom: 28 }}>
         <div style={styles.platformHeader}>
