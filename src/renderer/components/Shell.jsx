@@ -12,6 +12,7 @@ const ROLE_LABEL = {
 // Nav items - icon + label + group, with role-based visibility
 const NAV = [
   { key: 'dashboard', label: 'Dashboard', icon: '⬢', group: 'Overview', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'analytics', label: 'Analytics', icon: '◧', group: 'Overview', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
 
   { key: 'profiles', label: 'Models', icon: '◇', group: 'Manage', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
   { key: 'accounts', label: 'Accounts', icon: '◈', group: 'Manage', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
@@ -19,8 +20,11 @@ const NAV = [
 
   { key: 'reddit', label: 'Reddit', icon: 'R', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
   { key: 'redgifs', label: 'RedGifs', icon: 'G', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'inbox', label: 'Inbox', icon: '✉', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'scheduler', label: 'Scheduler', icon: '◷', group: 'Operate', roles: ['admin', 'manager', 'reddit_va'] },
   { key: 'webviews', label: 'Custom Pages', icon: '⬡', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
 
+  { key: 'docs', label: 'Docs', icon: '◫', group: 'Configure', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
   { key: 'proxies', label: 'Proxies', icon: '⌁', group: 'Configure', roles: ['admin', 'manager'] },
   { key: 'subreddits', label: 'Warm-up Subs', icon: '✦', group: 'Configure', roles: ['admin', 'manager'] },
   { key: 'votes', label: 'Votes', icon: '▲', group: 'Configure', roles: ['admin', 'manager', 'reddit_va'] },

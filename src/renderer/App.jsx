@@ -15,6 +15,10 @@ import SubredditsPage from './pages/Subreddits.jsx';
 import WebviewsPage from './pages/Webviews.jsx';
 import SettingsPage from './pages/Settings.jsx';
 import VotesPage from './pages/Votes.jsx';
+import DocsPage from './pages/Docs.jsx';
+import AnalyticsPage from './pages/Analytics.jsx';
+import SchedulerPage from './pages/Scheduler.jsx';
+import InboxPage from './pages/Inbox.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
 function Inner() {
@@ -48,6 +52,10 @@ function Inner() {
       case 'webviews': return <WebviewsPage />;
       case 'settings': return <SettingsPage />;
       case 'votes': return <VotesPage />;
+      case 'docs': return <DocsPage />;
+      case 'analytics': return <AnalyticsPage />;
+      case 'scheduler': return <SchedulerPage />;
+      case 'inbox': return <InboxPage />;
       default: return <DashboardPage navigate={navigate} />;
     }
   })();
