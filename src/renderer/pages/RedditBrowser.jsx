@@ -36,7 +36,8 @@ function isRedditPage(url) {
 }
 
 export default function RedditBrowser() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const canPlaceOrders = user?.role === 'admin' || user?.role === 'manager';
   const { forPlatform } = useActiveAccount();
   const { active } = forPlatform('reddit');
 
@@ -232,8 +233,8 @@ export default function RedditBrowser() {
               </div>
             )}
 
-            {/* Votes FAB — shows on every reddit.com page, not just submit */}
-            {onRedditPage && !onSubmitPage && !openPanel && (
+            {/* Votes FAB — shows on every reddit.com page (admins/managers only) */}
+            {canPlaceOrders && onRedditPage && !onSubmitPage && !openPanel && (
               <div style={styles.votesFabWrap}>
                 <button onClick={() => setOpenPanel('votes')} style={styles.votesFab} title="Order upvotes for the current post">
                   <span style={styles.fabIcon}>▲</span>

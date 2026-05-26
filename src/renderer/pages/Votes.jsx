@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth.jsx';
 export default function VotesPage() {
   const { token, user } = useAuth();
   const isAdmin = user.role === 'admin';
+  const canPlaceOrders = user.role === 'admin' || user.role === 'manager';
 
   const [hasKey, setHasKey] = useState(false);
   const [balance, setBalance] = useState(null);
@@ -104,6 +105,7 @@ export default function VotesPage() {
       {err && <div className="error-banner" style={{ marginBottom: 14 }}>{err}</div>}
       {ok && <div style={styles.ok}>{ok}</div>}
 
+      {canPlaceOrders && (
       <div className="card" style={{ marginBottom: 22 }}>
         <h3 style={{ marginBottom: 4 }}>Place an order</h3>
         <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>
@@ -147,6 +149,7 @@ export default function VotesPage() {
           <button type="submit" className="primary">Order</button>
         </form>
       </div>
+      )}
 
       <div className="card">
         <h3 style={{ marginBottom: 12 }}>Recent orders</h3>

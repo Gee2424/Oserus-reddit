@@ -126,6 +126,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
+      if (user.role !== 'admin' && user.role !== 'manager') throw new Error('Manager or admin only');
       if (!serviceId || !link || !quantity) throw new Error('Service, link, and quantity are required');
       const data = await call(getKey(), 'add', {
         service: String(serviceId),
