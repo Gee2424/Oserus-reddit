@@ -14,6 +14,9 @@ const registerBundleHandlers = require('./ipc/bundle');
 const registerAiHandlers = require('./ipc/ai');
 const registerSubsHandlers = require('./ipc/subs');
 const registerVotesHandlers = require('./ipc/votes');
+const registerDocsHandlers = require('./ipc/docs');
+const registerScheduledHandlers = require('./ipc/scheduled');
+const registerAnalyticsHandlers = require('./ipc/analytics');
 
 const isDev = !app.isPackaged;
 let mainWindow;
@@ -132,6 +135,9 @@ app.whenReady().then(() => {
   registerAiHandlers(ipcMain);
   registerSubsHandlers(ipcMain);
   registerVotesHandlers(ipcMain);
+  registerDocsHandlers(ipcMain);
+  registerScheduledHandlers(ipcMain);
+  registerAnalyticsHandlers(ipcMain);
 
   createWindow();
   initAutoUpdater(mainWindow);

@@ -86,6 +86,24 @@ const api = {
     orders: (data) => ipcRenderer.invoke('votes:orders', data),
     refreshStatus: (data) => ipcRenderer.invoke('votes:refreshStatus', data),
   },
+  docs: {
+    list: (data) => ipcRenderer.invoke('docs:list', data),
+    get: (data) => ipcRenderer.invoke('docs:get', data),
+    create: (data) => ipcRenderer.invoke('docs:create', data),
+    update: (data) => ipcRenderer.invoke('docs:update', data),
+    delete: (data) => ipcRenderer.invoke('docs:delete', data),
+  },
+  scheduled: {
+    list: (data) => ipcRenderer.invoke('scheduled:list', data),
+    create: (data) => ipcRenderer.invoke('scheduled:create', data),
+    cancel: (data) => ipcRenderer.invoke('scheduled:cancel', data),
+    delete: (data) => ipcRenderer.invoke('scheduled:delete', data),
+  },
+  analytics: {
+    summary: (data) => ipcRenderer.invoke('analytics:summary', data),
+    karmaHistory: (data) => ipcRenderer.invoke('analytics:karmaHistory', data),
+    recordKarma: (data) => ipcRenderer.invoke('analytics:recordKarma', data),
+  },
   session: {
     prepareForAccount: (data) => ipcRenderer.invoke('session:prepareForAccount', data),
     clear: (partitionKey) => ipcRenderer.invoke('session:clear', partitionKey),
