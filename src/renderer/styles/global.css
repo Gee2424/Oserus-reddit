@@ -1,0 +1,334 @@
+:root {
+  /* Oserus palette - forest green / olive / gold on near-black */
+  --bg-0: #0a0e0a;
+  --bg-1: #10160f;
+  --bg-2: #161e15;
+  --bg-3: #1f291d;
+  --bg-elev: #131a12;
+  --border: #20291e;
+  --border-strong: #2e3b2a;
+  --border-glow: #3d6b4f;
+
+  --text-0: #e8e4d0;
+  --text-1: #c4bfa6;
+  --text-2: #8a8770;
+  --text-3: #5a594a;
+
+  /* Brand */
+  --green: #3d6b4f;
+  --green-bright: #4f8a64;
+  --green-glow: rgba(79, 138, 100, 0.4);
+  --gold: #d4a64a;
+  --gold-bright: #e8c068;
+  --gold-orange: #e89146;
+  --green-soft: rgba(61, 107, 79, 0.15);
+  --gold-soft: rgba(212, 166, 74, 0.12);
+
+  --accent: var(--green-bright);
+  --accent-hover: var(--green);
+  --accent-soft: var(--green-soft);
+
+  --warn: var(--gold);
+  --danger: #b3473a;
+  --ok: var(--green-bright);
+
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-body: 'Inter Tight', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  --radius: 4px;
+  --radius-lg: 8px;
+
+  --shadow-1: 0 1px 0 rgba(255,255,255,0.02) inset, 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-2: 0 8px 24px rgba(0,0,0,0.6);
+  --glow-green: 0 0 0 1px var(--green) inset, 0 0 18px var(--green-glow);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(61, 107, 79, 0.06), transparent 60%),
+    var(--bg-0);
+  color: var(--text-0);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+input, textarea, select { user-select: text; }
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-variation-settings: 'opsz' 96;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+h1 { font-size: 30px; }
+h2 { font-size: 22px; }
+h3 { font-size: 17px; }
+
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--text-2); }
+.dim { color: var(--text-3); }
+
+button {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-2);
+  color: var(--text-0);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.05s, box-shadow 0.12s;
+}
+button:hover { background: var(--bg-3); border-color: var(--green); }
+button:active { transform: translateY(1px); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+button.primary {
+  background: var(--green);
+  color: var(--text-0);
+  border-color: var(--green-bright);
+  font-weight: 600;
+}
+button.primary:hover {
+  background: var(--green-bright);
+  border-color: var(--green-bright);
+  box-shadow: 0 0 14px var(--green-glow);
+}
+
+button.gold {
+  background: var(--gold-soft);
+  color: var(--gold);
+  border-color: var(--gold);
+}
+button.gold:hover {
+  background: rgba(212, 166, 74, 0.2);
+  box-shadow: 0 0 14px rgba(212, 166, 74, 0.3);
+}
+
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-1);
+}
+button.ghost:hover { background: var(--bg-2); color: var(--text-0); border-color: transparent; }
+
+button.danger {
+  color: var(--danger);
+  border-color: var(--bg-3);
+}
+button.danger:hover { background: rgba(179, 71, 58, 0.1); border-color: var(--danger); }
+
+input, textarea, select {
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 9px 11px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-0);
+  outline: none;
+  width: 100%;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+}
+input:focus, textarea:focus, select:focus {
+  border-color: var(--green-bright);
+  background: var(--bg-2);
+  box-shadow: 0 0 0 3px var(--green-soft);
+}
+
+label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+
+a { color: var(--green-bright); text-decoration: none; }
+a:hover { color: var(--gold); }
+
+.card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+}
+
+.card.bordered-glow {
+  border-color: var(--green);
+  box-shadow: var(--glow-green);
+}
+
+/* Selector cards — the big clickable tiles at top of pages, as in your screenshot */
+.selector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.selector-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.2s, transform 0.1s;
+  text-align: left;
+  font-family: var(--font-body);
+  color: var(--text-0);
+}
+
+.selector-card:hover {
+  border-color: var(--green);
+  background: var(--bg-2);
+  transform: translateY(-1px);
+}
+
+.selector-card.active {
+  border-color: var(--green-bright);
+  background: linear-gradient(180deg, var(--green-soft), transparent);
+  box-shadow: var(--glow-green);
+}
+
+.selector-card .selector-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  color: var(--green-bright);
+}
+.selector-card.active .selector-icon {
+  background: var(--green-soft);
+  border-color: var(--green);
+  color: var(--gold);
+}
+
+.selector-card .selector-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-0);
+}
+.selector-card .selector-desc {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.4;
+}
+
+.row { display: flex; align-items: center; gap: 10px; }
+.col { display: flex; flex-direction: column; gap: 10px; }
+
+.title-block {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.title-block .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--green-bright);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--border-strong);
+  color: var(--text-1);
+  background: var(--bg-1);
+}
+.pill.admin { color: var(--gold); border-color: var(--gold); background: var(--gold-soft); }
+.pill.green { color: var(--green-bright); border-color: var(--green); background: var(--green-soft); }
+.pill.gold { color: var(--gold); border-color: var(--gold); background: var(--gold-soft); }
+
+.empty-state {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-2);
+  font-style: italic;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.error-banner {
+  background: rgba(179, 71, 58, 0.12);
+  border: 1px solid var(--danger);
+  color: #f4b8af;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.console-output {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: #06090a;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  min-height: 120px;
+  max-height: 280px;
+  overflow-y: auto;
+  color: var(--text-1);
+  line-height: 1.7;
+}
+.console-output .ok { color: var(--green-bright); }
+.console-output .err { color: #f4b8af; }
+.console-output .info { color: var(--gold); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg-0); }
+::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: var(--green); }
+
+/* Subtle ambient glow at the top-left where the logo lives */
+.brand-glow {
+  position: relative;
+}
+.brand-glow::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 240px; height: 200px;
+  background: radial-gradient(ellipse 80% 80% at 0% 0%, rgba(61, 107, 79, 0.18), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
