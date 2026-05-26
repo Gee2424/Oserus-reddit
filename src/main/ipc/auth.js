@@ -1,7 +1,35 @@
 const bcrypt = require('bcryptjs');
 const { getDb } = require('../db');
 
+// Sessions are mirrored to SQLite so that closing/restarting the app doesn't
+// log everyone out. The in-memory Map is a write-through cache.
 const sessions = new Map();
+
+function ensureSessionsTable() {
+  getDb().exec(`
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+}
+
+function loadSessionsFromDisk() {
+  ensureSessionsTable();
+  const rows = getDb().prepare('SELECT token, user_id FROM auth_sessions').all();
+  for (const r of rows) sessions.set(r.token, r.user_id);
+}
+
+function persistSession(token, userId) {
+  ensureSessionsTable();
+  getDb().prepare('INSERT OR REPLACE INTO auth_sessions (token, user_id) VALUES (?, ?)').run(token, userId);
+}
+
+function deleteSession(token) {
+  ensureSessionsTable();
+  getDb().prepare('DELETE FROM auth_sessions WHERE token = ?').run(token);
+}
 
 function makeToken() {
   return [...Array(48)]
@@ -11,8 +39,15 @@ function makeToken() {
 
 function userFromToken(token) {
   if (!token) return null;
-  const userId = sessions.get(token);
-  if (!userId) return null;
+  let userId = sessions.get(token);
+  if (!userId) {
+    // Cache miss — check disk (e.g. another process/window or just-loaded app)
+    ensureSessionsTable();
+    const row = getDb().prepare('SELECT user_id FROM auth_sessions WHERE token = ?').get(token);
+    if (!row) return null;
+    userId = row.user_id;
+    sessions.set(token, userId);
+  }
   return getDb().prepare('SELECT id, username, role, display_name FROM users WHERE id = ?').get(userId);
 }
 
@@ -31,6 +66,8 @@ function requireManagerOrAdmin(token) {
 }
 
 function register(ipcMain) {
+  // Hydrate the in-memory cache from disk so existing logins survive restart
+  try { loadSessionsFromDisk(); } catch {}
 
   ipcMain.handle('auth:login', (_e, { username, password }) => {
     const row = getDb()
@@ -42,6 +79,7 @@ function register(ipcMain) {
     }
     const token = makeToken();
     sessions.set(token, row.id);
+    persistSession(token, row.id);
     return {
       ok: true,
       token,
@@ -56,6 +94,7 @@ function register(ipcMain) {
 
   ipcMain.handle('auth:logout', (_e, { token }) => {
     sessions.delete(token);
+    deleteSession(token);
     return { ok: true };
   });
 
