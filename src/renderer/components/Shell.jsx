@@ -45,7 +45,7 @@ export default function Shell({ route, navigate, children }) {
 
   return (
     <div style={styles.root}>
-      <aside style={styles.sidebar} className="brand-glow">
+      <aside style={styles.sidebar} className="brand-glow app-sidebar">
         {/* Logo block at top-left */}
         <div style={styles.brand}>
           <img src={logoUrl} alt="Oserus Management" style={styles.logo} />
@@ -109,8 +109,6 @@ const styles = {
   sidebar: {
     width: 230,
     flexShrink: 0,
-    background: 'var(--bg-1)',
-    borderRight: '1px solid var(--border)',
     display: 'flex',
     flexDirection: 'column',
     paddingTop: 38, // mac traffic light space
@@ -156,11 +154,11 @@ const styles = {
     transition: 'background 0.12s, color 0.12s, border-color 0.12s',
   },
   navItemActive: {
-    background: 'var(--green-soft)',
-    color: 'var(--gold)',
-    borderColor: 'var(--green)',
+    background: 'linear-gradient(90deg, rgba(79,138,100,0.22) 0%, rgba(212,166,74,0.10) 100%)',
+    color: 'var(--gold-bright)',
+    borderColor: 'transparent',
     fontWeight: 500,
-    boxShadow: 'inset 2px 0 0 var(--gold)',
+    boxShadow: 'inset 2px 0 0 var(--gold), 0 0 18px rgba(79,138,100,0.18)',
   },
   navIcon: {
     width: 22,

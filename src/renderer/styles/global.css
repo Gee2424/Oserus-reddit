@@ -24,6 +24,13 @@
   --green-soft: rgba(61, 107, 79, 0.15);
   --gold-soft: rgba(212, 166, 74, 0.12);
 
+  /* Brand gradient — left-to-right green→olive→gold, matches the new logo */
+  --gradient-brand: linear-gradient(135deg, #2d5a3f 0%, #4f8a64 35%, #a8a14e 70%, #d4a64a 100%);
+  --gradient-brand-soft: linear-gradient(135deg, rgba(45,90,63,0.25) 0%, rgba(79,138,100,0.18) 40%, rgba(212,166,74,0.15) 100%);
+  --gradient-brand-line: linear-gradient(90deg, transparent, var(--green-bright) 20%, var(--gold) 80%, transparent);
+  --gradient-sidebar: linear-gradient(180deg, #0c130c 0%, #0a0e0a 50%, #0e120d 100%);
+  --gradient-card-hover: linear-gradient(135deg, rgba(79,138,100,0.08), rgba(212,166,74,0.05));
+
   --accent: var(--green-bright);
   --accent-hover: var(--green);
   --accent-soft: var(--green-soft);
@@ -55,7 +62,9 @@ html, body, #root {
 body {
   font-family: var(--font-body);
   background:
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(61, 107, 79, 0.06), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 15% 0%, rgba(79,138,100,0.10), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 95% 20%, rgba(212,166,74,0.07), transparent 65%),
+    radial-gradient(ellipse 80% 60% at 50% 110%, rgba(45,90,63,0.08), transparent 60%),
     var(--bg-0);
   color: var(--text-0);
   font-size: 14px;
@@ -99,15 +108,18 @@ button:active { transform: translateY(1px); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 button.primary {
-  background: var(--green);
-  color: var(--text-0);
-  border-color: var(--green-bright);
+  background: var(--gradient-brand);
+  background-size: 200% 100%;
+  background-position: 0% 50%;
+  color: #1a1a14;
+  border-color: var(--gold);
   font-weight: 600;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.15);
+  transition: background-position 0.4s ease, box-shadow 0.2s, transform 0.05s;
 }
 button.primary:hover {
-  background: var(--green-bright);
-  border-color: var(--green-bright);
-  box-shadow: 0 0 14px var(--green-glow);
+  background-position: 100% 50%;
+  box-shadow: 0 0 16px rgba(168, 161, 78, 0.45), 0 0 6px var(--green-glow);
 }
 
 button.gold {
@@ -165,15 +177,38 @@ a { color: var(--green-bright); text-decoration: none; }
 a:hover { color: var(--gold); }
 
 .card {
-  background: var(--bg-elev);
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.015) 0%, transparent 40%),
+    var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 18px;
+  transition: border-color 0.2s, background 0.2s;
 }
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  padding: 1px;
+  background: var(--gradient-brand);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none;
+}
+.card:hover::before { opacity: 0.5; }
 
 .card.bordered-glow {
-  border-color: var(--green);
-  box-shadow: var(--glow-green);
+  border-color: transparent;
+  background:
+    linear-gradient(var(--bg-elev), var(--bg-elev)) padding-box,
+    var(--gradient-brand) border-box;
+  border: 1px solid transparent;
+  box-shadow: 0 0 22px rgba(79,138,100,0.20), 0 0 8px rgba(212,166,74,0.10);
 }
 
 /* Selector cards — the big clickable tiles at top of pages, as in your screenshot */
@@ -208,9 +243,21 @@ a:hover { color: var(--gold); }
 }
 
 .selector-card.active {
-  border-color: var(--green-bright);
-  background: linear-gradient(180deg, var(--green-soft), transparent);
-  box-shadow: var(--glow-green);
+  border-color: transparent;
+  background:
+    linear-gradient(var(--bg-elev), var(--bg-elev)) padding-box,
+    var(--gradient-brand) border-box;
+  border: 1px solid transparent;
+  box-shadow: 0 0 24px rgba(79,138,100,0.22), 0 0 8px rgba(212,166,74,0.12);
+}
+.selector-card.active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--gradient-brand-soft);
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+  opacity: 0.5;
 }
 
 .selector-card .selector-icon {
@@ -245,6 +292,7 @@ a:hover { color: var(--gold); }
 .col { display: flex; flex-direction: column; gap: 10px; }
 
 .title-block {
+  position: relative;
   display: flex;
   align-items: baseline;
   gap: 14px;
@@ -252,12 +300,29 @@ a:hover { color: var(--gold); }
   padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
 }
+.title-block::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 1px;
+  background: var(--gradient-brand-line);
+  opacity: 0.65;
+}
 .title-block .eyebrow {
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--green-bright);
+  background: var(--gradient-brand);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.title-block h1 {
+  background: linear-gradient(135deg, var(--text-0) 0%, var(--text-0) 60%, var(--gold-bright) 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .pill {
@@ -316,8 +381,40 @@ a:hover { color: var(--gold); }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: var(--bg-0); }
-::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 8px; }
-::-webkit-scrollbar-thumb:hover { background: var(--green); }
+::-webkit-scrollbar-thumb { background: linear-gradient(180deg, var(--green) 0%, var(--gold) 100%); border-radius: 8px; opacity: 0.6; }
+::-webkit-scrollbar-thumb:hover { opacity: 1; }
+
+/* Sidebar — full vertical gradient with a glowing brand line on the right edge */
+.app-sidebar, [data-sidebar], aside.sidebar {
+  background: var(--gradient-sidebar);
+  position: relative;
+}
+.app-sidebar::after, [data-sidebar]::after, aside.sidebar::after {
+  content: '';
+  position: absolute;
+  top: 0; bottom: 0; right: 0;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, var(--green) 20%, var(--gold) 50%, var(--green) 80%, transparent);
+  opacity: 0.6;
+}
+
+/* Pills now get gradient borders for green/gold variants */
+.pill.green {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--bg-1), var(--bg-1)) padding-box,
+    var(--gradient-brand) border-box;
+  border: 1px solid transparent;
+  color: var(--green-bright);
+}
+.pill.gold {
+  border-color: transparent;
+  background:
+    linear-gradient(var(--bg-1), var(--bg-1)) padding-box,
+    var(--gradient-brand) border-box;
+  border: 1px solid transparent;
+  color: var(--gold-bright);
+}
 
 /* Subtle ambient glow at the top-left where the logo lives */
 .brand-glow {
