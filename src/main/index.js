@@ -12,6 +12,7 @@ const registerProxyHandlers = require('./ipc/proxies');
 const registerBundleHandlers = require('./ipc/bundle');
 const registerAiHandlers = require('./ipc/ai');
 const registerSubsHandlers = require('./ipc/subs');
+const registerVotesHandlers = require('./ipc/votes');
 
 const isDev = !app.isPackaged;
 let mainWindow;
@@ -120,6 +121,7 @@ app.whenReady().then(() => {
   registerBundleHandlers(ipcMain);
   registerAiHandlers(ipcMain);
   registerSubsHandlers(ipcMain);
+  registerVotesHandlers(ipcMain);
 
   createWindow();
   initAutoUpdater(mainWindow);

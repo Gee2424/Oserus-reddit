@@ -12,10 +12,15 @@ export default function SettingsPage() {
   const [hasApiKey, setHasApiKey] = useState(false);
   const [apiKeyMsg, setApiKeyMsg] = useState(null);
 
+  const [voteKey, setVoteKey] = useState('');
+  const [hasVoteKey, setHasVoteKey] = useState(false);
+  const [voteKeyMsg, setVoteKeyMsg] = useState(null);
+
   const isAdmin = user.role === 'admin';
 
   useEffect(() => {
     window.api.ai.hasApiKey({ token }).then(r => setHasApiKey(!!(r.ok && r.hasKey)));
+    window.api.votes.hasApiKey({ token }).then(r => setHasVoteKey(!!(r.ok && r.hasKey)));
   }, [token]);
 
   async function changePassword(e) {
@@ -45,6 +50,24 @@ export default function SettingsPage() {
     await window.api.ai.setApiKey({ token, apiKey: null });
     setHasApiKey(false);
     setApiKeyMsg({ kind: 'ok', text: 'API key removed.' });
+  }
+
+  async function saveVoteKey(e) {
+    e.preventDefault();
+    setVoteKeyMsg(null);
+    if (!voteKey.trim()) { setVoteKeyMsg({ kind: 'err', text: 'Paste a key first' }); return; }
+    const res = await window.api.votes.setApiKey({ token, apiKey: voteKey.trim() });
+    if (!res.ok) { setVoteKeyMsg({ kind: 'err', text: res.error }); return; }
+    setVoteKey('');
+    setHasVoteKey(true);
+    setVoteKeyMsg({ kind: 'ok', text: 'API key saved and encrypted.' });
+  }
+
+  async function clearVoteKey() {
+    if (!confirm('Remove the saved upvote.biz API key? The Votes page will stop working until you add a new one.')) return;
+    await window.api.votes.setApiKey({ token, apiKey: null });
+    setHasVoteKey(false);
+    setVoteKeyMsg({ kind: 'ok', text: 'API key removed.' });
   }
 
   async function clearSession(partitionKey) {
@@ -84,6 +107,32 @@ export default function SettingsPage() {
             />
             <button type="submit" className="primary">Save</button>
             {hasApiKey && <button type="button" className="danger" onClick={clearApiKey}>Remove</button>}
+          </form>
+        </div>
+      )}
+
+      {isAdmin && (
+        <div className="card" style={{ marginBottom: 22, borderColor: hasVoteKey ? 'var(--ok)' : 'var(--border)' }}>
+          <h3 style={{ marginBottom: 6 }}>upvote.biz API key {hasVoteKey && <span className="mono" style={{ fontSize: 11, color: 'var(--ok)', marginLeft: 8 }}>✓ configured</span>}</h3>
+          <div className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
+            Used by the Votes page to query balance, services, and place orders. Stored encrypted on disk using your OS keychain.
+          </div>
+          {voteKeyMsg && (
+            <div className={voteKeyMsg.kind === 'err' ? 'error-banner' : ''} style={voteKeyMsg.kind === 'ok' ? styles.ok : {}}>
+              {voteKeyMsg.text}
+            </div>
+          )}
+          <form onSubmit={saveVoteKey} style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="password"
+              placeholder={hasVoteKey ? '••••••••••••••••  (paste a new key to replace)' : 'upvote.biz API key'}
+              value={voteKey}
+              onChange={(e) => setVoteKey(e.target.value)}
+              style={{ flex: 1 }}
+              autoComplete="off"
+            />
+            <button type="submit" className="primary">Save</button>
+            {hasVoteKey && <button type="button" className="danger" onClick={clearVoteKey}>Remove</button>}
           </form>
         </div>
       )}

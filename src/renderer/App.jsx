@@ -14,6 +14,7 @@ import ProxiesPage from './pages/Proxies.jsx';
 import SubredditsPage from './pages/Subreddits.jsx';
 import WebviewsPage from './pages/Webviews.jsx';
 import SettingsPage from './pages/Settings.jsx';
+import VotesPage from './pages/Votes.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
 function Inner() {
@@ -46,6 +47,7 @@ function Inner() {
       case 'subreddits': return <SubredditsPage />;
       case 'webviews': return <WebviewsPage />;
       case 'settings': return <SettingsPage />;
+      case 'votes': return <VotesPage />;
       default: return <DashboardPage navigate={navigate} />;
     }
   })();

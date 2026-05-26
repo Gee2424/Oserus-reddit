@@ -77,6 +77,15 @@ const api = {
     createPromo: (data) => ipcRenderer.invoke('subs:createPromo', data),
     deletePromo: (data) => ipcRenderer.invoke('subs:deletePromo', data),
   },
+  votes: {
+    setApiKey: (data) => ipcRenderer.invoke('votes:setApiKey', data),
+    hasApiKey: (data) => ipcRenderer.invoke('votes:hasApiKey', data),
+    balance: (data) => ipcRenderer.invoke('votes:balance', data),
+    services: (data) => ipcRenderer.invoke('votes:services', data),
+    order: (data) => ipcRenderer.invoke('votes:order', data),
+    orders: (data) => ipcRenderer.invoke('votes:orders', data),
+    refreshStatus: (data) => ipcRenderer.invoke('votes:refreshStatus', data),
+  },
   session: {
     prepareForAccount: (data) => ipcRenderer.invoke('session:prepareForAccount', data),
     clear: (partitionKey) => ipcRenderer.invoke('session:clear', partitionKey),

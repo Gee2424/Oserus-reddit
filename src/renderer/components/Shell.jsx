@@ -19,6 +19,7 @@ const NAV = [
 
   { key: 'reddit', label: 'Reddit', icon: 'R', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
   { key: 'redgifs', label: 'RedGifs', icon: 'G', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'votes', label: 'Votes', icon: '▲', group: 'Operate', roles: ['admin', 'manager', 'reddit_va'] },
   { key: 'webviews', label: 'Custom Pages', icon: '⬡', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
 
   { key: 'proxies', label: 'Proxies', icon: '⌁', group: 'Configure', roles: ['admin', 'manager'] },
