@@ -51,7 +51,7 @@ export default function UpdateBanner() {
             Update {state.version} ready
           </div>
           <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>
-            Restart Oserus Management to apply.
+            Will install automatically next time you close the app — or restart now.
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
@@ -79,7 +79,7 @@ export default function UpdateBanner() {
                 cursor: 'pointer',
               }}
             >
-              Later
+              Install on close
             </button>
           </div>
         </>

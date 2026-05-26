@@ -46,6 +46,14 @@ function initAutoUpdater(win) {
   intervalHandle = setInterval(() => {
     autoUpdater.checkForUpdates().catch((e) => log.error('[updater] periodic check failed', e));
   }, CHECK_INTERVAL_MS);
+
+  // Also check when the window regains focus — catches "user opened the app
+  // after it sat in the background for hours"
+  if (win && typeof win.on === 'function') {
+    win.on('focus', () => {
+      autoUpdater.checkForUpdates().catch((e) => log.error('[updater] focus check failed', e));
+    });
+  }
 }
 
 function quitAndInstall() {
