@@ -38,6 +38,13 @@ export default function VotesPage() {
 
   const selectedService = services.find((s) => String(s.service) === String(form.serviceId));
 
+  const servicesByCategory = services.reduce((acc, s) => {
+    const cat = s.category || 'Other';
+    (acc[cat] = acc[cat] || []).push(s);
+    return acc;
+  }, {});
+  const sortedCategories = Object.keys(servicesByCategory).sort();
+
   async function placeOrder(e) {
     e.preventDefault();
     setErr(null); setOk(null);
@@ -116,10 +123,14 @@ export default function VotesPage() {
             <label>Service</label>
             <select value={form.serviceId} onChange={(e) => setForm({ ...form, serviceId: e.target.value })}>
               <option value="">— pick a service —</option>
-              {services.map((s) => (
-                <option key={s.service} value={s.service}>
-                  {s.name} {s.rate ? `(${s.rate}/1k)` : ''}
-                </option>
+              {sortedCategories.map((cat) => (
+                <optgroup key={cat} label={cat}>
+                  {servicesByCategory[cat].map((s) => (
+                    <option key={s.service} value={s.service}>
+                      {s.name} {s.rate ? `(${s.rate}/1k)` : ''}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
             {selectedService && (
