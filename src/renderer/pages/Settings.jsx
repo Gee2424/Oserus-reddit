@@ -17,6 +17,7 @@ export default function SettingsPage() {
   const [voteKeyMsg, setVoteKeyMsg] = useState(null);
 
   const isAdmin = user.role === 'admin';
+  const isManagerOrAdmin = user.role === 'admin' || user.role === 'manager';
 
   useEffect(() => {
     window.api.ai.hasApiKey({ token }).then(r => setHasApiKey(!!(r.ok && r.hasKey)));
@@ -111,7 +112,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {isAdmin && (
+      {isManagerOrAdmin && (
         <div className="card" style={{ marginBottom: 22, borderColor: hasVoteKey ? 'var(--ok)' : 'var(--border)' }}>
           <h3 style={{ marginBottom: 6 }}>upvote.biz API key {hasVoteKey && <span className="mono" style={{ fontSize: 11, color: 'var(--ok)', marginLeft: 8 }}>✓ configured</span>}</h3>
           <div className="muted" style={{ fontSize: 13, marginBottom: 14 }}>

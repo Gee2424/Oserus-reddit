@@ -69,7 +69,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      if (user.role !== 'admin') throw new Error('Admin only');
+      if (user.role !== 'admin' && user.role !== 'manager') throw new Error('Manager or admin only');
       setSetting('upvote_api_key', apiKey ? encryptSecret(apiKey) : null);
       return { ok: true };
     } catch (err) {

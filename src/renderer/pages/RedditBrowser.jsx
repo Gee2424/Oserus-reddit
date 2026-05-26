@@ -4,6 +4,7 @@ import { useActiveAccount } from '../lib/activeAccount.jsx';
 import AccountSwitcher from '../components/AccountSwitcher.jsx';
 import ComposerPanel from '../components/ComposerPanel.jsx';
 import IdeasPanel from '../components/IdeasPanel.jsx';
+import VotesOrderPanel from '../components/VotesOrderPanel.jsx';
 import RedGifsPanel from '../components/RedGifsPanel.jsx';
 
 let tabIdSeq = 1;
@@ -19,6 +20,16 @@ function isSubmitPage(url) {
     const u = new URL(url);
     if (!/reddit\.com$/i.test(u.hostname.replace(/^.*?\./, '')) && !/reddit\.com$/i.test(u.hostname)) return false;
     return /\/submit(\/|$|\?)/.test(u.pathname) || /\/post\/?$/.test(u.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function isRedditPage(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    return /reddit\.com$/i.test(u.hostname) || /\.reddit\.com$/i.test(u.hostname);
   } catch {
     return false;
   }
@@ -119,6 +130,7 @@ export default function RedditBrowser() {
 
   const currentTab = tabs.find(t => t.id === activeTabId);
   const onSubmitPage = currentTab && isSubmitPage(currentTab.currentUrl);
+  const onRedditPage = currentTab && isRedditPage(currentTab.currentUrl);
 
   return (
     <div style={styles.page}>
@@ -220,6 +232,16 @@ export default function RedditBrowser() {
               </div>
             )}
 
+            {/* Votes FAB — shows on every reddit.com page, not just submit */}
+            {onRedditPage && !onSubmitPage && !openPanel && (
+              <div style={styles.votesFabWrap}>
+                <button onClick={() => setOpenPanel('votes')} style={styles.votesFab} title="Order upvotes for the current post">
+                  <span style={styles.fabIcon}>▲</span>
+                  <span style={styles.fabLabel}>Votes</span>
+                </button>
+              </div>
+            )}
+
             {/* Side panel */}
             {openPanel && (
               <div style={styles.sidePanel}>
@@ -228,6 +250,7 @@ export default function RedditBrowser() {
                     {openPanel === 'compose' && 'Composer'}
                     {openPanel === 'ideas' && 'Post Ideas'}
                     {openPanel === 'redgifs' && 'RedGifs'}
+                    {openPanel === 'votes' && 'Order Votes'}
                   </h3>
                   <button onClick={() => setOpenPanel(null)} style={styles.sidePanelClose}>×</button>
                 </div>
@@ -235,6 +258,7 @@ export default function RedditBrowser() {
                   {openPanel === 'compose' && <ComposerPanel account={active} />}
                   {openPanel === 'ideas' && <IdeasPanel account={active} />}
                   {openPanel === 'redgifs' && <RedGifsPanel />}
+                  {openPanel === 'votes' && <VotesOrderPanel currentUrl={currentTab?.currentUrl} />}
                 </div>
               </div>
             )}
@@ -303,6 +327,19 @@ const styles = {
   },
   fabIcon: { fontSize: 16 },
   fabLabel: { fontFamily: 'var(--font-body)' },
+
+  votesFabWrap: {
+    position: 'absolute', bottom: 24, left: 24, zIndex: 20,
+  },
+  votesFab: {
+    display: 'flex', alignItems: 'center', gap: 10,
+    padding: '10px 16px',
+    background: 'var(--gradient-brand)', color: '#1a1a14',
+    border: '1px solid var(--gold)', borderRadius: 999,
+    fontWeight: 700, fontSize: 13,
+    boxShadow: '0 4px 18px rgba(212,166,74,0.35), 0 0 0 1px rgba(255,255,255,0.1) inset',
+    cursor: 'pointer',
+  },
 
   sidePanel: {
     position: 'absolute', top: 0, right: 0, bottom: 0,
