@@ -240,7 +240,7 @@ function register(ipcMain) {
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'infra.upvotes.place_order');
       if (!remoteOrderId) throw new Error('remoteOrderId is required');
-      const data = await call(getKey(), 'refill', { order: String(remoteOrderId) });
+      const data = await call(getKey(), 'refill', { order_id: String(remoteOrderId) });
       const refillId = data.refill || data.refill_id || data.id;
       if (!refillId) throw new Error('Refill did not return an id');
       log(user, 'votes.refill', 'order', remoteOrderId, `refill_id=${refillId}`);

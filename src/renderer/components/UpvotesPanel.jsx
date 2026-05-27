@@ -147,17 +147,26 @@ export default function UpvotesPanel({ compact }) {
               <option value="">— pick a service —</option>
               {sortedCategories.map((cat) => (
                 <optgroup key={cat} label={cat}>
-                  {servicesByCategory[cat].map((s) => (
-                    <option key={s.service} value={s.service}>
-                      {s.name} {s.rate ? `(${s.rate}/1k)` : ''}
-                    </option>
-                  ))}
+                  {servicesByCategory[cat].map((s) => {
+                    const flags = [];
+                    if (s.refill) flags.push('↻refill');
+                    if (s.dripfeed) flags.push('drip');
+                    return (
+                      <option key={s.service} value={s.service}>
+                        {s.name} {s.rate ? `(${s.rate}/1k)` : ''}{flags.length ? ` · ${flags.join(' · ')}` : ''}
+                      </option>
+                    );
+                  })}
                 </optgroup>
               ))}
             </select>
             {selectedService && (
               <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-                min {selectedService.min} · max {selectedService.max}{selectedService.type ? ` · ${selectedService.type}` : ''}
+                min {selectedService.min} · max {selectedService.max}
+                {selectedService.rate ? ` · $${selectedService.rate}/1k` : ''}
+                {selectedService.type ? ` · ${selectedService.type}` : ''}
+                {selectedService.refill ? ' · ↻ refill supported' : ''}
+                {selectedService.dripfeed ? ' · dripfeed' : ''}
               </div>
             )}
           </div>
