@@ -1,6 +1,6 @@
 {
   "name": "oserus-management",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Oserus Management — team Reddit & RedGifs account management for OnlyFans agencies",
   "main": "src/main/index.js",
   "scripts": {
@@ -45,6 +45,7 @@
     "files": [
       "src/main/**/*",
       "src/preload/**/*",
+      "src/shared/**/*",
       "dist/**/*",
       "package.json"
     ],
