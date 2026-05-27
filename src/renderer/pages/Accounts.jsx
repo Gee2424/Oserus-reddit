@@ -127,9 +127,9 @@ export default function AccountsPage({ navigate }) {
     await refreshActive();
   }
 
-  async function start(accountId) {
-    await startAccount(accountId);
-    if (navigate) navigate('reddit');
+  async function start(account) {
+    await startAccount(account.id);
+    if (navigate) navigate(account.platform === 'redgifs' ? 'redgifs' : 'reddit');
   }
 
   const filtered = accounts.filter(a =>
@@ -155,6 +155,9 @@ export default function AccountsPage({ navigate }) {
           </div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <button className="ghost" onClick={() => navigate && navigate('webviews')}>
+            Custom pages →
+          </button>
           <button className="ghost" onClick={() => { setShowBulk(v => !v); setShowAdd(false); }}>
             {showBulk ? 'Close bulk import' : '↥ Bulk import'}
           </button>
@@ -371,9 +374,9 @@ export default function AccountsPage({ navigate }) {
                 <div key={a.id} style={styles.row}>
                   <button
                     className="primary"
-                    onClick={() => start(a.id)}
+                    onClick={() => start(a)}
                     style={styles.startBtn}
-                    title={`Open ${a.platform || 'reddit'} as ${a.username}`}
+                    title={`Open ${a.platform === 'redgifs' ? 'RedGifs' : 'Reddit'} browser as ${a.platform === 'redgifs' ? '@' : 'u/'}${a.username}`}
                   >▶</button>
                   <span style={{ ...styles.dot, background: STATUS_COLORS[a.status] }} title={a.status} />
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -431,7 +434,11 @@ const styles = {
   dot: { width: 10, height: 10, borderRadius: '50%', flexShrink: 0 },
   miniSelect: { width: 'auto', padding: '5px 8px', fontSize: 12 },
   startBtn: {
-    width: 32, height: 32, padding: 0, borderRadius: '50%',
-    fontSize: 12, display: 'grid', placeItems: 'center', flexShrink: 0,
+    width: 36, height: 36, padding: 0, borderRadius: '50%',
+    fontSize: 14, display: 'grid', placeItems: 'center', flexShrink: 0,
+    background: 'var(--gradient-brand)', color: '#1a1a14',
+    border: '1px solid var(--gold)', cursor: 'pointer',
+    boxShadow: '0 2px 8px rgba(212,166,74,0.35)',
+    fontWeight: 700,
   },
 };

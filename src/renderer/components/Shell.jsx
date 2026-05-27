@@ -19,10 +19,6 @@ const NAV = [
   { key: 'scheduler', label: 'Scheduler', icon: '◷', group: 'Models', roles: ['admin', 'manager', 'reddit_va'] },
   { key: 'inbox', label: 'Inbox', icon: '✉', group: 'Models', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
 
-  { key: 'reddit', label: 'Reddit browser', icon: 'R', group: 'Browse', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-  { key: 'redgifs', label: 'RedGifs browser', icon: 'G', group: 'Browse', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-  { key: 'webviews', label: 'Custom Pages', icon: '⬡', group: 'Browse', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-
   { key: 'operations', label: 'Operations', icon: '◧', group: 'Ops', roles: ['admin', 'manager', 'reddit_va'] },
   { key: 'proxies', label: 'Proxies', icon: '⌁', group: 'Ops', roles: ['admin', 'manager'] },
   { key: 'votes', label: 'Votes', icon: '▲', group: 'Ops', roles: ['admin', 'manager', 'reddit_va'] },
