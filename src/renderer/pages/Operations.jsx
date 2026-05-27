@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
+import UpvotesPanel from '../components/UpvotesPanel.jsx';
 
 export default function OperationsPage({ navigate }) {
   const { token, user } = useAuth();
@@ -48,7 +49,7 @@ export default function OperationsPage({ navigate }) {
         <button className="ghost" onClick={load}>{loading ? 'Loading…' : 'Refresh'}</button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18, alignItems: 'start', marginBottom: 22 }}>
         {/* Proxies */}
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -136,6 +137,18 @@ export default function OperationsPage({ navigate }) {
           )}
         </div>
       </div>
+
+      {can('infra.upvotes.view') && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 14 }}>
+            <h2 style={{ margin: 0 }}>Upvote orders</h2>
+            <div className="muted" style={{ fontSize: 13 }}>
+              Place new orders and track existing ones — no need to leave this page.
+            </div>
+          </div>
+          <UpvotesPanel compact />
+        </div>
+      )}
     </div>
   );
 }
