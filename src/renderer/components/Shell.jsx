@@ -15,9 +15,7 @@ const NAV = [
   { key: 'analytics', label: 'Analytics', icon: '◧', group: 'Overview', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
 
   { key: 'profiles', label: 'Models', icon: '◇', group: 'Models', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-  { key: 'accounts', label: 'Logins', icon: '◈', group: 'Models', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-  { key: 'scheduler', label: 'Scheduler', icon: '◷', group: 'Models', roles: ['admin', 'manager', 'reddit_va'] },
-  { key: 'inbox', label: 'Inbox', icon: '✉', group: 'Models', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'reddit-api', label: 'Reddit API', icon: '◈', group: 'Models', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
 
   { key: 'operations', label: 'Operations', icon: '◧', group: 'Ops', roles: ['admin', 'manager', 'reddit_va'] },
   { key: 'infra', label: 'Infrastructure', icon: '⌁', group: 'Ops', roles: ['admin', 'manager', 'reddit_va'] },

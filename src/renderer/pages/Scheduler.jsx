@@ -14,7 +14,7 @@ const STATUS_STYLES = {
   cancelled: { bg: 'rgba(255,255,255,0.04)', fg: 'var(--text-2)', border: 'var(--border-strong)' },
 };
 
-export default function SchedulerPage() {
+export default function SchedulerPage({ embedded }) {
   const { token } = useAuth();
   const [posts, setPosts] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -80,13 +80,15 @@ export default function SchedulerPage() {
   return (
     <div>
       <div className="title-block" style={{ justifyContent: 'space-between' }}>
-        <div>
-          <div className="eyebrow">Scheduled posts</div>
-          <h1>Scheduler</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Plan posts ahead of time. Actual publishing to Reddit needs OAuth setup (next release) — until then, scheduled posts show up here as a queue the VA can post manually.
+        {embedded ? <div /> : (
+          <div>
+            <div className="eyebrow">Scheduled posts</div>
+            <h1>Scheduler</h1>
+            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+              Plan posts ahead of time. Actual publishing to Reddit needs OAuth setup (next release) — until then, scheduled posts show up here as a queue the VA can post manually.
+            </div>
           </div>
-        </div>
+        )}
         <button className="primary" onClick={() => { setShowForm(v => !v); if (showForm) reset(); }}>
           {showForm ? 'Cancel' : '+ Schedule post'}
         </button>

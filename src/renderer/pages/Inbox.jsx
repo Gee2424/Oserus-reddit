@@ -1,17 +1,19 @@
 import React from 'react';
 
-export default function InboxPage() {
+export default function InboxPage({ embedded }) {
   return (
     <div>
-      <div className="title-block">
-        <div>
-          <div className="eyebrow">Messages</div>
-          <h1>Inbox</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Read and reply to Reddit DMs and modmail for any connected account.
+      {!embedded && (
+        <div className="title-block">
+          <div>
+            <div className="eyebrow">Messages</div>
+            <h1>Inbox</h1>
+            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+              Read and reply to Reddit DMs and modmail for any connected account.
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="card bordered-glow" style={{ marginBottom: 18 }}>
         <h3 style={{ marginBottom: 6 }}>Inbox needs Reddit API access</h3>

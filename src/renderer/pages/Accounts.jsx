@@ -11,7 +11,7 @@ const STATUS_OPTIONS = [
 
 const STATUS_COLORS = { warming: '#d4a55a', ready: '#7a9a5a', paused: '#968b78', banned: '#b3473a' };
 
-export default function AccountsPage({ navigate }) {
+export default function AccountsPage({ navigate, embedded }) {
   const { token } = useAuth();
   const { refresh: refreshActive, startAccount } = useActiveAccount();
   const [profiles, setProfiles] = useState([]);
@@ -147,13 +147,15 @@ export default function AccountsPage({ navigate }) {
   return (
     <div>
       <div className="title-block">
-        <div>
-          <div className="eyebrow">Manage</div>
-          <h1>Logins</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Every Reddit and RedGifs login across all your models, in one list.
+        {!embedded && (
+          <div>
+            <div className="eyebrow">Manage</div>
+            <h1>Logins</h1>
+            <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+              Every Reddit and RedGifs login across all your models, in one list.
+            </div>
           </div>
-        </div>
+        )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           <button className="ghost" onClick={() => navigate && navigate('webviews')}>
             Custom pages →

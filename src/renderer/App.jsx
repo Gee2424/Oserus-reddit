@@ -6,7 +6,6 @@ import Shell from './components/Shell.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
 import RedditBrowser from './pages/RedditBrowser.jsx';
 import RedGifsBrowser from './pages/RedGifsBrowser.jsx';
-import AccountsPage from './pages/Accounts.jsx';
 import ProfilesPage from './pages/Profiles.jsx';
 import ModelDetailPage from './pages/ModelDetail.jsx';
 import UsersPage from './pages/Users.jsx';
@@ -16,10 +15,9 @@ import WebviewsPage from './pages/Webviews.jsx';
 import SettingsPage from './pages/Settings.jsx';
 import DocsPage from './pages/Docs.jsx';
 import AnalyticsPage from './pages/Analytics.jsx';
-import SchedulerPage from './pages/Scheduler.jsx';
-import InboxPage from './pages/Inbox.jsx';
 import ActivityPage from './pages/Activity.jsx';
 import OperationsPage from './pages/Operations.jsx';
+import RedditApiPage from './pages/RedditApi.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
 function Inner() {
@@ -44,7 +42,10 @@ function Inner() {
       case 'dashboard': return <DashboardPage navigate={navigate} />;
       case 'reddit': return <RedditBrowser />;
       case 'redgifs': return <RedGifsBrowser />;
-      case 'accounts': return <AccountsPage navigate={navigate} />;
+      case 'reddit-api': return <RedditApiPage initialTab={routeParams.tab} navigate={navigate} />;
+      case 'accounts': return <RedditApiPage initialTab="reddit" navigate={navigate} />;
+      case 'scheduler': return <RedditApiPage initialTab="posting" navigate={navigate} />;
+      case 'inbox': return <RedditApiPage initialTab="inbox" navigate={navigate} />;
       case 'profiles': return <ProfilesPage navigate={navigate} />;
       case 'model': return <ModelDetailPage modelId={routeParams.modelId} navigate={navigate} />;
       case 'users': return <UsersPage />;
@@ -57,8 +58,6 @@ function Inner() {
       case 'settings': return <SettingsPage />;
       case 'docs': return <DocsPage />;
       case 'analytics': return <AnalyticsPage />;
-      case 'scheduler': return <SchedulerPage />;
-      case 'inbox': return <InboxPage />;
       case 'activity': return <ActivityPage />;
       case 'operations': return <OperationsPage navigate={navigate} />;
       default: return <DashboardPage navigate={navigate} />;
