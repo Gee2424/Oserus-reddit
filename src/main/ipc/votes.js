@@ -1,6 +1,7 @@
 const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
 const { log } = require('./activity');
+const { requirePermission } = require('../permissions');
 
 // upvote.biz uses the SMM-panel-standard API: POST form-encoded body to /api/v2
 // with key=API_KEY and action=balance|services|add|status. If their base URL
@@ -75,7 +76,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      if (user.role !== 'admin') throw new Error('Admin only');
+      requirePermission(user, 'infra.upvotes.admin');
       setSetting('upvote_api_key', apiKey ? encryptSecret(apiKey) : null);
       return { ok: true };
     } catch (err) {
@@ -132,7 +133,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      if (user.role !== 'admin' && user.role !== 'manager') throw new Error('Manager or admin only');
+      requirePermission(user, 'infra.upvotes.place_order');
       if (!serviceId || !link || !quantity) throw new Error('Service, link, and quantity are required');
       const data = await call(getKey(), 'add', {
         service: String(serviceId),
@@ -212,7 +213,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      if (user.role !== 'admin' && user.role !== 'manager') throw new Error('Manager or admin only');
+      requirePermission(user, 'infra.upvotes.place_order');
       if (!remoteOrderId) throw new Error('remoteOrderId is required');
       const data = await call(getKey(), 'refill', { order: String(remoteOrderId) });
       const refillId = data.refill || data.refill_id || data.id;

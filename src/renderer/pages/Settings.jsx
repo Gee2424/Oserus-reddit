@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 
 export default function SettingsPage() {
   const { token, user } = useAuth();
+  const can = useCan();
   const { accounts, refresh } = useActiveAccount();
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
   const [pwMsg, setPwMsg] = useState(null);
@@ -16,7 +18,7 @@ export default function SettingsPage() {
   const [hasVoteKey, setHasVoteKey] = useState(false);
   const [voteKeyMsg, setVoteKeyMsg] = useState(null);
 
-  const isAdmin = user.role === 'admin';
+  const isAdmin = can('ai.admin');
 
   useEffect(() => {
     window.api.ai.hasApiKey({ token }).then(r => setHasApiKey(!!(r.ok && r.hasKey)));

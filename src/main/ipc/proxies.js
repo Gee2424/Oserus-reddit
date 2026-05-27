@@ -1,5 +1,6 @@
 const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
+const { requirePermission } = require('../permissions');
 
 function register(ipcMain) {
   ipcMain.handle('proxies:list', (_e, { token }) => {
@@ -23,7 +24,7 @@ function register(ipcMain) {
       const { token, label, kind, host, port, username, password } = args;
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      if (user.role !== 'admin' && user.role !== 'manager') throw new Error('Manager or admin only');
+      requirePermission(user, 'infra.proxies.manage');
       if (!['http', 'https', 'socks5'].includes(kind)) throw new Error('Invalid proxy kind');
       if (!host || !port) throw new Error('Host and port required');
       const info = getDb()
@@ -40,7 +41,8 @@ function register(ipcMain) {
   ipcMain.handle('proxies:update', (_e, { token, proxyId, updates }) => {
     try {
       const user = userFromToken(token);
-      if (!user || (user.role !== 'admin' && user.role !== 'manager')) throw new Error('Manager or admin only');
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'infra.proxies.manage');
       const allowed = ['label', 'kind', 'host', 'port', 'username'];
       const sets = [], params = [];
       for (const k of allowed) {
@@ -65,7 +67,8 @@ function register(ipcMain) {
   ipcMain.handle('proxies:delete', (_e, { token, proxyId }) => {
     try {
       const user = userFromToken(token);
-      if (!user || (user.role !== 'admin' && user.role !== 'manager')) throw new Error('Manager or admin only');
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'infra.proxies.manage');
       getDb().prepare('DELETE FROM proxies WHERE id = ?').run(proxyId);
       return { ok: true };
     } catch (err) {

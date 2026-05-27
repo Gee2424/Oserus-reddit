@@ -115,6 +115,13 @@ const api = {
     karmaHistory: (data) => ipcRenderer.invoke('analytics:karmaHistory', data),
     recordKarma: (data) => ipcRenderer.invoke('analytics:recordKarma', data),
   },
+  roles: {
+    list: (data) => ipcRenderer.invoke('roles:list', data),
+    create: (data) => ipcRenderer.invoke('roles:create', data),
+    update: (data) => ipcRenderer.invoke('roles:update', data),
+    delete: (data) => ipcRenderer.invoke('roles:delete', data),
+    myPermissions: (data) => ipcRenderer.invoke('roles:myPermissions', data),
+  },
   session: {
     prepareForAccount: (data) => ipcRenderer.invoke('session:prepareForAccount', data),
     clear: (partitionKey) => ipcRenderer.invoke('session:clear', partitionKey),

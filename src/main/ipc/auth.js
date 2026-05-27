@@ -51,17 +51,21 @@ function userFromToken(token) {
   return getDb().prepare('SELECT id, username, role, display_name FROM users WHERE id = ?').get(userId);
 }
 
+const { hasPermission, requirePermission } = require('../permissions');
+
 function requireAdmin(token) {
   const user = userFromToken(token);
   if (!user) throw new Error('Not authenticated');
-  if (user.role !== 'admin') throw new Error('Admin only');
+  // Legacy helper — kept for callers that gate top-level admin actions. The
+  // permission 'users.manage' is the canonical "can manage other users" check.
+  requirePermission(user, 'users.manage');
   return user;
 }
 
 function requireManagerOrAdmin(token) {
   const user = userFromToken(token);
   if (!user) throw new Error('Not authenticated');
-  if (user.role !== 'admin' && user.role !== 'manager') throw new Error('Manager or admin only');
+  requirePermission(user, 'users.manage');
   return user;
 }
 
@@ -106,13 +110,13 @@ function register(ipcMain) {
   ipcMain.handle('auth:createUser', (_e, { token, username, password, role, displayName, email, phone, notes }) => {
     try {
       const me = requireManagerOrAdmin(token);
-      // Managers can create non-admin users only
-      if (me.role === 'manager' && role === 'admin') {
-        throw new Error('Only admins can create other admins');
+      // Need users.assign_admin to create someone with the 'admin' role.
+      if (role === 'admin' && !hasPermission(me, 'users.assign_admin')) {
+        throw new Error('You don\'t have permission to create admin users');
       }
-      if (!['admin', 'manager', 'reddit_va', 'chatter'].includes(role)) {
-        throw new Error('Invalid role');
-      }
+      // Validate the role exists in the DB (allows custom roles too).
+      const exists = getDb().prepare('SELECT 1 FROM roles WHERE key = ?').get(role);
+      if (!exists) throw new Error('Invalid role');
       const hash = bcrypt.hashSync(password, 10);
       const info = getDb()
         .prepare(
@@ -139,10 +143,10 @@ function register(ipcMain) {
   ipcMain.handle('auth:resetUserPassword', (_e, { token, userId, newPassword }) => {
     try {
       const me = requireManagerOrAdmin(token);
-      // Managers can't reset admin passwords
-      if (me.role === 'manager') {
+      // Without users.assign_admin, you can't touch an admin's password.
+      if (!hasPermission(me, 'users.assign_admin')) {
         const target = getDb().prepare('SELECT role FROM users WHERE id = ?').get(userId);
-        if (target && target.role === 'admin') throw new Error("Managers can't change an admin's password");
+        if (target && target.role === 'admin') throw new Error("You can't change an admin's password");
       }
       if (!newPassword || newPassword.length < 6) throw new Error('Password must be 6+ characters');
       const hash = bcrypt.hashSync(newPassword, 10);
@@ -168,11 +172,11 @@ function register(ipcMain) {
   ipcMain.handle('auth:updateUser', (_e, { token, userId, data }) => {
     try {
       const me = requireManagerOrAdmin(token);
-      // Managers can edit non-admins, and can't promote anyone to admin
+      // Without users.assign_admin you can't edit admins or promote anyone to admin.
       const target = getDb().prepare('SELECT role FROM users WHERE id = ?').get(userId);
-      if (me.role === 'manager') {
-        if (target && target.role === 'admin') throw new Error("Managers can't edit admin accounts");
-        if (data.role === 'admin') throw new Error("Managers can't promote anyone to admin");
+      if (!hasPermission(me, 'users.assign_admin')) {
+        if (target && target.role === 'admin') throw new Error("You can't edit admin accounts");
+        if (data.role === 'admin') throw new Error("You can't promote anyone to admin");
       }
       const fields = [];
       const values = [];

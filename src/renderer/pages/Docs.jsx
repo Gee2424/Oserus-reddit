@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { useCan } from '../lib/permissions.jsx';
 
 export default function DocsPage() {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
+  const can = useCan();
   const [docs, setDocs] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -10,7 +12,7 @@ export default function DocsPage() {
   const [dirty, setDirty] = useState(false);
   const [err, setErr] = useState(null);
 
-  const canDelete = user.role === 'admin' || user.role === 'manager';
+  const canDelete = can('docs.manage');
 
   async function loadAll() {
     const [d, p] = await Promise.all([

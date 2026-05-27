@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
 
 const STATUS_OPTIONS = [
@@ -41,7 +42,9 @@ export default function ModelDetailPage({ modelId, navigate }) {
   const [tab, setTab] = useState('resources'); // resources | scheduler | activity | docs | promo
   const [addMenuOpen, setAddMenuOpen] = useState(false);
 
-  const canManage = user.role === 'admin' || user.role === 'manager';
+  const can = useCan();
+  const canManage = can('profiles.manage');
+  const canViewActivity = can('activity.view');
 
   function blankForm() {
     return {
@@ -58,7 +61,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
       window.api.proxies.list({ token }),
       window.api.subs.listPromo({ token, profileId: Number(modelId) }),
       window.api.scheduled.list({ token, profileId: Number(modelId) }),
-      (user.role === 'admin' || user.role === 'manager')
+      canViewActivity
         ? window.api.activity.list({ token, limit: 20 })
         : Promise.resolve({ ok: true, entries: [] }),
       window.api.docs.list({ token, profileId: Number(modelId) }),
@@ -592,7 +595,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
       </div>
       )}
 
-      {tab === 'activity' && (user.role === 'admin' || user.role === 'manager') && activityEntries.length > 0 && (
+      {tab === 'activity' && canViewActivity && activityEntries.length > 0 && (
         <div style={{ marginBottom: 28 }}>
           <div style={styles.platformHeader}>
             <span style={{ fontSize: 20 }}>☷</span>

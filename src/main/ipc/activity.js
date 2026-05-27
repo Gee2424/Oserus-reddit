@@ -1,5 +1,6 @@
 const { getDb } = require('../db');
 const { userFromToken } = require('./auth');
+const { requirePermission } = require('../permissions');
 
 function ensureTable() {
   getDb().exec(`
@@ -33,7 +34,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      if (user.role !== 'admin' && user.role !== 'manager') throw new Error('Manager or admin only');
+      requirePermission(user, 'activity.view');
       ensureTable();
       let sql = 'SELECT * FROM activity_log';
       const params = [];

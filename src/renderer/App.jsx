@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './lib/auth.jsx';
+import { PermissionsProvider } from './lib/permissions.jsx';
 import { ActiveAccountProvider } from './lib/activeAccount.jsx';
 import LoginPage from './pages/Login.jsx';
 import Shell from './components/Shell.jsx';
@@ -8,7 +9,7 @@ import RedditBrowser from './pages/RedditBrowser.jsx';
 import RedGifsBrowser from './pages/RedGifsBrowser.jsx';
 import ProfilesPage from './pages/Profiles.jsx';
 import ModelDetailPage from './pages/ModelDetail.jsx';
-import UsersPage from './pages/Users.jsx';
+import TeamPage from './pages/Team.jsx';
 import InfrastructurePage from './pages/Infrastructure.jsx';
 import SubredditsPage from './pages/Subreddits.jsx';
 import WebviewsPage from './pages/Webviews.jsx';
@@ -48,7 +49,7 @@ function Inner() {
       case 'inbox': return <RedditApiPage initialTab="inbox" navigate={navigate} />;
       case 'profiles': return <ProfilesPage navigate={navigate} />;
       case 'model': return <ModelDetailPage modelId={routeParams.modelId} navigate={navigate} />;
-      case 'users': return <UsersPage />;
+      case 'users': return <TeamPage />;
       case 'infra':
       case 'proxies':
       case 'votes':
@@ -65,10 +66,12 @@ function Inner() {
   })();
 
   return (
-    <ActiveAccountProvider>
-      <Shell route={route} navigate={navigate}>{page}</Shell>
-      <UpdateBanner />
-    </ActiveAccountProvider>
+    <PermissionsProvider>
+      <ActiveAccountProvider>
+        <Shell route={route} navigate={navigate}>{page}</Shell>
+        <UpdateBanner />
+      </ActiveAccountProvider>
+    </PermissionsProvider>
   );
 }
 

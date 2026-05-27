@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
 
 const COLORS = ['#c8553d', '#d4a55a', '#7a9a5a', '#5a7a9a', '#9a5a8e', '#8e6a4a'];
@@ -26,7 +27,8 @@ export default function ProfilesPage({ navigate }) {
   const [error, setError] = useState(null);
   const [importMsg, setImportMsg] = useState(null);
 
-  const canManage = user.role === 'admin' || user.role === 'manager';
+  const can = useCan();
+  const canManage = can('profiles.manage');
 
   function blank() {
     return { name: '', assigned_user_id: '', niche: '', brand_voice: '', notes: '', avatar_color: COLORS[0] };

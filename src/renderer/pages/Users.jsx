@@ -1,12 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
-
-const ROLES = [
-  { v: 'admin', label: 'Admin', desc: 'Full access — manage everything' },
-  { v: 'manager', label: 'Manager', desc: 'Manage models, accounts, team — no system settings' },
-  { v: 'reddit_va', label: 'Reddit VA', desc: 'Post to assigned models on Reddit' },
-  { v: 'chatter', label: 'Chatter', desc: 'Read-only access to assigned models' },
-];
+import { useCan } from '../lib/permissions.jsx';
 
 const ROLE_COLORS = {
   admin: '#c8553d',
@@ -17,9 +11,30 @@ const ROLE_COLORS = {
 
 const blank = { username: '', password: '', display_name: '', email: '', phone: '', notes: '', role: 'reddit_va' };
 
-export default function UsersPage() {
+export default function UsersPage({ embedded }) {
   const { token, user: me } = useAuth();
+  const can = useCan();
   const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState([]);
+
+  useEffect(() => {
+    // Load roles list for the dropdown. Falls back gracefully if the user
+    // doesn't have roles.manage — they still see role names from the user list.
+    if (!can('roles.manage')) {
+      setRoles([
+        { key: 'admin', label: 'Admin', description: 'Full access' },
+        { key: 'manager', label: 'Manager', description: 'Day-to-day ops' },
+        { key: 'reddit_va', label: 'Reddit VA', description: 'Posts on Reddit' },
+        { key: 'chatter', label: 'Chatter', description: 'Inbox only' },
+      ]);
+      return;
+    }
+    window.api.roles.list({ token }).then((r) => {
+      if (r.ok) setRoles(r.roles);
+    }).catch(() => {});
+  }, [token, can]);
+
+  const roleByKey = roles.reduce((acc, r) => (acc[r.key] = r, acc), {});
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(blank);
@@ -113,10 +128,12 @@ export default function UsersPage() {
   return (
     <div>
       <div className="title-block">
-        <div>
-          <div className="eyebrow">Manage</div>
-          <h1>Team Profiles</h1>
-        </div>
+        {!embedded && (
+          <div>
+            <div className="eyebrow">Manage</div>
+            <h1>Team Profiles</h1>
+          </div>
+        )}
         <div style={{ marginLeft: 'auto' }}>
           <button className="primary" onClick={startAdd}>+ Add team member</button>
         </div>
@@ -136,10 +153,10 @@ export default function UsersPage() {
             <div>
               <label>Role</label>
               <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-                {ROLES.map(r => <option key={r.v} value={r.v}>{r.label}</option>)}
+                {roles.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
               </select>
               <div className="muted" style={{ fontSize: 11, marginTop: 4, fontStyle: 'italic' }}>
-                {ROLES.find(r => r.v === form.role)?.desc}
+                {roleByKey[form.role]?.description}
               </div>
             </div>
             {!editingId && (
@@ -206,7 +223,7 @@ export default function UsersPage() {
                 borderColor: ROLE_COLORS[u.role] || 'var(--border-strong)',
                 background: (ROLE_COLORS[u.role] || '#222') + '20',
               }}>
-                {ROLES.find(r => r.v === u.role)?.label || u.role}
+                {roleByKey[u.role]?.label || u.role}
               </span>
             </div>
             {u.email && <div className="muted" style={{ fontSize: 12 }}>📧 {u.email}</div>}

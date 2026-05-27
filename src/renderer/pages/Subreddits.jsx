@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { useCan } from '../lib/permissions.jsx';
 
 export default function SubredditsPage() {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
+  const can = useCan();
   const [subs, setSubs] = useState([]);
   const [form, setForm] = useState({ name: '', vibe: '', description: '' });
   const [error, setError] = useState(null);
 
-  const canManage = user.role === 'admin' || user.role === 'manager';
+  const canManage = can('subreddits.manage');
 
   async function load() {
     const res = await window.api.subs.listWarmup({ token });

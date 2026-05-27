@@ -1,5 +1,6 @@
 const { getDb } = require('../db');
 const { userFromToken, requireManagerOrAdmin } = require('./auth');
+const { hasPermission } = require('../permissions');
 
 function register(ipcMain) {
   ipcMain.handle('profiles:list', (_e, { token }) => {
@@ -7,7 +8,7 @@ function register(ipcMain) {
     if (!user) return { ok: false, error: 'Not authenticated' };
 
     const rows =
-      user.role === 'admin'
+      hasPermission(user, 'profiles.manage')
         ? getDb()
             .prepare(
               `SELECT p.*, u.display_name AS assigned_to_name, u.username AS assigned_to_username,

@@ -1,35 +1,31 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { useCan, usePermissions } from '../lib/permissions.jsx';
 import logoUrl from '../assets/logo.png';
 
-const ROLE_LABEL = {
-  admin: 'admin',
-  manager: 'manager',
-  reddit_va: 'reddit va',
-  chatter: 'chatter',
-};
-
-// Nav items - icon + label + group, with role-based visibility
+// Nav items — each gated by a permission key (see src/shared/permissions.js).
 const NAV = [
-  { key: 'dashboard', label: 'Dashboard', icon: '⬢', group: 'Overview', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-  { key: 'analytics', label: 'Analytics', icon: '◧', group: 'Overview', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'dashboard', label: 'Dashboard', icon: '⬢', group: 'Overview', perm: 'page.dashboard' },
+  { key: 'analytics', label: 'Analytics', icon: '◧', group: 'Overview', perm: 'page.analytics' },
 
-  { key: 'profiles', label: 'Models', icon: '◇', group: 'Models', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-  { key: 'reddit-api', label: 'Reddit API', icon: '◈', group: 'Models', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'profiles', label: 'Models', icon: '◇', group: 'Models', perm: 'page.profiles' },
+  { key: 'reddit-api', label: 'Reddit API', icon: '◈', group: 'Models', perm: 'page.reddit-api' },
 
-  { key: 'operations', label: 'Operations', icon: '◧', group: 'Ops', roles: ['admin', 'manager', 'reddit_va'] },
-  { key: 'infra', label: 'Infrastructure', icon: '⌁', group: 'Ops', roles: ['admin', 'manager', 'reddit_va'] },
-  { key: 'subreddits', label: 'Warm-up Subs', icon: '✦', group: 'Ops', roles: ['admin', 'manager'] },
+  { key: 'operations', label: 'Operations', icon: '◧', group: 'Ops', perm: 'page.operations' },
+  { key: 'infra', label: 'Infrastructure', icon: '⌁', group: 'Ops', perm: 'page.infra' },
+  { key: 'subreddits', label: 'Warm-up Subs', icon: '✦', group: 'Ops', perm: 'page.subreddits' },
 
-  { key: 'users', label: 'Team', icon: '◉', group: 'Team', roles: ['admin', 'manager'] },
-  { key: 'activity', label: 'Activity', icon: '☷', group: 'Team', roles: ['admin', 'manager'] },
-  { key: 'docs', label: 'Docs', icon: '◫', group: 'Team', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'users', label: 'Team', icon: '◉', group: 'Team', perm: 'page.team' },
+  { key: 'activity', label: 'Activity', icon: '☷', group: 'Team', perm: 'page.activity' },
+  { key: 'docs', label: 'Docs', icon: '◫', group: 'Team', perm: 'page.docs' },
 
-  { key: 'settings', label: 'Settings', icon: '⚙', group: 'Configure', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'settings', label: 'Settings', icon: '⚙', group: 'Configure', perm: 'page.settings' },
 ];
 
 export default function Shell({ route, navigate, children }) {
   const { user, logout } = useAuth();
+  const can = useCan();
+  const { previewing, effectiveRole, exitPreview } = usePermissions();
   const [version, setVersion] = useState('');
 
   useEffect(() => {
@@ -40,7 +36,7 @@ export default function Shell({ route, navigate, children }) {
 
   const grouped = {};
   for (const item of NAV) {
-    if (item.roles && !item.roles.includes(user.role)) continue;
+    if (item.perm && !can(item.perm)) continue;
     (grouped[item.group] = grouped[item.group] || []).push(item);
   }
 
@@ -83,8 +79,8 @@ export default function Shell({ route, navigate, children }) {
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={styles.userName}>{user.display_name || user.username}</div>
               <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-                <span className={`pill ${user.role === 'admin' ? 'admin' : ''}`}>
-                  {ROLE_LABEL[user.role] || user.role}
+                <span className={`pill ${(effectiveRole || user.role) === 'admin' ? 'admin' : ''}`}>
+                  {(effectiveRole || user.role).replace(/_/g, ' ')}
                 </span>
               </div>
             </div>
@@ -99,6 +95,12 @@ export default function Shell({ route, navigate, children }) {
       </aside>
 
       <main style={styles.main}>
+        {previewing && (
+          <div style={styles.previewBanner}>
+            <span>Previewing as <strong>{effectiveRole}</strong> — you see what they see.</span>
+            <button className="ghost" onClick={exitPreview} style={{ marginLeft: 'auto' }}>Exit preview</button>
+          </div>
+        )}
         <section style={styles.content}>{children}</section>
       </main>
     </div>
@@ -208,5 +210,15 @@ const styles = {
     textAlign: 'center',
   },
   main: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
+  previewBanner: {
+    background: 'linear-gradient(90deg, rgba(212,166,74,0.18), rgba(79,138,100,0.12))',
+    borderBottom: '1px solid var(--gold)',
+    color: 'var(--gold-bright)',
+    padding: '8px 24px',
+    fontSize: 12,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+  },
   content: { flex: 1, overflow: 'auto', padding: 24 },
 };

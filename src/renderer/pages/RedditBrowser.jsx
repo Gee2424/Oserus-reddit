@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 import AccountSwitcher from '../components/AccountSwitcher.jsx';
 import ComposerPanel from '../components/ComposerPanel.jsx';
@@ -36,8 +37,9 @@ function isRedditPage(url) {
 }
 
 export default function RedditBrowser() {
-  const { token, user } = useAuth();
-  const canPlaceOrders = user?.role === 'admin' || user?.role === 'manager';
+  const { token } = useAuth();
+  const can = useCan();
+  const canPlaceOrders = can('infra.upvotes.place_order');
   const { forPlatform } = useActiveAccount();
   const { active, accounts: redditAccounts, setActive } = forPlatform('reddit');
 

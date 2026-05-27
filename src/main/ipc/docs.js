@@ -1,5 +1,6 @@
 const { getDb } = require('../db');
 const { userFromToken } = require('./auth');
+const { requirePermission } = require('../permissions');
 
 function ensureTable() {
   getDb().exec(`
@@ -95,7 +96,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      if (user.role !== 'admin' && user.role !== 'manager') throw new Error('Manager or admin only');
+      requirePermission(user, 'docs.manage');
       ensureTable();
       getDb().prepare('DELETE FROM docs WHERE id = ?').run(id);
       return { ok: true };

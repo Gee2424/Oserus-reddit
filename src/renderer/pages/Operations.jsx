@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { useCan } from '../lib/permissions.jsx';
 
 export default function OperationsPage({ navigate }) {
   const { token, user } = useAuth();
+  const can = useCan();
   const [proxies, setProxies] = useState([]);
   const [voteOrders, setVoteOrders] = useState([]);
   const [voteBalance, setVoteBalance] = useState(null);
@@ -95,7 +97,7 @@ export default function OperationsPage({ navigate }) {
 
           {!hasVoteKey ? (
             <div className="empty-state" style={{ padding: 28, border: 'none' }}>
-              {user.role === 'admin'
+              {can('infra.upvotes.admin')
                 ? 'Add the upvote.biz API key under Settings to enable orders.'
                 : 'An admin needs to add the upvote.biz API key.'}
             </div>

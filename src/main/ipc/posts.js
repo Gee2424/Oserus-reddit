@@ -1,8 +1,9 @@
 const { getDb } = require('../db');
 const { userFromToken } = require('./auth');
+const { hasPermission } = require('../permissions');
 
 function canAccessAccount(user, accountId) {
-  if (user.role === 'admin' || user.role === 'manager') return true;
+  if (hasPermission(user, 'profiles.manage')) return true;
   const row = getDb()
     .prepare(
       `SELECT p.assigned_user_id FROM reddit_accounts a

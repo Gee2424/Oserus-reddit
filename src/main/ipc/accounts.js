@@ -1,9 +1,10 @@
 const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
 const { log } = require('./activity');
+const { hasPermission } = require('../permissions');
 
 function canAccessProfile(user, profileId) {
-  if (user.role === 'admin') return true;
+  if (hasPermission(user, 'profiles.manage')) return true;
   const row = getDb()
     .prepare('SELECT assigned_user_id FROM model_profiles WHERE id = ?')
     .get(profileId);
@@ -49,8 +50,9 @@ function register(ipcMain) {
 
     const where = [];
     const params = [];
-    // Managers see everything; admins see everything; VAs/chatters see only what they're assigned
-    if (user.role !== 'admin' && user.role !== 'manager') {
+    // Holders of profiles.manage see everything; everyone else only sees
+    // accounts on profiles they're assigned to.
+    if (!hasPermission(user, 'profiles.manage')) {
       where.push('p.assigned_user_id = ?');
       params.push(user.id);
     }

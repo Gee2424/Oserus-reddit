@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { useCan } from '../lib/permissions.jsx';
 
 export default function WebviewsPage() {
   const { token, user } = useAuth();
@@ -18,7 +19,8 @@ export default function WebviewsPage() {
   const [profiles, setProfiles] = useState([]);
   const [credsCollapsed, setCredsCollapsed] = useState(false);
 
-  const isAdmin = user.role === 'admin' || user.role === 'manager';
+  const can = useCan();
+  const isAdmin = can('webviews.manage');
 
   function blankCred() {
     return { profile_id: '', label: '', username: '', password: '', notes: '' };

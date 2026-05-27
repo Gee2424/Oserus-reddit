@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { useCan } from '../lib/permissions.jsx';
 
 const PROXY_KINDS = [
   { v: 'http', label: 'HTTP' },
@@ -9,15 +10,19 @@ const PROXY_KINDS = [
 
 export default function InfrastructurePage() {
   const { user } = useAuth();
+  const can = useCan();
   const [tab, setTab] = useState('proxies');
 
-  if (user.role !== 'admin' && user.role !== 'manager' && user.role !== 'reddit_va') {
+  if (!can('page.infra')) {
     return <div className="empty-state">You don't have permission to view this page.</div>;
   }
 
-  // VAs see upvotes only (proxies are admin/manager).
-  const canSeeProxies = user.role === 'admin' || user.role === 'manager';
-  const activeTab = !canSeeProxies ? 'upvotes' : tab;
+  const canSeeProxies = can('infra.proxies.view');
+  const canSeeUpvotes = can('infra.upvotes.view');
+  if (!canSeeProxies && !canSeeUpvotes) {
+    return <div className="empty-state">You don't have permission to view this page.</div>;
+  }
+  const activeTab = !canSeeProxies ? 'upvotes' : (!canSeeUpvotes ? 'proxies' : tab);
 
   return (
     <div>
@@ -206,9 +211,10 @@ function ProxiesPanel() {
 /* ---------------- UPVOTES (upvote.biz) ---------------- */
 
 function UpvotesPanel() {
-  const { token, user } = useAuth();
-  const isAdmin = user.role === 'admin';
-  const canPlaceOrders = user.role === 'admin' || user.role === 'manager';
+  const { token } = useAuth();
+  const can = useCan();
+  const isAdmin = can('infra.upvotes.admin');
+  const canPlaceOrders = can('infra.upvotes.place_order');
 
   const [hasKey, setHasKey] = useState(false);
   const [balance, setBalance] = useState(null);

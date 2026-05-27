@@ -1,5 +1,6 @@
 const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
+const { requirePermission } = require('../permissions');
 
 function ensureSettingsTable() {
   getDb().exec(`
@@ -59,7 +60,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      if (user.role !== 'admin') throw new Error('Admin only');
+      requirePermission(user, 'ai.admin');
       setSetting('anthropic_api_key', apiKey ? encryptSecret(apiKey) : null);
       return { ok: true };
     } catch (err) {

@@ -1,8 +1,9 @@
 const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
+const { hasPermission } = require('../permissions');
 
 function isAdminOrManager(user) {
-  return user && (user.role === 'admin' || user.role === 'manager');
+  return hasPermission(user, 'webviews.manage');
 }
 
 function register(ipcMain) {

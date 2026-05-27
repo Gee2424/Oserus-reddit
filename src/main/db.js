@@ -151,6 +151,23 @@ function initDatabase() {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(profile_id, name)
     );
+
+    -- Role definitions. Builtin rows have is_builtin=1 and cannot be deleted.
+    -- The 'key' column matches users.role (existing users keep their key).
+    CREATE TABLE IF NOT EXISTS roles (
+      key TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      description TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Which permissions each role has. Composite PK; deleting a role cascades.
+    CREATE TABLE IF NOT EXISTS role_permissions (
+      role_key TEXT NOT NULL REFERENCES roles(key) ON DELETE CASCADE,
+      perm_key TEXT NOT NULL,
+      PRIMARY KEY (role_key, perm_key)
+    );
   `);
 
   // Migration: if users.role constraint is the old ('admin','creator') one, rebuild the table.
@@ -191,6 +208,71 @@ function initDatabase() {
     }
   } catch (e) {
     console.error('[db] Migration check failed:', e.message);
+  }
+
+  // Migration: drop the CHECK(role IN (...)) constraint on users.role so
+  // custom role keys are allowed. Detect by looking for the CHECK clause.
+  try {
+    const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='users'").get();
+    if (tableInfo && tableInfo.sql && tableInfo.sql.includes("CHECK(role IN")) {
+      console.log('[db] Removing CHECK constraint on users.role to allow custom roles...');
+      db.exec('BEGIN TRANSACTION;');
+      try {
+        db.exec(`
+          CREATE TABLE users_new2 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            display_name TEXT,
+            email TEXT,
+            phone TEXT,
+            notes TEXT,
+            avatar_color TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+          );
+          INSERT INTO users_new2 SELECT * FROM users;
+          DROP TABLE users;
+          ALTER TABLE users_new2 RENAME TO users;
+        `);
+        db.exec('COMMIT;');
+        console.log('[db] users.role CHECK constraint removed.');
+      } catch (e) {
+        db.exec('ROLLBACK;');
+        console.error('[db] CHECK removal failed:', e.message);
+      }
+    }
+  } catch (e) {
+    console.error('[db] CHECK check failed:', e.message);
+  }
+
+  // Seed builtin roles + their default permissions on first run.
+  // Re-runs on every launch only re-insert rows that are missing — admin edits
+  // to permissions are preserved.
+  try {
+    const { BUILTIN_ROLES } = require('../shared/permissions');
+    const insertRole = db.prepare(
+      'INSERT OR IGNORE INTO roles (key, label, description, is_builtin) VALUES (?, ?, ?, 1)'
+    );
+    const hasRolePerm = db.prepare(
+      'SELECT 1 FROM role_permissions WHERE role_key = ? LIMIT 1'
+    );
+    const insertRolePerm = db.prepare(
+      'INSERT OR IGNORE INTO role_permissions (role_key, perm_key) VALUES (?, ?)'
+    );
+    for (const r of BUILTIN_ROLES) {
+      insertRole.run(r.key, r.label, r.description);
+      // Only seed permissions if this role has none yet (first-time seed).
+      // Don't overwrite admin edits on subsequent launches.
+      const seeded = hasRolePerm.get(r.key);
+      if (!seeded) {
+        for (const p of r.permissions) {
+          insertRolePerm.run(r.key, p);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[db] Roles seed failed:', e.message);
   }
 
   // Migration: add 'platform' column to reddit_accounts if missing
