@@ -11,7 +11,6 @@ const PERMISSIONS = [
   { key: 'page.profiles',      group: 'Pages',      label: 'Models' },
   { key: 'page.reddit-api',    group: 'Pages',      label: 'Reddit API workspace' },
   { key: 'page.operations',    group: 'Pages',      label: 'Operations' },
-  { key: 'page.infra',         group: 'Pages',      label: 'Infrastructure' },
   { key: 'page.subreddits',    group: 'Pages',      label: 'Warm-up subs' },
   { key: 'page.team',          group: 'Pages',      label: 'Team' },
   { key: 'page.activity',      group: 'Pages',      label: 'Activity log' },
@@ -93,7 +92,7 @@ const BUILTIN_ROLES = [
     description: 'Reddit assistant. Can post, place upvotes, view proxies.',
     permissions: [
       'page.dashboard', 'page.analytics', 'page.profiles', 'page.reddit-api',
-      'page.operations', 'page.infra', 'page.subreddits', 'page.docs',
+      'page.operations', 'page.subreddits', 'page.docs',
       'page.settings', 'page.reddit', 'page.redgifs', 'page.webviews',
       'redditapi.posting', 'redditapi.reddit', 'redditapi.inbox',
       'infra.upvotes.view', 'infra.upvotes.place_order',

@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
-import UpvotesPanel from '../components/UpvotesPanel.jsx';
 
 const PROXY_KINDS = [
   { v: 'http', label: 'HTTP' },
@@ -9,75 +8,26 @@ const PROXY_KINDS = [
   { v: 'socks5', label: 'SOCKS5' },
 ];
 
-export default function InfrastructurePage() {
-  const { user } = useAuth();
-  const can = useCan();
-  const [tab, setTab] = useState('proxies');
-
-  if (!can('page.infra')) {
-    return <div className="empty-state">You don't have permission to view this page.</div>;
-  }
-
-  const canSeeProxies = can('infra.proxies.view');
-  const canSeeUpvotes = can('infra.upvotes.view');
-  if (!canSeeProxies && !canSeeUpvotes) {
-    return <div className="empty-state">You don't have permission to view this page.</div>;
-  }
-  const activeTab = !canSeeProxies ? 'upvotes' : (!canSeeUpvotes ? 'proxies' : tab);
-
-  return (
-    <div>
-      <div className="title-block">
-        <div>
-          <div className="eyebrow">Ops</div>
-          <h1>Infrastructure</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Proxies and upvote.biz orders in one place.
-          </div>
-        </div>
-      </div>
-
-      {canSeeProxies && (
-        <div style={tabBar}>
-          <button
-            style={{ ...tabBtn, ...(activeTab === 'proxies' ? tabBtnActive : {}) }}
-            onClick={() => setTab('proxies')}
-          >
-            ⌁ Proxies
-          </button>
-          <button
-            style={{ ...tabBtn, ...(activeTab === 'upvotes' ? tabBtnActive : {}) }}
-            onClick={() => setTab('upvotes')}
-          >
-            ▲ Upvotes
-          </button>
-        </div>
-      )}
-
-      {activeTab === 'proxies' ? <ProxiesPanel /> : <UpvotesPanel />}
-    </div>
-  );
+function blankProxy() {
+  return { label: '', kind: 'http', host: '', port: '', username: '', password: '' };
 }
 
-/* ---------------- PROXIES ---------------- */
-
-function ProxiesPanel() {
+// Proxy management. Reused on the Operations page.
+export default function ProxiesPanel() {
   const { token } = useAuth();
+  const can = useCan();
+  const canManage = can('infra.proxies.manage');
   const [proxies, setProxies] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(blankProxy());
   const [error, setError] = useState(null);
 
-  function blankProxy() {
-    return { label: '', kind: 'http', host: '', port: '', username: '', password: '' };
-  }
-
   async function load() {
     const res = await window.api.proxies.list({ token });
     if (res.ok) setProxies(res.proxies);
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
 
   async function submit(e) {
     e.preventDefault();
@@ -126,12 +76,14 @@ function ProxiesPanel() {
           Proxies are assigned per Reddit account. Each account routes its browsing and posting through its assigned proxy.
           Supported types: HTTP, HTTPS, SOCKS5.
         </div>
-        <button className="primary" onClick={() => { setEditing(null); setForm(blankProxy()); setShowAdd(v => !v); }}>
-          {showAdd ? 'Cancel' : '+ Add proxy'}
-        </button>
+        {canManage && (
+          <button className="primary" onClick={() => { setEditing(null); setForm(blankProxy()); setShowAdd(v => !v); }}>
+            {showAdd ? 'Cancel' : '+ Add proxy'}
+          </button>
+        )}
       </div>
 
-      {showAdd && (
+      {showAdd && canManage && (
         <form onSubmit={submit} className="card" style={{ marginBottom: 22 }}>
           <h3 style={{ marginBottom: 14 }}>{editing ? 'Edit proxy' : 'Add proxy'}</h3>
           {error && <div className="error-banner">{error}</div>}
@@ -196,8 +148,12 @@ function ProxiesPanel() {
                   <td style={td}><span className="mono">{p.host}:{p.port}</span></td>
                   <td style={td}>{p.username ? <span className="mono">{p.username}</span> : <span className="dim">none</span>}</td>
                   <td style={{ ...td, textAlign: 'right' }}>
-                    <button className="ghost" onClick={() => startEdit(p)}>Edit</button>
-                    <button className="danger" onClick={() => del(p.id)} style={{ marginLeft: 6 }}>Delete</button>
+                    {canManage && (
+                      <>
+                        <button className="ghost" onClick={() => startEdit(p)}>Edit</button>
+                        <button className="danger" onClick={() => del(p.id)} style={{ marginLeft: 6 }}>Delete</button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -209,31 +165,5 @@ function ProxiesPanel() {
   );
 }
 
-
-const tabBar = { display: 'flex', gap: 6, marginBottom: 18, borderBottom: '1px solid var(--border)' };
-const tabBtn = {
-  background: 'transparent',
-  border: 'none',
-  color: 'var(--text-2)',
-  padding: '10px 16px',
-  fontSize: 13,
-  cursor: 'pointer',
-  borderBottom: '2px solid transparent',
-  marginBottom: -1,
-};
-const tabBtnActive = {
-  color: 'var(--gold-bright)',
-  borderBottomColor: 'var(--gold)',
-};
 const th = { textAlign: 'left', padding: '10px 14px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)', fontWeight: 500 };
 const td = { padding: '10px 14px' };
-const smTh = { padding: '6px 8px', fontWeight: 500 };
-const smTd = { padding: '8px', verticalAlign: 'middle' };
-const okBanner = {
-  background: 'rgba(122,154,90,0.12)',
-  border: '1px solid var(--ok)',
-  color: '#bdd5a3',
-  padding: '10px 14px',
-  borderRadius: 4,
-  marginBottom: 12,
-};

@@ -20,6 +20,7 @@ export default function UpvotesPanel({ compact }) {
   const [ok, setOk] = useState(null);
 
   const [form, setForm] = useState({ serviceId: '', link: '', quantity: '' });
+  const [refills, setRefills] = useState({}); // { [remoteOrderId]: { refillId, status } }
 
   async function refreshAll() {
     setErr(null);
@@ -77,7 +78,29 @@ export default function UpvotesPanel({ compact }) {
     setErr(null); setOk(null);
     const res = await window.api.votes.refill({ token, remoteOrderId });
     if (!res.ok) { setErr(res.error); return; }
+    setRefills((m) => ({ ...m, [remoteOrderId]: { refillId: res.refillId, status: 'Pending' } }));
     setOk(`Refill requested. Refill ID: ${res.refillId}`);
+  }
+
+  async function checkRefillStatus(remoteOrderId) {
+    const r = refills[remoteOrderId];
+    if (!r) return;
+    const res = await window.api.votes.refillStatus({ token, refillId: r.refillId });
+    if (res.ok) {
+      setRefills((m) => ({ ...m, [remoteOrderId]: { ...r, status: res.status || 'Unknown' } }));
+    }
+  }
+
+  async function syncAll() {
+    if (!orders.length) return;
+    const ids = orders.map((o) => o.remote_order_id).filter(Boolean);
+    if (!ids.length) return;
+    setLoading(true);
+    const res = await window.api.votes.statusMulti({ token, remoteOrderIds: ids });
+    setLoading(false);
+    if (!res.ok) { setErr(res.error); return; }
+    // Backend persists statuses; just reload the orders list.
+    refreshAll();
   }
 
   if (!hasKey) {
@@ -104,6 +127,7 @@ export default function UpvotesPanel({ compact }) {
             </div>
           </div>
         )}
+        <button className="ghost" onClick={syncAll} disabled={loading || !orders.length}>Sync all</button>
         <button className="ghost" onClick={refreshAll} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
       </div>
 
@@ -173,9 +197,11 @@ export default function UpvotesPanel({ compact }) {
                   <th style={smTh}>Service</th>
                   <th style={smTh}>Link</th>
                   <th style={smTh}>Qty</th>
+                  <th style={smTh}>Start</th>
+                  <th style={smTh}>Remains</th>
                   <th style={smTh}>Charge</th>
                   <th style={smTh}>Status</th>
-                  <th style={smTh}>Remains</th>
+                  <th style={smTh}>Refill</th>
                   <th style={smTh}>Placed</th>
                   <th style={smTh}></th>
                 </tr>
@@ -191,11 +217,23 @@ export default function UpvotesPanel({ compact }) {
                       </a>
                     </td>
                     <td style={smTd}>{o.quantity}</td>
+                    <td style={smTd}>{o.start_count ?? '—'}</td>
+                    <td style={smTd}>{o.remains ?? '—'}</td>
                     <td style={smTd}>{o.charge ? `${o.charge} ${o.currency || ''}` : '—'}</td>
                     <td style={smTd}>
                       <span style={statusStyle(o.status)}>{o.status || '—'}</span>
                     </td>
-                    <td style={smTd}>{o.remains ?? '—'}</td>
+                    <td style={smTd}>
+                      {refills[o.remote_order_id] ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span className="mono dim" style={{ fontSize: 11 }}>#{refills[o.remote_order_id].refillId}</span>
+                          <span style={statusStyle(refills[o.remote_order_id].status)}>
+                            {refills[o.remote_order_id].status}
+                          </span>
+                          <button className="ghost" onClick={() => checkRefillStatus(o.remote_order_id)} style={{ fontSize: 10, padding: '2px 6px' }}>↻</button>
+                        </span>
+                      ) : <span className="dim">—</span>}
+                    </td>
                     <td style={smTd} className="muted" suppressHydrationWarning>
                       {o.created_at ? new Date(o.created_at + 'Z').toLocaleString() : '—'}
                     </td>

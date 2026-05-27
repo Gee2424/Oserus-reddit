@@ -52,7 +52,8 @@ async function call(apiKey, action, extra = {}) {
 }
 
 function ensureOrdersTable() {
-  getDb().exec(`
+  const db = getDb();
+  db.exec(`
     CREATE TABLE IF NOT EXISTS upvote_orders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       remote_order_id TEXT NOT NULL,
@@ -69,6 +70,11 @@ function ensureOrdersTable() {
       last_checked_at TEXT
     );
   `);
+  // Additive: upvote.biz status responses include start_count.
+  const cols = db.prepare("PRAGMA table_info(upvote_orders)").all();
+  if (!cols.some((c) => c.name === 'start_count')) {
+    db.exec('ALTER TABLE upvote_orders ADD COLUMN start_count TEXT');
+  }
 }
 
 function register(ipcMain) {
@@ -202,6 +208,25 @@ function register(ipcMain) {
         throw new Error('remoteOrderIds must be a non-empty array');
       }
       const data = await call(getKey(), 'status', { orders: remoteOrderIds.join(',') });
+      // Persist each status update so the table reflects what we just fetched.
+      ensureOrdersTable();
+      const upd = getDb().prepare(
+        "UPDATE upvote_orders SET status = ?, charge = ?, currency = ?, remains = ?, start_count = ?, last_checked_at = datetime('now') WHERE remote_order_id = ?"
+      );
+      const tx = getDb().transaction((entries) => {
+        for (const [id, s] of entries) {
+          if (!s || typeof s !== 'object') continue;
+          upd.run(
+            s.status || null,
+            s.charge != null ? String(s.charge) : null,
+            s.currency || null,
+            s.remains != null ? Number(s.remains) : null,
+            s.start_count != null ? Number(s.start_count) : null,
+            String(id),
+          );
+        }
+      });
+      tx(Object.entries(data || {}));
       return { ok: true, statuses: data };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -248,16 +273,17 @@ function register(ipcMain) {
       const data = await call(getKey(), 'status', { order: row.remote_order_id });
       getDb()
         .prepare(
-          'UPDATE upvote_orders SET status = ?, charge = ?, currency = ?, remains = ?, last_checked_at = datetime(\'now\') WHERE id = ?'
+          "UPDATE upvote_orders SET status = ?, charge = ?, currency = ?, remains = ?, start_count = ?, last_checked_at = datetime('now') WHERE id = ?"
         )
         .run(
           data.status || row.status,
           data.charge != null ? String(data.charge) : row.charge,
           data.currency || row.currency,
           data.remains != null ? String(data.remains) : row.remains,
+          data.start_count != null ? String(data.start_count) : row.start_count,
           orderId
         );
-      return { ok: true, status: data.status, charge: data.charge, remains: data.remains };
+      return { ok: true, status: data.status, charge: data.charge, remains: data.remains, start_count: data.start_count };
     } catch (err) {
       return { ok: false, error: err.message };
     }

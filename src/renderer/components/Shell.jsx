@@ -12,7 +12,6 @@ const NAV = [
   { key: 'reddit-api', label: 'Reddit API', icon: '◈', group: 'Models', perm: 'page.reddit-api' },
 
   { key: 'operations', label: 'Operations', icon: '◧', group: 'Ops', perm: 'page.operations' },
-  { key: 'infra', label: 'Infrastructure', icon: '⌁', group: 'Ops', perm: 'page.infra' },
   { key: 'subreddits', label: 'Warm-up Subs', icon: '✦', group: 'Ops', perm: 'page.subreddits' },
 
   { key: 'users', label: 'Team', icon: '◉', group: 'Team', perm: 'page.team' },

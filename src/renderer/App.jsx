@@ -10,7 +10,6 @@ import RedGifsBrowser from './pages/RedGifsBrowser.jsx';
 import ProfilesPage from './pages/Profiles.jsx';
 import ModelDetailPage from './pages/ModelDetail.jsx';
 import TeamPage from './pages/Team.jsx';
-import InfrastructurePage from './pages/Infrastructure.jsx';
 import SubredditsPage from './pages/Subreddits.jsx';
 import WebviewsPage from './pages/Webviews.jsx';
 import SettingsPage from './pages/Settings.jsx';
@@ -53,7 +52,7 @@ function Inner() {
       case 'infra':
       case 'proxies':
       case 'votes':
-        return <InfrastructurePage />;
+        return <OperationsPage />;
       case 'subreddits': return <SubredditsPage />;
       case 'webviews': return <WebviewsPage />;
       case 'settings': return <SettingsPage />;
