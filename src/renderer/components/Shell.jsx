@@ -14,21 +14,24 @@ const NAV = [
   { key: 'dashboard', label: 'Dashboard', icon: '⬢', group: 'Overview', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
   { key: 'analytics', label: 'Analytics', icon: '◧', group: 'Overview', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
 
-  { key: 'profiles', label: 'Models', icon: '◇', group: 'Manage', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-  { key: 'accounts', label: 'Accounts', icon: '◈', group: 'Manage', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-  { key: 'users', label: 'Team', icon: '◉', group: 'Manage', roles: ['admin', 'manager'] },
-  { key: 'activity', label: 'Activity', icon: '☷', group: 'Manage', roles: ['admin', 'manager'] },
+  { key: 'profiles', label: 'Models', icon: '◇', group: 'Models', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'accounts', label: 'Logins', icon: '◈', group: 'Models', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'scheduler', label: 'Scheduler', icon: '◷', group: 'Models', roles: ['admin', 'manager', 'reddit_va'] },
+  { key: 'inbox', label: 'Inbox', icon: '✉', group: 'Models', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
 
-  { key: 'reddit', label: 'Reddit', icon: 'R', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-  { key: 'redgifs', label: 'RedGifs', icon: 'G', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-  { key: 'inbox', label: 'Inbox', icon: '✉', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-  { key: 'scheduler', label: 'Scheduler', icon: '◷', group: 'Operate', roles: ['admin', 'manager', 'reddit_va'] },
-  { key: 'webviews', label: 'Custom Pages', icon: '⬡', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'reddit', label: 'Reddit browser', icon: 'R', group: 'Browse', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'redgifs', label: 'RedGifs browser', icon: 'G', group: 'Browse', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+  { key: 'webviews', label: 'Custom Pages', icon: '⬡', group: 'Browse', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
 
-  { key: 'docs', label: 'Docs', icon: '◫', group: 'Configure', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
-  { key: 'proxies', label: 'Proxies', icon: '⌁', group: 'Configure', roles: ['admin', 'manager'] },
-  { key: 'subreddits', label: 'Warm-up Subs', icon: '✦', group: 'Configure', roles: ['admin', 'manager'] },
-  { key: 'votes', label: 'Votes', icon: '▲', group: 'Configure', roles: ['admin', 'manager', 'reddit_va'] },
+  { key: 'operations', label: 'Operations', icon: '◧', group: 'Ops', roles: ['admin', 'manager', 'reddit_va'] },
+  { key: 'proxies', label: 'Proxies', icon: '⌁', group: 'Ops', roles: ['admin', 'manager'] },
+  { key: 'votes', label: 'Votes', icon: '▲', group: 'Ops', roles: ['admin', 'manager', 'reddit_va'] },
+  { key: 'subreddits', label: 'Warm-up Subs', icon: '✦', group: 'Ops', roles: ['admin', 'manager'] },
+
+  { key: 'users', label: 'Team', icon: '◉', group: 'Team', roles: ['admin', 'manager'] },
+  { key: 'activity', label: 'Activity', icon: '☷', group: 'Team', roles: ['admin', 'manager'] },
+  { key: 'docs', label: 'Docs', icon: '◫', group: 'Team', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
+
   { key: 'settings', label: 'Settings', icon: '⚙', group: 'Configure', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
 ];
 

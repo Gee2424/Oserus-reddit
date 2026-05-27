@@ -20,6 +20,7 @@ import AnalyticsPage from './pages/Analytics.jsx';
 import SchedulerPage from './pages/Scheduler.jsx';
 import InboxPage from './pages/Inbox.jsx';
 import ActivityPage from './pages/Activity.jsx';
+import OperationsPage from './pages/Operations.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
 function Inner() {
@@ -58,6 +59,7 @@ function Inner() {
       case 'scheduler': return <SchedulerPage />;
       case 'inbox': return <InboxPage />;
       case 'activity': return <ActivityPage />;
+      case 'operations': return <OperationsPage navigate={navigate} />;
       default: return <DashboardPage navigate={navigate} />;
     }
   })();

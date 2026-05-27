@@ -18,6 +18,7 @@ export default function AccountsPage({ navigate }) {
   const [proxies, setProxies] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [filter, setFilter] = useState('all');
+  const [platformFilter, setPlatformFilter] = useState('all');
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(blankForm());
@@ -28,7 +29,7 @@ export default function AccountsPage({ navigate }) {
 
   function blankForm() {
     return {
-      profile_id: '', username: '', password: '',
+      profile_id: '', platform: 'reddit', username: '', password: '',
       email: '', emailPassword: '',
       status: 'warming', proxy_id: '', notes: '',
     };
@@ -56,7 +57,8 @@ export default function AccountsPage({ navigate }) {
     const payload = {
       token,
       profileId: Number(form.profile_id),
-      username: form.username.trim().replace(/^u\//, ''),
+      platform: form.platform || 'reddit',
+      username: form.username.trim().replace(/^[u@]\//, '').replace(/^@/, ''),
       password: form.password || null,
       email: form.email || null,
       emailPassword: form.emailPassword || null,
@@ -130,7 +132,10 @@ export default function AccountsPage({ navigate }) {
     if (navigate) navigate('reddit');
   }
 
-  const filtered = filter === 'all' ? accounts : accounts.filter(a => a.status === filter);
+  const filtered = accounts.filter(a =>
+    (filter === 'all' || a.status === filter) &&
+    (platformFilter === 'all' || (a.platform || 'reddit') === platformFilter)
+  );
   const grouped = {};
   for (const a of filtered) (grouped[a.profile_name] = grouped[a.profile_name] || []).push(a);
 
@@ -144,7 +149,10 @@ export default function AccountsPage({ navigate }) {
       <div className="title-block">
         <div>
           <div className="eyebrow">Manage</div>
-          <h1>Reddit Accounts</h1>
+          <h1>Logins</h1>
+          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+            Every Reddit and RedGifs login across all your models, in one list.
+          </div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           <button className="ghost" onClick={() => { setShowBulk(v => !v); setShowAdd(false); }}>
@@ -156,19 +164,32 @@ export default function AccountsPage({ navigate }) {
             setShowAdd(v => !v);
             setShowBulk(false);
           }}>
-            {showAdd ? 'Cancel' : '+ Add account'}
+            {showAdd ? 'Cancel' : '+ Add login'}
           </button>
         </div>
       </div>
 
       <div style={styles.filterRow}>
+        {['all', 'reddit', 'redgifs'].map(p => (
+          <button
+            key={p}
+            onClick={() => setPlatformFilter(p)}
+            style={{ ...styles.filterChip, ...(platformFilter === p ? styles.filterChipActive : {}) }}
+          >
+            {p === 'all' ? 'Both platforms' : p === 'reddit' ? 'Reddit' : 'RedGifs'}
+            <span className="mono dim" style={{ marginLeft: 6, fontSize: 11 }}>
+              {p === 'all' ? accounts.length : accounts.filter(a => (a.platform || 'reddit') === p).length}
+            </span>
+          </button>
+        ))}
+        <div style={{ width: 1, background: 'var(--border)', margin: '0 6px' }} />
         {['all', ...STATUS_OPTIONS.map(s => s.v)].map(f => (
           <button
             key={f}
             onClick={() => setFilter(f)}
             style={{ ...styles.filterChip, ...(filter === f ? styles.filterChipActive : {}) }}
           >
-            {f === 'all' ? `All (${accounts.length})` : `${f} (${statusCounts[f] || 0})`}
+            {f === 'all' ? `All statuses (${accounts.length})` : `${f} (${statusCounts[f] || 0})`}
           </button>
         ))}
       </div>
@@ -260,9 +281,9 @@ export default function AccountsPage({ navigate }) {
 
       {showAdd && (
         <form onSubmit={submit} className="card" style={{ marginBottom: 22 }}>
-          <h3 style={{ marginBottom: 14 }}>{editing ? 'Edit account' : 'Add Reddit account'}</h3>
+          <h3 style={{ marginBottom: 14 }}>{editing ? 'Edit login' : `Add ${form.platform === 'redgifs' ? 'RedGifs' : 'Reddit'} login`}</h3>
           {error && <div className="error-banner">{error}</div>}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
             <div>
               <label>Model profile</label>
               <select
@@ -275,6 +296,13 @@ export default function AccountsPage({ navigate }) {
               </select>
             </div>
             <div>
+              <label>Platform</label>
+              <select value={form.platform} disabled={!!editing} onChange={(e) => setForm({ ...form, platform: e.target.value })}>
+                <option value="reddit">Reddit</option>
+                <option value="redgifs">RedGifs</option>
+              </select>
+            </div>
+            <div>
               <label>Status</label>
               <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
                 {STATUS_OPTIONS.map(s => <option key={s.v} value={s.v}>{s.label}</option>)}
@@ -282,7 +310,7 @@ export default function AccountsPage({ navigate }) {
             </div>
 
             <div>
-              <label>Reddit username</label>
+              <label>{form.platform === 'redgifs' ? 'RedGifs' : 'Reddit'} username</label>
               <input value={form.username} disabled={!!editing} onChange={(e) => setForm({ ...form, username: e.target.value })} />
             </div>
             <div>

@@ -285,8 +285,10 @@ export default function ModelDetailPage({ modelId, navigate }) {
       <div style={tabBarStyle}>
         <div style={{ display: 'flex', gap: 4 }}>
           {[
-            { v: 'resources', label: 'Resources', count: accounts.length + modelProxies.length },
+            { v: 'resources', label: 'Logins & proxies', count: accounts.length + modelProxies.length },
+            { v: 'inbox', label: 'Inbox', count: 0 },
             { v: 'scheduler', label: 'Scheduler', count: scheduledPosts.filter(p => p.status === 'pending').length },
+            { v: 'analytics', label: 'Analytics', count: 0 },
             { v: 'docs', label: 'Docs', count: modelDocs.length },
             { v: 'promo', label: 'Promo subs', count: promoSubs.length },
             ...(canManage ? [{ v: 'activity', label: 'Activity', count: activityEntries.length }] : []),
@@ -528,6 +530,24 @@ export default function ModelDetailPage({ modelId, navigate }) {
       </div>
       )}
 
+      {tab === 'inbox' && (
+        <div style={{ marginBottom: 28 }}>
+          <div className="card bordered-glow">
+            <h3 style={{ marginBottom: 6 }}>Inbox for {model.name}</h3>
+            <div className="muted" style={{ fontSize: 13, lineHeight: 1.7 }}>
+              Per-account Reddit DM and modmail viewer goes here. Needs Reddit OAuth
+              connected on each account — one-click <strong>Connect to Reddit</strong>
+              button shipping next release. Until then, use the Reddit browser ▶ button
+              up top to open the inbox manually.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'analytics' && (
+        <ModelAnalyticsTab token={token} profileId={Number(modelId)} accounts={accounts} />
+      )}
+
       {tab === 'scheduler' && (
       <div style={{ marginBottom: 28 }}>
         <div style={styles.platformHeader}>
@@ -686,6 +706,75 @@ export default function ModelDetailPage({ modelId, navigate }) {
         )}
       </div>
       )}
+    </div>
+  );
+}
+
+function ModelAnalyticsTab({ token, profileId, accounts }) {
+  const [data, setData] = React.useState(null);
+  React.useEffect(() => {
+    let alive = true;
+    window.api.analytics.summary({ token, profileId }).then(r => {
+      if (alive && r.ok) setData(r);
+    });
+    return () => { alive = false; };
+  }, [token, profileId]);
+
+  if (!data) return <div className="empty-state">Loading analytics…</div>;
+
+  const reddit = data.accounts.filter(a => a.platform !== 'redgifs');
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 18 }}>
+        <div className="card" style={{ padding: '12px 14px' }}>
+          <div className="muted" style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Accounts</div>
+          <div style={{ fontSize: 22, fontFamily: 'var(--font-display)', marginTop: 2 }}>{data.totals.accounts}</div>
+        </div>
+        <div className="card" style={{ padding: '12px 14px' }}>
+          <div className="muted" style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Ready</div>
+          <div style={{ fontSize: 22, fontFamily: 'var(--font-display)', color: '#7a9a5a', marginTop: 2 }}>{data.totals.ready}</div>
+        </div>
+        <div className="card" style={{ padding: '12px 14px' }}>
+          <div className="muted" style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Warming</div>
+          <div style={{ fontSize: 22, fontFamily: 'var(--font-display)', color: '#d4a55a', marginTop: 2 }}>{data.totals.warming}</div>
+        </div>
+        <div className="card" style={{ padding: '12px 14px' }}>
+          <div className="muted" style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Total karma</div>
+          <div style={{ fontSize: 22, fontFamily: 'var(--font-display)', color: 'var(--gold-bright)', marginTop: 2 }}>{data.totals.total_karma.toLocaleString()}</div>
+        </div>
+      </div>
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+          <h3>Per-account karma</h3>
+          <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+            Manual snapshots for now. Open <strong>Analytics</strong> in the sidebar to record new ones.
+          </div>
+        </div>
+        {reddit.length === 0 ? (
+          <div className="empty-state" style={{ padding: 30, border: 'none' }}>No Reddit accounts.</div>
+        ) : (
+          <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase' }}>
+                <th style={{ padding: '10px 14px', fontWeight: 500 }}>Account</th>
+                <th style={{ padding: '10px 14px', fontWeight: 500 }}>Post karma</th>
+                <th style={{ padding: '10px 14px', fontWeight: 500 }}>Comment karma</th>
+                <th style={{ padding: '10px 14px', fontWeight: 500 }}>Scheduled</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reddit.map(a => (
+                <tr key={a.id} style={{ borderTop: '1px solid var(--border)' }}>
+                  <td style={{ padding: '8px 14px' }} className="mono">u/{a.username}</td>
+                  <td style={{ padding: '8px 14px' }}>{a.post_karma == null ? <span className="dim">—</span> : a.post_karma.toLocaleString()}</td>
+                  <td style={{ padding: '8px 14px' }}>{a.comment_karma == null ? <span className="dim">—</span> : a.comment_karma.toLocaleString()}</td>
+                  <td style={{ padding: '8px 14px' }}>{a.scheduled_pending}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </div>
   );
 }
