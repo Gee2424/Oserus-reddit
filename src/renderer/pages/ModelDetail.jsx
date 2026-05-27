@@ -35,6 +35,9 @@ export default function ModelDetailPage({ modelId, navigate }) {
   const [proxyForm, setProxyForm] = useState({ label: '', kind: 'http', host: '', port: '', username: '', password: '' });
   const [proxyError, setProxyError] = useState(null);
 
+  const [scheduledPosts, setScheduledPosts] = useState([]);
+  const [activityEntries, setActivityEntries] = useState([]);
+
   const canManage = user.role === 'admin' || user.role === 'manager';
 
   function blankForm() {
@@ -46,11 +49,15 @@ export default function ModelDetailPage({ modelId, navigate }) {
 
   async function load() {
     setLoading(true);
-    const [profilesRes, accountsRes, proxiesRes, promoRes] = await Promise.all([
+    const [profilesRes, accountsRes, proxiesRes, promoRes, schedRes, activityRes] = await Promise.all([
       window.api.profiles.list({ token }),
       window.api.accounts.listForProfile({ token, profileId: Number(modelId) }),
       window.api.proxies.list({ token }),
       window.api.subs.listPromo({ token, profileId: Number(modelId) }),
+      window.api.scheduled.list({ token, profileId: Number(modelId) }),
+      (user.role === 'admin' || user.role === 'manager')
+        ? window.api.activity.list({ token, limit: 20 })
+        : Promise.resolve({ ok: true, entries: [] }),
     ]);
     if (profilesRes.ok) {
       const found = profilesRes.profiles.find(p => p.id === Number(modelId));
@@ -59,6 +66,8 @@ export default function ModelDetailPage({ modelId, navigate }) {
     if (accountsRes.ok) setAccounts(accountsRes.accounts);
     if (proxiesRes.ok) setProxies(proxiesRes.proxies);
     if (promoRes.ok) setPromoSubs(promoRes.subs);
+    if (schedRes.ok) setScheduledPosts(schedRes.posts);
+    if (activityRes.ok) setActivityEntries(activityRes.entries);
     setLoading(false);
   }
 
@@ -447,6 +456,77 @@ export default function ModelDetailPage({ modelId, navigate }) {
           </div>
         )}
       </div>
+
+      <div style={{ marginBottom: 28 }}>
+        <div style={styles.platformHeader}>
+          <span style={{ fontSize: 20 }}>◷</span>
+          <h2>Scheduled posts</h2>
+          <span className="mono dim" style={{ fontSize: 12 }}>
+            {scheduledPosts.filter(p => p.status === 'pending').length} upcoming
+          </span>
+          <div style={{ flex: 1 }} />
+          <button className="ghost" onClick={() => navigate('scheduler')}>Open Scheduler →</button>
+        </div>
+        {scheduledPosts.length === 0 ? (
+          <div className="empty-state" style={{ padding: 22, fontSize: 13 }}>
+            No posts scheduled for this model's accounts yet.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {scheduledPosts.slice(0, 5).map(p => (
+              <div key={p.id} style={styles.accountRow}>
+                <span style={{
+                  padding: '2px 8px', borderRadius: 999, fontSize: 10, fontFamily: 'var(--font-mono)',
+                  background: p.status === 'pending' ? 'rgba(212,166,74,0.12)' : 'rgba(255,255,255,0.04)',
+                  color: p.status === 'pending' ? 'var(--gold-bright)' : 'var(--text-2)',
+                  border: `1px solid ${p.status === 'pending' ? 'var(--gold)' : 'var(--border-strong)'}`,
+                  textTransform: 'uppercase',
+                }}>{p.status}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{p.title}</div>
+                  <div className="muted mono" style={{ fontSize: 11 }}>
+                    r/{p.subreddit} · u/{p.account_username} · {new Date(p.scheduled_for).toLocaleString()}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {scheduledPosts.length > 5 && (
+              <button className="ghost" onClick={() => navigate('scheduler')} style={{ alignSelf: 'flex-start' }}>
+                +{scheduledPosts.length - 5} more in Scheduler
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {(user.role === 'admin' || user.role === 'manager') && activityEntries.length > 0 && (
+        <div style={{ marginBottom: 28 }}>
+          <div style={styles.platformHeader}>
+            <span style={{ fontSize: 20 }}>☷</span>
+            <h2>Recent activity</h2>
+            <div style={{ flex: 1 }} />
+            <button className="ghost" onClick={() => navigate('activity')}>Full log →</button>
+          </div>
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            {activityEntries.slice(0, 6).map((e, i) => (
+              <div key={e.id} style={{
+                padding: '10px 14px',
+                borderTop: i === 0 ? 'none' : '1px solid var(--border)',
+                display: 'flex', alignItems: 'center', gap: 10, fontSize: 13,
+              }}>
+                <span className="mono dim" style={{ fontSize: 11, minWidth: 130 }}>
+                  {new Date(e.created_at + 'Z').toLocaleString()}
+                </span>
+                <span style={{ minWidth: 90 }}>{e.username || <span className="dim">system</span>}</span>
+                <span className="mono" style={{ fontSize: 11, color: 'var(--gold-bright)' }}>{e.action}</span>
+                <span className="muted" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {e.detail}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ marginBottom: 28 }}>
         <div style={styles.platformHeader}>

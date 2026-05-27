@@ -39,7 +39,15 @@ export default function RedditBrowser() {
   const { token, user } = useAuth();
   const canPlaceOrders = user?.role === 'admin' || user?.role === 'manager';
   const { forPlatform } = useActiveAccount();
-  const { active } = forPlatform('reddit');
+  const { active, accounts: redditAccounts, setActive } = forPlatform('reddit');
+
+  // Auto-pick the first available account so the page never just sits there
+  // saying "no account selected". The VA can switch via the AccountSwitcher.
+  useEffect(() => {
+    if (!active && redditAccounts && redditAccounts.length > 0) {
+      setActive(redditAccounts[0].id);
+    }
+  }, [active, redditAccounts]);
 
   const [tabs, setTabs] = useState([]);
   const [activeTabId, setActiveTabId] = useState(null);

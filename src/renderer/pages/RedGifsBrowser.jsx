@@ -11,7 +11,13 @@ function makeTab(url) {
 export default function RedGifsBrowser() {
   const { token } = useAuth();
   const { forPlatform } = useActiveAccount();
-  const { active } = forPlatform('redgifs');
+  const { active, accounts: rgAccounts, setActive } = forPlatform('redgifs');
+
+  useEffect(() => {
+    if (!active && rgAccounts && rgAccounts.length > 0) {
+      setActive(rgAccounts[0].id);
+    }
+  }, [active, rgAccounts]);
 
   const [tabs, setTabs] = useState([]);
   const [activeTabId, setActiveTabId] = useState(null);
