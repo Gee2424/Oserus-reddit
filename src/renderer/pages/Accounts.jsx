@@ -22,6 +22,9 @@ export default function AccountsPage({ navigate }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(blankForm());
   const [error, setError] = useState(null);
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkForm, setBulkForm] = useState({ profileId: '', platform: 'reddit', proxyId: '', status: 'warming', lines: '' });
+  const [bulkResult, setBulkResult] = useState(null);
 
   function blankForm() {
     return {
@@ -143,11 +146,15 @@ export default function AccountsPage({ navigate }) {
           <div className="eyebrow">Manage</div>
           <h1>Reddit Accounts</h1>
         </div>
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <button className="ghost" onClick={() => { setShowBulk(v => !v); setShowAdd(false); }}>
+            {showBulk ? 'Close bulk import' : '↥ Bulk import'}
+          </button>
           <button className="primary" onClick={() => {
             setEditing(null);
             setForm(blankForm());
             setShowAdd(v => !v);
+            setShowBulk(false);
           }}>
             {showAdd ? 'Cancel' : '+ Add account'}
           </button>
@@ -165,6 +172,91 @@ export default function AccountsPage({ navigate }) {
           </button>
         ))}
       </div>
+
+      {showBulk && (
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBulkResult(null);
+            if (!bulkForm.profileId) { setBulkResult({ error: 'Pick a model first' }); return; }
+            if (!bulkForm.lines.trim()) { setBulkResult({ error: 'Paste some credentials first' }); return; }
+            const res = await window.api.accounts.bulkCreate({
+              token, profileId: Number(bulkForm.profileId),
+              platform: bulkForm.platform, status: bulkForm.status,
+              proxyId: bulkForm.proxyId ? Number(bulkForm.proxyId) : null,
+              lines: bulkForm.lines,
+            });
+            if (!res.ok) { setBulkResult({ error: res.error }); return; }
+            setBulkResult({ created: res.created.length, errors: res.errors });
+            if (res.created.length) {
+              setBulkForm({ ...bulkForm, lines: '' });
+              load();
+            }
+          }}
+          className="card"
+          style={{ marginBottom: 22 }}
+        >
+          <h3 style={{ marginBottom: 6 }}>Bulk import</h3>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>
+            One credential per line. Format: <code style={{ color: 'var(--gold-bright)' }}>username:password</code> or <code style={{ color: 'var(--gold-bright)' }}>username:password:email:emailpassword</code>. Lines starting with # are skipped.
+          </div>
+          {bulkResult?.error && <div className="error-banner">{bulkResult.error}</div>}
+          {bulkResult?.created != null && (
+            <div className="card bordered-glow" style={{ marginBottom: 12, padding: 14 }}>
+              <strong>{bulkResult.created} imported.</strong>
+              {bulkResult.errors?.length > 0 && (
+                <div style={{ marginTop: 8, fontSize: 12 }}>
+                  <div className="muted">{bulkResult.errors.length} errors:</div>
+                  <ul style={{ margin: '4px 0 0 18px' }}>
+                    {bulkResult.errors.slice(0, 10).map((e, i) => (
+                      <li key={i}>Line {e.line}{e.username ? ` (${e.username})` : ''}: {e.error}</li>
+                    ))}
+                    {bulkResult.errors.length > 10 && <li>…and {bulkResult.errors.length - 10} more</li>}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 2fr', gap: 10, marginBottom: 12 }}>
+            <div>
+              <label>Model</label>
+              <select value={bulkForm.profileId} onChange={(e) => setBulkForm({ ...bulkForm, profileId: e.target.value })}>
+                <option value="">— pick a model —</option>
+                {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label>Platform</label>
+              <select value={bulkForm.platform} onChange={(e) => setBulkForm({ ...bulkForm, platform: e.target.value })}>
+                <option value="reddit">Reddit</option>
+                <option value="redgifs">RedGifs</option>
+              </select>
+            </div>
+            <div>
+              <label>Initial status</label>
+              <select value={bulkForm.status} onChange={(e) => setBulkForm({ ...bulkForm, status: e.target.value })}>
+                {STATUS_OPTIONS.map(s => <option key={s.v} value={s.v}>{s.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label>Proxy (optional, applied to all)</label>
+              <select value={bulkForm.proxyId} onChange={(e) => setBulkForm({ ...bulkForm, proxyId: e.target.value })}>
+                <option value="">— no proxy —</option>
+                {proxies.map(p => <option key={p.id} value={p.id}>{p.label} ({p.kind})</option>)}
+              </select>
+            </div>
+          </div>
+          <textarea
+            value={bulkForm.lines}
+            onChange={(e) => setBulkForm({ ...bulkForm, lines: e.target.value })}
+            placeholder={'throwaway123:mypassword\nanother_user:pw:user@mail.com:mailpw'}
+            style={{ minHeight: 180, fontFamily: 'var(--font-mono)', fontSize: 12 }}
+          />
+          <div style={{ marginTop: 12 }}>
+            <button type="submit" className="primary">Import all</button>
+          </div>
+        </form>
+      )}
 
       {showAdd && (
         <form onSubmit={submit} className="card" style={{ marginBottom: 22 }}>

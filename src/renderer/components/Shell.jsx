@@ -17,6 +17,7 @@ const NAV = [
   { key: 'profiles', label: 'Models', icon: '◇', group: 'Manage', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
   { key: 'accounts', label: 'Accounts', icon: '◈', group: 'Manage', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
   { key: 'users', label: 'Team', icon: '◉', group: 'Manage', roles: ['admin', 'manager'] },
+  { key: 'activity', label: 'Activity', icon: '☷', group: 'Manage', roles: ['admin', 'manager'] },
 
   { key: 'reddit', label: 'Reddit', icon: 'R', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
   { key: 'redgifs', label: 'RedGifs', icon: 'G', group: 'Operate', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },

@@ -33,9 +33,16 @@ const api = {
     listForProfile: (data) => ipcRenderer.invoke('accounts:listForProfile', data),
     listForUser: (data) => ipcRenderer.invoke('accounts:listForUser', data),
     create: (data) => ipcRenderer.invoke('accounts:create', data),
+    bulkCreate: (data) => ipcRenderer.invoke('accounts:bulkCreate', data),
     update: (data) => ipcRenderer.invoke('accounts:update', data),
     getCredentials: (data) => ipcRenderer.invoke('accounts:getCredentials', data),
     delete: (data) => ipcRenderer.invoke('accounts:delete', data),
+  },
+  activity: {
+    list: (data) => ipcRenderer.invoke('activity:list', data),
+  },
+  reddit: {
+    precheckSubreddit: (data) => ipcRenderer.invoke('reddit:precheckSubreddit', data),
   },
   proxies: {
     list: (data) => ipcRenderer.invoke('proxies:list', data),

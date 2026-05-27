@@ -1,5 +1,6 @@
 const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
+const { log } = require('./activity');
 
 // upvote.biz uses the SMM-panel-standard API: POST form-encoded body to /api/v2
 // with key=API_KEY and action=balance|services|add|status. If their base URL
@@ -150,6 +151,7 @@ function register(ipcMain) {
         'pending',
         user.id
       );
+      log(user, 'votes.order', 'order', remoteId, `${serviceName || serviceId} qty=${quantity} link=${link}`);
       return { ok: true, orderId: remoteId };
     } catch (err) {
       return { ok: false, error: err.message };

@@ -19,6 +19,7 @@ import DocsPage from './pages/Docs.jsx';
 import AnalyticsPage from './pages/Analytics.jsx';
 import SchedulerPage from './pages/Scheduler.jsx';
 import InboxPage from './pages/Inbox.jsx';
+import ActivityPage from './pages/Activity.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
 function Inner() {
@@ -56,6 +57,7 @@ function Inner() {
       case 'analytics': return <AnalyticsPage />;
       case 'scheduler': return <SchedulerPage />;
       case 'inbox': return <InboxPage />;
+      case 'activity': return <ActivityPage />;
       default: return <DashboardPage navigate={navigate} />;
     }
   })();

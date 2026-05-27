@@ -17,6 +17,8 @@ const registerVotesHandlers = require('./ipc/votes');
 const registerDocsHandlers = require('./ipc/docs');
 const registerScheduledHandlers = require('./ipc/scheduled');
 const registerAnalyticsHandlers = require('./ipc/analytics');
+const registerActivityHandlers = require('./ipc/activity');
+const registerRedditHandlers = require('./ipc/reddit');
 
 const isDev = !app.isPackaged;
 let mainWindow;
@@ -138,6 +140,8 @@ app.whenReady().then(() => {
   registerDocsHandlers(ipcMain);
   registerScheduledHandlers(ipcMain);
   registerAnalyticsHandlers(ipcMain);
+  registerActivityHandlers(ipcMain);
+  registerRedditHandlers(ipcMain);
 
   createWindow();
   initAutoUpdater(mainWindow);

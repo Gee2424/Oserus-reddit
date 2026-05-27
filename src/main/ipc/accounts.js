@@ -1,5 +1,6 @@
 const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
+const { log } = require('./activity');
 
 function canAccessProfile(user, profileId) {
   if (user.role === 'admin') return true;
@@ -97,6 +98,7 @@ function register(ipcMain) {
           encryptSecret(password), email || null, encryptSecret(emailPassword),
           status || 'warming', proxyId || null, notes || null
         );
+      log(user, 'account.create', 'account', info.lastInsertRowid, `${plat} u/${username}`);
       return { ok: true, id: info.lastInsertRowid, partitionKey };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -164,7 +166,59 @@ function register(ipcMain) {
       if (!acct) throw new Error('Account not found');
       if (!canAccessProfile(user, acct.profile_id)) throw new Error('Not authorized');
       getDb().prepare('DELETE FROM reddit_accounts WHERE id = ?').run(accountId);
+      log(user, 'account.delete', 'account', accountId, `${acct.platform} u/${acct.username}`);
       return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // Bulk import: parses one credential per line. Supported formats:
+  //   username:password
+  //   username:password:email:emailpassword
+  // Blank lines and comments (lines starting with #) are skipped.
+  ipcMain.handle('accounts:bulkCreate', (_e, { token, profileId, platform, proxyId, status, lines }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      if (!canAccessProfile(user, profileId)) throw new Error('Not authorized for this profile');
+      const plat = platform || 'reddit';
+      if (!['reddit', 'redgifs'].includes(plat)) throw new Error('Invalid platform');
+
+      const input = String(lines || '').split(/\r?\n/);
+      const created = [];
+      const errors = [];
+
+      const insert = getDb().prepare(
+        `INSERT INTO reddit_accounts
+         (profile_id, platform, username, partition_key, password_encrypted, email, email_password_encrypted, status, proxy_id)
+         VALUES (?,?,?,?,?,?,?,?,?)`
+      );
+
+      const txn = getDb().transaction(() => {
+        for (let i = 0; i < input.length; i++) {
+          const raw = input[i].trim();
+          if (!raw || raw.startsWith('#')) continue;
+          const parts = raw.split(':');
+          const [u, p, e, ep] = parts;
+          if (!u || !p) { errors.push({ line: i + 1, error: 'Need username:password' }); continue; }
+          const cleanUser = u.trim().replace(/^[u@]\//, '').replace(/^@/, '');
+          try {
+            const partitionKey = `${plat}-${profileId}-${cleanUser.toLowerCase().replace(/[^a-z0-9_-]/g, '')}-${Date.now()}-${i}`;
+            const info = insert.run(
+              profileId, plat, cleanUser, partitionKey,
+              encryptSecret(p), e || null, encryptSecret(ep || null),
+              status || 'warming', proxyId || null
+            );
+            created.push({ id: info.lastInsertRowid, username: cleanUser });
+          } catch (err) {
+            errors.push({ line: i + 1, username: cleanUser, error: err.message });
+          }
+        }
+      });
+      txn();
+      log(user, 'account.bulkImport', 'profile', profileId, `imported ${created.length} ${plat} (${errors.length} errors)`);
+      return { ok: true, created, errors };
     } catch (err) {
       return { ok: false, error: err.message };
     }
