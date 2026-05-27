@@ -1,11 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 
-// Full upvote.biz ordering UI — balance, place-order form, recent orders table.
-// Used on the Operations page (primary surface for VAs) and the Infrastructure
-// page (deep-dive view). `compact` shrinks margins for embedding.
-export default function UpvotesPanel({ compact }) {
+// Full upvote.biz workspace — at-a-glance stats, order placement with cost
+// preview, and a polished orders table. Lives on Operations → Upvotes.
+export default function UpvotesPanel() {
   const { token } = useAuth();
   const can = useCan();
   const isAdmin = can('infra.upvotes.admin');
@@ -18,9 +17,10 @@ export default function UpvotesPanel({ compact }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [ok, setOk] = useState(null);
+  const [serviceSearch, setServiceSearch] = useState('');
 
   const [form, setForm] = useState({ serviceId: '', link: '', quantity: '' });
-  const [refills, setRefills] = useState({}); // { [remoteOrderId]: { refillId, status } }
+  const [refills, setRefills] = useState({});
 
   async function refreshAll() {
     setErr(null);
@@ -44,17 +44,55 @@ export default function UpvotesPanel({ compact }) {
 
   const selectedService = services.find((s) => String(s.service) === String(form.serviceId));
 
-  const servicesByCategory = services.reduce((acc, s) => {
+  const filteredServices = useMemo(() => {
+    const q = serviceSearch.trim().toLowerCase();
+    if (!q) return services;
+    return services.filter((s) =>
+      `${s.name || ''} ${s.category || ''} ${s.type || ''}`.toLowerCase().includes(q)
+    );
+  }, [services, serviceSearch]);
+
+  const servicesByCategory = filteredServices.reduce((acc, s) => {
     const cat = s.category || 'Other';
     (acc[cat] = acc[cat] || []).push(s);
     return acc;
   }, {});
   const sortedCategories = Object.keys(servicesByCategory).sort();
 
+  const estimatedCost = useMemo(() => {
+    if (!selectedService || !form.quantity || !selectedService.rate) return null;
+    const rate = parseFloat(selectedService.rate);
+    const qty = parseFloat(form.quantity);
+    if (!isFinite(rate) || !isFinite(qty)) return null;
+    return (rate * qty / 1000).toFixed(2);
+  }, [selectedService, form.quantity]);
+
+  // Stats from the orders list
+  const stats = useMemo(() => {
+    const s = { pending: 0, completed: 0, totalSpent: 0, currency: '' };
+    for (const o of orders) {
+      const st = (o.status || '').toLowerCase();
+      if (st === 'completed') s.completed += 1;
+      else if (st === 'in progress' || st === 'processing' || st === 'pending' || !st) s.pending += 1;
+      const c = parseFloat(o.charge);
+      if (isFinite(c)) { s.totalSpent += c; s.currency = o.currency || s.currency; }
+    }
+    return s;
+  }, [orders]);
+
   async function placeOrder(e) {
     e.preventDefault();
     setErr(null); setOk(null);
     if (!form.serviceId || !form.link || !form.quantity) { setErr('Fill in service, link, and quantity'); return; }
+    if (selectedService) {
+      const qty = Number(form.quantity);
+      if (selectedService.min && qty < Number(selectedService.min)) {
+        setErr(`Quantity must be at least ${selectedService.min} for this service`); return;
+      }
+      if (selectedService.max && qty > Number(selectedService.max)) {
+        setErr(`Quantity must be at most ${selectedService.max} for this service`); return;
+      }
+    }
     const res = await window.api.votes.order({
       token,
       serviceId: form.serviceId,
@@ -79,7 +117,7 @@ export default function UpvotesPanel({ compact }) {
     const res = await window.api.votes.refill({ token, remoteOrderId });
     if (!res.ok) { setErr(res.error); return; }
     setRefills((m) => ({ ...m, [remoteOrderId]: { refillId: res.refillId, status: 'Pending' } }));
-    setOk(`Refill requested. Refill ID: ${res.refillId}`);
+    setOk(`Refill #${res.refillId} requested.`);
   }
 
   async function checkRefillStatus(remoteOrderId) {
@@ -99,18 +137,18 @@ export default function UpvotesPanel({ compact }) {
     const res = await window.api.votes.statusMulti({ token, remoteOrderIds: ids });
     setLoading(false);
     if (!res.ok) { setErr(res.error); return; }
-    // Backend persists statuses; just reload the orders list.
     refreshAll();
   }
 
   if (!hasKey) {
     return (
-      <div className="card">
-        <h3>No upvote.biz API key configured</h3>
-        <div className="muted" style={{ fontSize: 13, marginTop: 6 }}>
+      <div className="card" style={{ padding: 30, textAlign: 'center' }}>
+        <div style={{ fontSize: 28, marginBottom: 8 }}>▲</div>
+        <h3 style={{ marginBottom: 6 }}>upvote.biz isn't connected yet</h3>
+        <div className="muted" style={{ fontSize: 13, maxWidth: 520, margin: '0 auto', lineHeight: 1.6 }}>
           {isAdmin
-            ? 'Open Settings to add your upvote.biz API key. It will be stored encrypted using the OS keychain.'
-            : 'Ask an admin to add the upvote.biz API key in Settings.'}
+            ? 'Open Settings and paste your upvote.biz API key. It will be stored encrypted using the OS keychain.'
+            : 'Ask an admin to add the upvote.biz API key in Settings. Once connected, you can place orders and track them here.'}
         </div>
       </div>
     );
@@ -118,144 +156,214 @@ export default function UpvotesPanel({ compact }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 14, marginBottom: compact ? 10 : 14 }}>
-        {balance && (
-          <div className="card" style={{ padding: '8px 14px', margin: 0 }}>
-            <div className="muted" style={{ fontSize: 11 }}>Balance</div>
-            <div className="mono" style={{ fontSize: 15, color: 'var(--gold)' }}>
-              {balance.balance} {balance.currency || ''}
-            </div>
-          </div>
-        )}
-        <button className="ghost" onClick={syncAll} disabled={loading || !orders.length}>Sync all</button>
-        <button className="ghost" onClick={refreshAll} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+      {/* Stat tiles */}
+      <div style={statRow}>
+        <StatTile
+          label="Balance"
+          value={balance ? `$${balance.balance}` : '—'}
+          sub={balance?.currency}
+          accent="gold"
+        />
+        <StatTile
+          label="Pending"
+          value={stats.pending}
+          sub="orders in flight"
+        />
+        <StatTile
+          label="Completed"
+          value={stats.completed}
+          sub="lifetime"
+          accent="green"
+        />
+        <StatTile
+          label="Total spent"
+          value={stats.totalSpent ? `$${stats.totalSpent.toFixed(2)}` : '—'}
+          sub={stats.currency || ''}
+        />
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <button className="ghost" onClick={syncAll} disabled={loading || !orders.length}>
+            ↻ Sync all
+          </button>
+          <button className="ghost" onClick={refreshAll} disabled={loading}>
+            {loading ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {err && <div className="error-banner" style={{ marginBottom: 14 }}>{err}</div>}
       {ok && <div style={okBanner}>{ok}</div>}
 
+      {/* Place order */}
       {canPlaceOrders && (
-      <div className="card" style={{ marginBottom: compact ? 14 : 22 }}>
-        <h3 style={{ marginBottom: 4 }}>Place an order</h3>
-        <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>
-          Only Reddit-related services from upvote.biz are listed below.
-        </div>
-        <form onSubmit={placeOrder} style={{ display: 'grid', gridTemplateColumns: '2fr 3fr 1fr auto', gap: 10, alignItems: 'end' }}>
-          <div>
-            <label>Service</label>
-            <select value={form.serviceId} onChange={(e) => setForm({ ...form, serviceId: e.target.value })}>
-              <option value="">— pick a service —</option>
-              {sortedCategories.map((cat) => (
-                <optgroup key={cat} label={cat}>
-                  {servicesByCategory[cat].map((s) => {
-                    const flags = [];
-                    if (s.refill) flags.push('↻refill');
-                    if (s.dripfeed) flags.push('drip');
-                    return (
-                      <option key={s.service} value={s.service}>
-                        {s.name} {s.rate ? `(${s.rate}/1k)` : ''}{flags.length ? ` · ${flags.join(' · ')}` : ''}
-                      </option>
-                    );
-                  })}
-                </optgroup>
-              ))}
-            </select>
+        <div className="card bordered-glow" style={{ marginBottom: 22, padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
+            <h3 style={{ margin: 0 }}>Place an order</h3>
+            <div className="muted" style={{ fontSize: 12 }}>
+              Reddit services from upvote.biz only.
+            </div>
+          </div>
+
+          <form onSubmit={placeOrder}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1.6fr 0.7fr auto', gap: 12, alignItems: 'end', marginTop: 14 }}>
+              <div>
+                <label>Service</label>
+                <input
+                  placeholder="Search services…"
+                  value={serviceSearch}
+                  onChange={(e) => setServiceSearch(e.target.value)}
+                  style={{ marginBottom: 6 }}
+                />
+                <select value={form.serviceId} onChange={(e) => setForm({ ...form, serviceId: e.target.value })}>
+                  <option value="">— pick a service —</option>
+                  {sortedCategories.map((cat) => (
+                    <optgroup key={cat} label={cat}>
+                      {servicesByCategory[cat].map((s) => {
+                        const flags = [];
+                        if (s.refill) flags.push('↻');
+                        if (s.dripfeed) flags.push('drip');
+                        return (
+                          <option key={s.service} value={s.service}>
+                            {s.name} {s.rate ? `· $${s.rate}/1k` : ''}{flags.length ? ` · ${flags.join(' ')}` : ''}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label>Reddit URL</label>
+                <input
+                  type="url"
+                  placeholder="https://www.reddit.com/r/.../comments/..."
+                  value={form.link}
+                  onChange={(e) => setForm({ ...form, link: e.target.value })}
+                />
+              </div>
+              <div>
+                <label>Quantity</label>
+                <input
+                  type="number"
+                  min={selectedService?.min || 1}
+                  max={selectedService?.max || undefined}
+                  placeholder={selectedService ? `${selectedService.min}–${selectedService.max}` : ''}
+                  value={form.quantity}
+                  onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+                />
+              </div>
+              <button type="submit" className="primary" style={{ height: 38, minWidth: 110 }}>
+                {estimatedCost ? `Order · $${estimatedCost}` : 'Order'}
+              </button>
+            </div>
+
             {selectedService && (
-              <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-                min {selectedService.min} · max {selectedService.max}
-                {selectedService.rate ? ` · $${selectedService.rate}/1k` : ''}
-                {selectedService.type ? ` · ${selectedService.type}` : ''}
-                {selectedService.refill ? ' · ↻ refill supported' : ''}
-                {selectedService.dripfeed ? ' · dripfeed' : ''}
+              <div style={serviceDetails}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{selectedService.name}</div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                    {selectedService.category || 'Reddit'}{selectedService.type ? ` · ${selectedService.type}` : ''}
+                  </div>
+                </div>
+                <Pill>min {selectedService.min}</Pill>
+                <Pill>max {selectedService.max}</Pill>
+                {selectedService.rate && <Pill accent="gold">${selectedService.rate}/1k</Pill>}
+                {selectedService.refill && <Pill accent="green">↻ refill</Pill>}
+                {selectedService.dripfeed && <Pill>dripfeed</Pill>}
               </div>
             )}
-          </div>
-          <div>
-            <label>Reddit URL</label>
-            <input
-              type="url"
-              placeholder="https://www.reddit.com/r/.../comments/..."
-              value={form.link}
-              onChange={(e) => setForm({ ...form, link: e.target.value })}
-            />
-          </div>
-          <div>
-            <label>Quantity</label>
-            <input
-              type="number"
-              min="1"
-              value={form.quantity}
-              onChange={(e) => setForm({ ...form, quantity: e.target.value })}
-            />
-          </div>
-          <button type="submit" className="primary">Order</button>
-        </form>
-      </div>
+          </form>
+        </div>
       )}
 
-      <div className="card">
-        <h3 style={{ marginBottom: 12 }}>Recent orders</h3>
+      {/* Orders */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h3 style={{ margin: 0 }}>Recent orders</h3>
+          <span className="mono dim" style={{ fontSize: 12 }}>{orders.length}</span>
+        </div>
         {orders.length === 0 ? (
-          <div className="empty-state" style={{ padding: 22 }}>No orders yet.</div>
+          <div className="empty-state" style={{ padding: 40, border: 'none' }}>No orders yet. Place one above to get started.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase' }}>
-                  <th style={smTh}>#</th>
-                  <th style={smTh}>Service</th>
-                  <th style={smTh}>Link</th>
-                  <th style={smTh}>Qty</th>
-                  <th style={smTh}>Start</th>
-                  <th style={smTh}>Remains</th>
-                  <th style={smTh}>Charge</th>
-                  <th style={smTh}>Status</th>
-                  <th style={smTh}>Refill</th>
-                  <th style={smTh}>Placed</th>
-                  <th style={smTh}></th>
+                <tr style={{ background: 'var(--bg-1)' }}>
+                  <th style={th}>#</th>
+                  <th style={th}>Service</th>
+                  <th style={th}>Target</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Qty</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Start</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Remains</th>
+                  <th style={{ ...th, textAlign: 'right' }}>Charge</th>
+                  <th style={th}>Status</th>
+                  <th style={th}>Refill</th>
+                  <th style={th}>Placed</th>
+                  <th style={th}></th>
                 </tr>
               </thead>
               <tbody>
-                {orders.map((o) => (
-                  <tr key={o.id} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td style={smTd} className="mono">{o.remote_order_id}</td>
-                    <td style={smTd}>{o.service_name || o.service_id}</td>
-                    <td style={smTd}>
-                      <a href={o.link} target="_blank" rel="noreferrer" style={{ color: 'var(--gold)' }}>
-                        {o.link.length > 50 ? `${o.link.slice(0, 50)}…` : o.link}
-                      </a>
-                    </td>
-                    <td style={smTd}>{o.quantity}</td>
-                    <td style={smTd}>{o.start_count ?? '—'}</td>
-                    <td style={smTd}>{o.remains ?? '—'}</td>
-                    <td style={smTd}>{o.charge ? `${o.charge} ${o.currency || ''}` : '—'}</td>
-                    <td style={smTd}>
-                      <span style={statusStyle(o.status)}>{o.status || '—'}</span>
-                    </td>
-                    <td style={smTd}>
-                      {refills[o.remote_order_id] ? (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <span className="mono dim" style={{ fontSize: 11 }}>#{refills[o.remote_order_id].refillId}</span>
-                          <span style={statusStyle(refills[o.remote_order_id].status)}>
-                            {refills[o.remote_order_id].status}
+                {orders.map((o) => {
+                  const progress = o.quantity && o.remains != null
+                    ? Math.min(100, Math.max(0, ((o.quantity - Number(o.remains)) / o.quantity) * 100))
+                    : null;
+                  return (
+                    <tr key={o.id} style={tr}>
+                      <td style={td} className="mono dim">#{o.remote_order_id}</td>
+                      <td style={td}>{o.service_name || `service ${o.service_id}`}</td>
+                      <td style={td}>
+                        <a href={o.link} target="_blank" rel="noreferrer" style={linkA} title={o.link}>
+                          {shortLink(o.link)}
+                        </a>
+                      </td>
+                      <td style={{ ...td, textAlign: 'right' }} className="mono">{o.quantity}</td>
+                      <td style={{ ...td, textAlign: 'right' }} className="mono">{o.start_count ?? '—'}</td>
+                      <td style={{ ...td, textAlign: 'right' }} className="mono">{o.remains ?? '—'}</td>
+                      <td style={{ ...td, textAlign: 'right' }} className="mono">{o.charge ? `${o.charge} ${o.currency || ''}` : '—'}</td>
+                      <td style={td}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={statusStyle(o.status)}>{o.status || '—'}</span>
+                          {progress != null && progress > 0 && progress < 100 && (
+                            <div style={progBar}><div style={{ ...progFill, width: `${progress}%` }} /></div>
+                          )}
+                        </div>
+                      </td>
+                      <td style={td}>
+                        {refills[o.remote_order_id] ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <span className="mono dim" style={{ fontSize: 11 }}>#{refills[o.remote_order_id].refillId}</span>
+                            <span style={statusStyle(refills[o.remote_order_id].status)}>
+                              {refills[o.remote_order_id].status}
+                            </span>
+                            <button
+                              className="ghost"
+                              onClick={() => checkRefillStatus(o.remote_order_id)}
+                              style={tinyBtn}
+                              title="Check refill status"
+                            >↻</button>
                           </span>
-                          <button className="ghost" onClick={() => checkRefillStatus(o.remote_order_id)} style={{ fontSize: 10, padding: '2px 6px' }}>↻</button>
-                        </span>
-                      ) : <span className="dim">—</span>}
-                    </td>
-                    <td style={smTd} className="muted" suppressHydrationWarning>
-                      {o.created_at ? new Date(o.created_at + 'Z').toLocaleString() : '—'}
-                    </td>
-                    <td style={smTd}>
-                      <button className="ghost" onClick={() => refreshOrder(o.id)}>Sync</button>
-                      {canPlaceOrders && (
-                        <button className="ghost" onClick={() => refillOrder(o.remote_order_id)} style={{ marginLeft: 4 }}>
-                          Refill
+                        ) : <span className="dim">—</span>}
+                      </td>
+                      <td style={td} className="muted" suppressHydrationWarning>
+                        {o.created_at ? new Date(o.created_at + 'Z').toLocaleString() : '—'}
+                      </td>
+                      <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button className="ghost" onClick={() => refreshOrder(o.id)} style={tinyBtn} title="Refresh this order">
+                          Sync
                         </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                        {canPlaceOrders && (
+                          <button
+                            className="ghost"
+                            onClick={() => refillOrder(o.remote_order_id)}
+                            style={{ ...tinyBtn, marginLeft: 4 }}
+                            title="Request a refill from upvote.biz"
+                          >
+                            Refill
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -265,17 +373,130 @@ export default function UpvotesPanel({ compact }) {
   );
 }
 
-function statusStyle(status) {
-  const s = (status || '').toLowerCase();
-  const base = { padding: '2px 8px', borderRadius: 3, fontSize: 11, textTransform: 'capitalize' };
-  if (s === 'completed') return { ...base, background: 'rgba(122,154,90,0.15)', color: '#bdd5a3' };
-  if (s === 'in progress' || s === 'processing') return { ...base, background: 'rgba(201,162,39,0.15)', color: 'var(--gold)' };
-  if (s === 'canceled' || s === 'cancelled' || s === 'partial') return { ...base, background: 'rgba(180,90,90,0.15)', color: '#e2a3a3' };
-  return { ...base, background: 'rgba(255,255,255,0.05)', color: 'var(--muted)' };
+function StatTile({ label, value, sub, accent }) {
+  const color = accent === 'gold' ? 'var(--gold-bright)' : accent === 'green' ? 'var(--green-bright)' : 'var(--text-1)';
+  return (
+    <div style={statTile}>
+      <div style={statLabel}>{label}</div>
+      <div style={{ ...statValue, color }}>{value}</div>
+      {sub && <div style={statSub}>{sub}</div>}
+    </div>
+  );
 }
 
-const smTh = { padding: '6px 8px', fontWeight: 500 };
-const smTd = { padding: '8px', verticalAlign: 'middle' };
+function Pill({ children, accent }) {
+  const color = accent === 'gold' ? 'var(--gold)' : accent === 'green' ? '#bdd5a3' : 'var(--text-2)';
+  const bg = accent === 'gold' ? 'rgba(212,166,74,0.12)' : accent === 'green' ? 'rgba(122,154,90,0.12)' : 'var(--bg-elev)';
+  return (
+    <span style={{
+      fontFamily: 'var(--font-mono)', fontSize: 11, padding: '3px 9px', borderRadius: 999,
+      background: bg, color, border: '1px solid var(--border)', whiteSpace: 'nowrap',
+    }}>
+      {children}
+    </span>
+  );
+}
+
+function shortLink(link) {
+  if (!link) return '';
+  // Strip protocol and "www.reddit.com" prefix for compactness
+  return link
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/^reddit\.com\//, '')
+    .slice(0, 56) + (link.length > 56 ? '…' : '');
+}
+
+function statusStyle(status) {
+  const s = (status || '').toLowerCase();
+  const base = {
+    display: 'inline-block', padding: '2px 9px', borderRadius: 999,
+    fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 500, textTransform: 'capitalize',
+    border: '1px solid transparent',
+  };
+  if (s === 'completed') return { ...base, background: 'rgba(122,154,90,0.15)', color: '#bdd5a3', borderColor: 'rgba(122,154,90,0.4)' };
+  if (s === 'in progress' || s === 'processing') return { ...base, background: 'rgba(201,162,39,0.15)', color: 'var(--gold)', borderColor: 'rgba(201,162,39,0.4)' };
+  if (s === 'pending') return { ...base, background: 'rgba(120,140,160,0.12)', color: 'var(--text-2)', borderColor: 'rgba(120,140,160,0.3)' };
+  if (s === 'canceled' || s === 'cancelled' || s === 'partial') return { ...base, background: 'rgba(180,90,90,0.15)', color: '#e2a3a3', borderColor: 'rgba(180,90,90,0.4)' };
+  return { ...base, background: 'rgba(255,255,255,0.04)', color: 'var(--muted)', borderColor: 'var(--border)' };
+}
+
+const statRow = {
+  display: 'flex',
+  gap: 12,
+  marginBottom: 18,
+  alignItems: 'stretch',
+};
+const statTile = {
+  background: 'var(--bg-2)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-lg)',
+  padding: '12px 16px',
+  minWidth: 130,
+};
+const statLabel = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10,
+  letterSpacing: '0.15em',
+  textTransform: 'uppercase',
+  color: 'var(--text-3)',
+};
+const statValue = {
+  fontFamily: 'var(--font-display)',
+  fontSize: 22,
+  fontWeight: 600,
+  marginTop: 4,
+  lineHeight: 1.1,
+};
+const statSub = {
+  fontSize: 10,
+  color: 'var(--text-3)',
+  marginTop: 2,
+  fontFamily: 'var(--font-mono)',
+};
+const serviceDetails = {
+  marginTop: 14,
+  padding: '10px 14px',
+  background: 'var(--bg-1)',
+  borderRadius: 'var(--radius)',
+  border: '1px solid var(--border)',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  flexWrap: 'wrap',
+};
+const th = {
+  textAlign: 'left',
+  padding: '10px 14px',
+  fontSize: 10,
+  textTransform: 'uppercase',
+  letterSpacing: '0.1em',
+  color: 'var(--text-3)',
+  fontWeight: 500,
+  fontFamily: 'var(--font-mono)',
+};
+const td = { padding: '10px 14px', verticalAlign: 'middle' };
+const tr = { borderTop: '1px solid var(--border)' };
+const linkA = {
+  color: 'var(--gold)',
+  textDecoration: 'none',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 12,
+};
+const tinyBtn = { fontSize: 11, padding: '4px 10px' };
+const progBar = {
+  height: 3,
+  background: 'var(--bg-elev)',
+  borderRadius: 2,
+  overflow: 'hidden',
+  width: '100%',
+  minWidth: 70,
+};
+const progFill = {
+  height: '100%',
+  background: 'linear-gradient(90deg, var(--gold), var(--green-bright))',
+  transition: 'width 0.3s',
+};
 const okBanner = {
   background: 'rgba(122,154,90,0.12)',
   border: '1px solid var(--ok)',
