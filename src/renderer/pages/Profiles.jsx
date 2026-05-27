@@ -1,11 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
 
 const COLORS = ['#c8553d', '#d4a55a', '#7a9a5a', '#5a7a9a', '#9a5a8e', '#8e6a4a'];
 
 export default function ProfilesPage({ navigate }) {
   const { token, user } = useAuth();
+  const { startAccount } = useActiveAccount();
   const [profiles, setProfiles] = useState([]);
+
+  async function playModel(profileId, platform = 'reddit') {
+    const res = await window.api.accounts.listForProfile({ token, profileId, platform });
+    if (!res.ok || !res.accounts.length) {
+      alert(`No ${platform} accounts on this model yet. Open the model and link one.`);
+      return;
+    }
+    const pick = pickPreferredAccount(res.accounts);
+    await startAccount(pick.id);
+    navigate(platform);
+  }
+
   const [users, setUsers] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blank());
@@ -150,17 +164,28 @@ export default function ProfilesPage({ navigate }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
           {profiles.map((p) => (
             <div key={p.id} className="card" style={{ borderLeft: `3px solid ${p.avatar_color || 'var(--accent)'}`, padding: 0, overflow: 'hidden' }}>
-              <div
-                onClick={() => navigate && navigate('model', { modelId: p.id })}
-                style={{ padding: 18, cursor: 'pointer', transition: 'background 0.12s' }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--bg-2)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-              >
+              <div style={{ padding: 18, position: 'relative' }}>
+                <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', gap: 6, zIndex: 2 }}>
+                  <button
+                    title="Start Reddit browser as this model's first account"
+                    onClick={(e) => { e.stopPropagation(); playModel(p.id, 'reddit'); }}
+                    style={{
+                      width: 38, height: 38, borderRadius: '50%', padding: 0,
+                      display: 'grid', placeItems: 'center', fontSize: 14,
+                      background: 'var(--gradient-brand)', color: '#1a1a14',
+                      border: '1px solid var(--gold)', cursor: 'pointer',
+                      boxShadow: '0 2px 8px rgba(212,166,74,0.35)',
+                    }}
+                  >▶</button>
+                </div>
+                <div
+                  onClick={() => navigate && navigate('model', { modelId: p.id })}
+                  style={{ cursor: 'pointer', paddingRight: 52 }}
+                >
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
                   <h3>{p.name}</h3>
                   {p.niche && <span className="pill">{p.niche}</span>}
                   <div style={{ flex: 1 }} />
-                  <span className="mono dim" style={{ fontSize: 11 }}>→ view</span>
                 </div>
                 <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
                   {p.account_count} accounts ({p.ready_count} ready)
@@ -168,6 +193,7 @@ export default function ProfilesPage({ navigate }) {
                 </div>
                 {p.brand_voice && <div className="muted" style={{ fontSize: 12, marginBottom: 8, fontStyle: 'italic' }}>"{p.brand_voice}"</div>}
                 {p.notes && <div className="muted" style={{ fontSize: 12 }}>{p.notes}</div>}
+                </div>
               </div>
               {canManage && (
                 <div style={{ padding: 18, paddingTop: 12, borderTop: '1px solid var(--border)', background: 'var(--bg-1)' }}>

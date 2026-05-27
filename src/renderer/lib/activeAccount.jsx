@@ -3,6 +3,16 @@ import { useAuth } from './auth.jsx';
 
 const ActiveAccountCtx = createContext(null);
 
+// Preference order when auto-picking which account to "start" — ready first,
+// then warming, then paused, banned last. Shared by play buttons.
+const STATUS_PRIORITY = { ready: 0, warming: 1, paused: 2, banned: 3 };
+export function pickPreferredAccount(accounts) {
+  if (!accounts || !accounts.length) return null;
+  return [...accounts].sort(
+    (a, b) => (STATUS_PRIORITY[a.status] ?? 99) - (STATUS_PRIORITY[b.status] ?? 99)
+  )[0];
+}
+
 // Each platform tracks its own active account independently.
 // localStorage keys: activeAccount_reddit, activeAccount_redgifs
 function loadActive(platform) {

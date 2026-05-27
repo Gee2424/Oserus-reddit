@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
-import { useActiveAccount } from '../lib/activeAccount.jsx';
+import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
 
 const STATUS_OPTIONS = [
   { v: 'warming', label: 'Warming up' },
@@ -37,6 +37,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
 
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [activityEntries, setActivityEntries] = useState([]);
+  const [modelDocs, setModelDocs] = useState([]);
 
   const canManage = user.role === 'admin' || user.role === 'manager';
 
@@ -49,7 +50,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
 
   async function load() {
     setLoading(true);
-    const [profilesRes, accountsRes, proxiesRes, promoRes, schedRes, activityRes] = await Promise.all([
+    const [profilesRes, accountsRes, proxiesRes, promoRes, schedRes, activityRes, docsRes] = await Promise.all([
       window.api.profiles.list({ token }),
       window.api.accounts.listForProfile({ token, profileId: Number(modelId) }),
       window.api.proxies.list({ token }),
@@ -58,6 +59,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
       (user.role === 'admin' || user.role === 'manager')
         ? window.api.activity.list({ token, limit: 20 })
         : Promise.resolve({ ok: true, entries: [] }),
+      window.api.docs.list({ token, profileId: Number(modelId) }),
     ]);
     if (profilesRes.ok) {
       const found = profilesRes.profiles.find(p => p.id === Number(modelId));
@@ -68,6 +70,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
     if (promoRes.ok) setPromoSubs(promoRes.subs);
     if (schedRes.ok) setScheduledPosts(schedRes.posts);
     if (activityRes.ok) setActivityEntries(activityRes.entries);
+    if (docsRes.ok) setModelDocs(docsRes.docs);
     setLoading(false);
   }
 
@@ -235,6 +238,28 @@ export default function ModelDetailPage({ modelId, navigate }) {
             <span className="mono dim">{accounts.filter(a => a.platform !== 'redgifs').length} Reddit · {accounts.filter(a => a.platform === 'redgifs').length} RedGifs · {modelProxies.length} proxies</span>
             {model.assigned_to_name && <>Assigned to <span style={{ color: 'var(--text-1)' }}>{model.assigned_to_username}</span></>}
           </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {accounts.some(a => a.platform !== 'redgifs') && (
+            <button
+              title="Start the first Reddit account and open the Reddit browser"
+              onClick={async () => {
+                const pick = pickPreferredAccount(accounts.filter(a => a.platform !== 'redgifs'));
+                if (pick) { await startAccount(pick.id); navigate('reddit'); }
+              }}
+              style={playBtnStyle}
+            >▶ Reddit</button>
+          )}
+          {accounts.some(a => a.platform === 'redgifs') && (
+            <button
+              title="Start the first RedGifs account and open the RedGifs browser"
+              onClick={async () => {
+                const pick = pickPreferredAccount(accounts.filter(a => a.platform === 'redgifs'));
+                if (pick) { await startAccount(pick.id); navigate('redgifs'); }
+              }}
+              style={playBtnStyle}
+            >▶ RedGifs</button>
+          )}
         </div>
       </div>
 
@@ -530,6 +555,45 @@ export default function ModelDetailPage({ modelId, navigate }) {
 
       <div style={{ marginBottom: 28 }}>
         <div style={styles.platformHeader}>
+          <span style={{ fontSize: 20 }}>◫</span>
+          <h2>Docs for this model</h2>
+          <span className="mono dim" style={{ fontSize: 12 }}>{modelDocs.length}</span>
+          <div style={{ flex: 1 }} />
+          <button className="ghost" onClick={() => navigate('docs')}>Open Docs →</button>
+        </div>
+        {modelDocs.length === 0 ? (
+          <div className="empty-state" style={{ padding: 22, fontSize: 13 }}>
+            No docs attached. Open Docs → New doc → pick this model from the dropdown.
+          </div>
+        ) : (
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            {modelDocs.slice(0, 5).map((d, i) => (
+              <button
+                key={d.id}
+                onClick={() => navigate('docs')}
+                style={{
+                  textAlign: 'left', width: '100%',
+                  padding: '12px 14px',
+                  background: 'transparent',
+                  border: 'none',
+                  borderTop: i === 0 ? 'none' : '1px solid var(--border)',
+                  borderRadius: 0,
+                  color: 'var(--text-0)',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{d.title}</div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                  {d.author_name || 'unknown'} · updated {new Date(d.updated_at + 'Z').toLocaleDateString()}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginBottom: 28 }}>
+        <div style={styles.platformHeader}>
           <span style={{ fontSize: 20 }}>🎯</span>
           <h2>NSFW promo subreddits</h2>
           <span className="mono dim" style={{ fontSize: 12 }}>{promoSubs.length} configured</span>
@@ -573,6 +637,18 @@ export default function ModelDetailPage({ modelId, navigate }) {
     </div>
   );
 }
+
+const playBtnStyle = {
+  background: 'var(--gradient-brand)',
+  color: '#1a1a14',
+  border: '1px solid var(--gold)',
+  borderRadius: 999,
+  padding: '8px 14px',
+  fontSize: 13,
+  fontWeight: 700,
+  cursor: 'pointer',
+  boxShadow: '0 2px 10px rgba(212,166,74,0.3)',
+};
 
 const styles = {
   platformHeader: {
