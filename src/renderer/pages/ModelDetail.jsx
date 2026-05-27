@@ -38,6 +38,8 @@ export default function ModelDetailPage({ modelId, navigate }) {
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [activityEntries, setActivityEntries] = useState([]);
   const [modelDocs, setModelDocs] = useState([]);
+  const [tab, setTab] = useState('resources'); // resources | scheduler | activity | docs | promo
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   const canManage = user.role === 'admin' || user.role === 'manager';
 
@@ -280,7 +282,49 @@ export default function ModelDetailPage({ modelId, navigate }) {
         </div>
       )}
 
-      {PLATFORMS.map(plat => {
+      <div style={tabBarStyle}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {[
+            { v: 'resources', label: 'Resources', count: accounts.length + modelProxies.length },
+            { v: 'scheduler', label: 'Scheduler', count: scheduledPosts.filter(p => p.status === 'pending').length },
+            { v: 'docs', label: 'Docs', count: modelDocs.length },
+            { v: 'promo', label: 'Promo subs', count: promoSubs.length },
+            ...(canManage ? [{ v: 'activity', label: 'Activity', count: activityEntries.length }] : []),
+          ].map(t => (
+            <button
+              key={t.v}
+              onClick={() => setTab(t.v)}
+              style={{
+                ...tabStyle,
+                ...(tab === t.v ? tabActiveStyle : {}),
+              }}
+            >
+              {t.label}
+              {t.count > 0 && <span className="mono dim" style={{ marginLeft: 6, fontSize: 11 }}>{t.count}</span>}
+            </button>
+          ))}
+        </div>
+        {canManage && tab === 'resources' && (
+          <div style={{ position: 'relative' }}>
+            <button className="primary" onClick={() => setAddMenuOpen(v => !v)}>+ Add resource</button>
+            {addMenuOpen && (
+              <div style={addMenuStyle}>
+                <button style={addMenuItemStyle} onClick={() => { setAddMenuOpen(false); startAddFor('reddit'); }}>
+                  <span style={{ color: '#ff4500' }}>🔴</span> Reddit account
+                </button>
+                <button style={addMenuItemStyle} onClick={() => { setAddMenuOpen(false); startAddFor('redgifs'); }}>
+                  <span style={{ color: '#ff8a00' }}>🟠</span> RedGifs account
+                </button>
+                <button style={addMenuItemStyle} onClick={() => { setAddMenuOpen(false); setShowAddProxy(true); }}>
+                  <span style={{ color: 'var(--green-bright)' }}>⌁</span> Proxy
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {tab === 'resources' && PLATFORMS.map(plat => {
         const platAccounts = accounts.filter(a => (a.platform || 'reddit') === plat.v);
         const isAddingThis = showAddPlatform === plat.v && !editing;
         const isEditingThis = editing && editing.platform === plat.v;
@@ -400,6 +444,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
         );
       })}
 
+      {tab === 'resources' && (
       <div style={{ marginBottom: 28 }}>
         <div style={styles.platformHeader}>
           <span style={{ fontSize: 20 }}>⌁</span>
@@ -481,7 +526,9 @@ export default function ModelDetailPage({ modelId, navigate }) {
           </div>
         )}
       </div>
+      )}
 
+      {tab === 'scheduler' && (
       <div style={{ marginBottom: 28 }}>
         <div style={styles.platformHeader}>
           <span style={{ fontSize: 20 }}>◷</span>
@@ -523,8 +570,9 @@ export default function ModelDetailPage({ modelId, navigate }) {
           </div>
         )}
       </div>
+      )}
 
-      {(user.role === 'admin' || user.role === 'manager') && activityEntries.length > 0 && (
+      {tab === 'activity' && (user.role === 'admin' || user.role === 'manager') && activityEntries.length > 0 && (
         <div style={{ marginBottom: 28 }}>
           <div style={styles.platformHeader}>
             <span style={{ fontSize: 20 }}>☷</span>
@@ -553,6 +601,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
         </div>
       )}
 
+      {tab === 'docs' && (
       <div style={{ marginBottom: 28 }}>
         <div style={styles.platformHeader}>
           <span style={{ fontSize: 20 }}>◫</span>
@@ -591,7 +640,9 @@ export default function ModelDetailPage({ modelId, navigate }) {
           </div>
         )}
       </div>
+      )}
 
+      {tab === 'promo' && (
       <div style={{ marginBottom: 28 }}>
         <div style={styles.platformHeader}>
           <span style={{ fontSize: 20 }}>🎯</span>
@@ -634,9 +685,67 @@ export default function ModelDetailPage({ modelId, navigate }) {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
+
+const tabBarStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  borderBottom: '1px solid var(--border)',
+  marginBottom: 18,
+  paddingBottom: 8,
+  position: 'relative',
+};
+
+const tabStyle = {
+  background: 'transparent',
+  border: '1px solid transparent',
+  borderBottom: 'none',
+  color: 'var(--text-2)',
+  padding: '8px 14px',
+  borderRadius: '6px 6px 0 0',
+  marginBottom: -9,
+  fontSize: 13,
+  cursor: 'pointer',
+};
+
+const tabActiveStyle = {
+  background: 'var(--bg-elev)',
+  borderColor: 'var(--border)',
+  borderBottomColor: 'var(--bg-elev)',
+  color: 'var(--gold-bright)',
+};
+
+const addMenuStyle = {
+  position: 'absolute',
+  right: 0,
+  top: 'calc(100% + 6px)',
+  zIndex: 10,
+  background: 'var(--bg-elev)',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  boxShadow: '0 6px 22px rgba(0,0,0,0.5)',
+  minWidth: 200,
+  padding: 4,
+};
+
+const addMenuItemStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  width: '100%',
+  background: 'transparent',
+  border: 'none',
+  padding: '10px 12px',
+  textAlign: 'left',
+  fontSize: 13,
+  color: 'var(--text-0)',
+  cursor: 'pointer',
+  borderRadius: 4,
+};
 
 const playBtnStyle = {
   background: 'var(--gradient-brand)',
