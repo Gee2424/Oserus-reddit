@@ -40,7 +40,12 @@ async function call(apiKey, action, extra = {}) {
   });
   const text = await res.text();
   let data;
-  try { data = JSON.parse(text); } catch { throw new Error(`Non-JSON response from upvote.biz: ${text.slice(0, 200)}`); }
+  try { data = JSON.parse(text); }
+  catch {
+    // upvote.biz returns plain text in some error states (e.g. account
+    // suspended, balance issue) — surface that text as-is.
+    throw new Error(text.trim().slice(0, 240) || `HTTP ${res.status} from upvote.biz`);
+  }
   if (data?.error) throw new Error(data.error);
   return data;
 }
