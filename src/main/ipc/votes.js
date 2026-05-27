@@ -177,6 +177,66 @@ function register(ipcMain) {
     }
   });
 
+  // Single order status by remote_order_id (raw passthrough to upvote.biz).
+  // Returns { order, status, charge, start_count, remains, currency } per their docs.
+  ipcMain.handle('votes:status', async (_e, { token, remoteOrderId }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      if (!remoteOrderId) throw new Error('remoteOrderId is required');
+      const data = await call(getKey(), 'status', { order: String(remoteOrderId) });
+      return { ok: true, ...data };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // Multi-order status. upvote.biz returns a map keyed by order id:
+  // { "1": { order, status, charge, ... }, "2": { ... } }
+  ipcMain.handle('votes:statusMulti', async (_e, { token, remoteOrderIds }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      if (!Array.isArray(remoteOrderIds) || remoteOrderIds.length === 0) {
+        throw new Error('remoteOrderIds must be a non-empty array');
+      }
+      const data = await call(getKey(), 'status', { orders: remoteOrderIds.join(',') });
+      return { ok: true, statuses: data };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // Refill an order. Returns { refill: <refill_id> }.
+  ipcMain.handle('votes:refill', async (_e, { token, remoteOrderId }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      if (user.role !== 'admin' && user.role !== 'manager') throw new Error('Manager or admin only');
+      if (!remoteOrderId) throw new Error('remoteOrderId is required');
+      const data = await call(getKey(), 'refill', { order: String(remoteOrderId) });
+      const refillId = data.refill || data.refill_id || data.id;
+      if (!refillId) throw new Error('Refill did not return an id');
+      log(user, 'votes.refill', 'order', remoteOrderId, `refill_id=${refillId}`);
+      return { ok: true, refillId };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // Refill status. Returns { status: "Pending" | "Completed" | ... }.
+  ipcMain.handle('votes:refillStatus', async (_e, { token, refillId }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      if (!refillId) throw new Error('refillId is required');
+      const data = await call(getKey(), 'refill_status', { refill: String(refillId) });
+      return { ok: true, status: data.status };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('votes:refreshStatus', async (_e, { token, orderId }) => {
     try {
       const user = userFromToken(token);

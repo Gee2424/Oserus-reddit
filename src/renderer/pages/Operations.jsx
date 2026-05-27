@@ -54,7 +54,7 @@ export default function OperationsPage({ navigate }) {
             <h3>Proxies</h3>
             <span className="mono dim" style={{ fontSize: 12 }}>{proxies.length}</span>
             <div style={{ flex: 1 }} />
-            <button className="ghost" onClick={() => navigate('proxies')}>Manage →</button>
+            <button className="ghost" onClick={() => navigate('infra')}>Manage →</button>
           </div>
           {proxies.length === 0 ? (
             <div className="empty-state" style={{ padding: 28, border: 'none' }}>No proxies yet.</div>
@@ -90,7 +90,7 @@ export default function OperationsPage({ navigate }) {
               </span>
             )}
             <div style={{ flex: 1 }} />
-            <button className="ghost" onClick={() => navigate('votes')}>Manage →</button>
+            <button className="ghost" onClick={() => navigate('infra')}>Manage →</button>
           </div>
 
           {!hasVoteKey ? (

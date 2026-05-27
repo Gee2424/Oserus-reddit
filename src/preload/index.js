@@ -92,6 +92,10 @@ const api = {
     order: (data) => ipcRenderer.invoke('votes:order', data),
     orders: (data) => ipcRenderer.invoke('votes:orders', data),
     refreshStatus: (data) => ipcRenderer.invoke('votes:refreshStatus', data),
+    status: (data) => ipcRenderer.invoke('votes:status', data),
+    statusMulti: (data) => ipcRenderer.invoke('votes:statusMulti', data),
+    refill: (data) => ipcRenderer.invoke('votes:refill', data),
+    refillStatus: (data) => ipcRenderer.invoke('votes:refillStatus', data),
   },
   docs: {
     list: (data) => ipcRenderer.invoke('docs:list', data),

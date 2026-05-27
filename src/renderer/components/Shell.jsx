@@ -20,8 +20,7 @@ const NAV = [
   { key: 'inbox', label: 'Inbox', icon: '✉', group: 'Models', roles: ['admin', 'manager', 'reddit_va', 'chatter'] },
 
   { key: 'operations', label: 'Operations', icon: '◧', group: 'Ops', roles: ['admin', 'manager', 'reddit_va'] },
-  { key: 'proxies', label: 'Proxies', icon: '⌁', group: 'Ops', roles: ['admin', 'manager'] },
-  { key: 'votes', label: 'Votes', icon: '▲', group: 'Ops', roles: ['admin', 'manager', 'reddit_va'] },
+  { key: 'infra', label: 'Infrastructure', icon: '⌁', group: 'Ops', roles: ['admin', 'manager', 'reddit_va'] },
   { key: 'subreddits', label: 'Warm-up Subs', icon: '✦', group: 'Ops', roles: ['admin', 'manager'] },
 
   { key: 'users', label: 'Team', icon: '◉', group: 'Team', roles: ['admin', 'manager'] },

@@ -10,11 +10,10 @@ import AccountsPage from './pages/Accounts.jsx';
 import ProfilesPage from './pages/Profiles.jsx';
 import ModelDetailPage from './pages/ModelDetail.jsx';
 import UsersPage from './pages/Users.jsx';
-import ProxiesPage from './pages/Proxies.jsx';
+import InfrastructurePage from './pages/Infrastructure.jsx';
 import SubredditsPage from './pages/Subreddits.jsx';
 import WebviewsPage from './pages/Webviews.jsx';
 import SettingsPage from './pages/Settings.jsx';
-import VotesPage from './pages/Votes.jsx';
 import DocsPage from './pages/Docs.jsx';
 import AnalyticsPage from './pages/Analytics.jsx';
 import SchedulerPage from './pages/Scheduler.jsx';
@@ -49,11 +48,13 @@ function Inner() {
       case 'profiles': return <ProfilesPage navigate={navigate} />;
       case 'model': return <ModelDetailPage modelId={routeParams.modelId} navigate={navigate} />;
       case 'users': return <UsersPage />;
-      case 'proxies': return <ProxiesPage />;
+      case 'infra':
+      case 'proxies':
+      case 'votes':
+        return <InfrastructurePage />;
       case 'subreddits': return <SubredditsPage />;
       case 'webviews': return <WebviewsPage />;
       case 'settings': return <SettingsPage />;
-      case 'votes': return <VotesPage />;
       case 'docs': return <DocsPage />;
       case 'analytics': return <AnalyticsPage />;
       case 'scheduler': return <SchedulerPage />;
