@@ -126,6 +126,11 @@ const api = {
     prepareForAccount: (data) => ipcRenderer.invoke('session:prepareForAccount', data),
     clear: (partitionKey) => ipcRenderer.invoke('session:clear', partitionKey),
   },
+  inbox: {
+    fetch: (data) => ipcRenderer.invoke('inbox:fetch', data),
+    markRead: (data) => ipcRenderer.invoke('inbox:markRead', data),
+    reply: (data) => ipcRenderer.invoke('inbox:reply', data),
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);

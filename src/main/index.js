@@ -20,6 +20,7 @@ const registerAnalyticsHandlers = require('./ipc/analytics');
 const registerActivityHandlers = require('./ipc/activity');
 const registerRedditHandlers = require('./ipc/reddit');
 const registerRolesHandlers = require('./ipc/roles');
+const registerInboxHandlers = require('./ipc/inbox');
 
 const isDev = !app.isPackaged;
 let mainWindow;
@@ -144,6 +145,7 @@ app.whenReady().then(() => {
   registerActivityHandlers(ipcMain);
   registerRedditHandlers(ipcMain);
   registerRolesHandlers(ipcMain);
+  registerInboxHandlers(ipcMain);
 
   createWindow();
   initAutoUpdater(mainWindow);
