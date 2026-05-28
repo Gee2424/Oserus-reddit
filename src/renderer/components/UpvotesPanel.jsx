@@ -14,13 +14,14 @@ export default function UpvotesPanel() {
   const [balance, setBalance] = useState(null);
   const [services, setServices] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [ok, setOk] = useState(null);
   const [serviceSearch, setServiceSearch] = useState('');
+  const [busy, setBusy] = useState({}); // { [orderId]: 'sync' | 'refill' | 'refillStatus' }
 
-  const [form, setForm] = useState({ serviceId: '', link: '', quantity: '' });
-  const [refills, setRefills] = useState({});
+  const [form, setForm] = useState({ serviceId: '', link: '', quantity: '', profileId: '' });
 
   async function refreshAll() {
     setErr(null);
@@ -28,19 +29,28 @@ export default function UpvotesPanel() {
     setHasKey(!!keyRes.hasKey);
     if (!keyRes.hasKey) return;
     setLoading(true);
-    const [bal, svc, ord] = await Promise.all([
+    const [bal, svc, ord, prof] = await Promise.all([
       window.api.votes.balance({ token }),
       window.api.votes.services({ token }),
       window.api.votes.orders({ token }),
+      window.api.profiles.list({ token }),
     ]);
     setLoading(false);
     if (bal.ok) setBalance({ balance: bal.balance, currency: bal.currency });
     else setErr(bal.error);
     if (svc.ok) setServices(svc.services || []);
     if (ord.ok) setOrders(ord.orders || []);
+    if (prof.ok) setProfiles(prof.profiles || []);
   }
 
   useEffect(() => { refreshAll(); /* eslint-disable-next-line */ }, [token]);
+
+  // Auto-dismiss success/error banners.
+  useEffect(() => {
+    if (!ok && !err) return;
+    const t = setTimeout(() => { setOk(null); setErr(null); }, 4500);
+    return () => clearTimeout(t);
+  }, [ok, err]);
 
   const selectedService = services.find((s) => String(s.service) === String(form.serviceId));
 
@@ -80,6 +90,18 @@ export default function UpvotesPanel() {
     return s;
   }, [orders]);
 
+  // Auto-poll: while any order is still in flight, quietly resync every 60s.
+  const hasActive = orders.some((o) => {
+    const st = (o.status || '').toLowerCase();
+    return st !== 'completed' && st !== 'canceled' && st !== 'cancelled' && st !== 'partial';
+  });
+  useEffect(() => {
+    if (!hasKey || !hasActive) return;
+    const id = setInterval(() => syncAll(true), 60000);
+    return () => clearInterval(id);
+    /* eslint-disable-next-line */
+  }, [hasKey, hasActive, orders.length]);
+
   async function placeOrder(e) {
     e.preventDefault();
     setErr(null); setOk(null);
@@ -99,44 +121,54 @@ export default function UpvotesPanel() {
       serviceName: selectedService?.name,
       link: form.link,
       quantity: Number(form.quantity),
+      profileId: form.profileId || null,
     });
     if (!res.ok) { setErr(res.error); return; }
     setOk(`Order #${res.orderId} placed.`);
-    setForm({ serviceId: '', link: '', quantity: '' });
+    setForm((f) => ({ serviceId: '', link: '', quantity: '', profileId: f.profileId }));
     refreshAll();
+  }
+
+  function setOrderBusy(id, kind) {
+    setBusy((b) => {
+      const next = { ...b };
+      if (kind) next[id] = kind; else delete next[id];
+      return next;
+    });
   }
 
   async function refreshOrder(orderId) {
+    setOrderBusy(orderId, 'sync');
     const res = await window.api.votes.refreshStatus({ token, orderId });
     if (!res.ok) setErr(res.error);
-    refreshAll();
+    await refreshAll();
+    setOrderBusy(orderId, null);
   }
 
-  async function refillOrder(remoteOrderId) {
+  async function refillOrder(orderId, remoteOrderId) {
     setErr(null); setOk(null);
+    setOrderBusy(orderId, 'refill');
     const res = await window.api.votes.refill({ token, remoteOrderId });
-    if (!res.ok) { setErr(res.error); return; }
-    setRefills((m) => ({ ...m, [remoteOrderId]: { refillId: res.refillId, status: 'Pending' } }));
-    setOk(`Refill #${res.refillId} requested.`);
+    if (res.ok) { setOk(`Refill #${res.refillId} requested.`); await refreshAll(); }
+    else setErr(res.error);
+    setOrderBusy(orderId, null);
   }
 
-  async function checkRefillStatus(remoteOrderId) {
-    const r = refills[remoteOrderId];
-    if (!r) return;
-    const res = await window.api.votes.refillStatus({ token, refillId: r.refillId });
-    if (res.ok) {
-      setRefills((m) => ({ ...m, [remoteOrderId]: { ...r, status: res.status || 'Unknown' } }));
-    }
+  async function checkRefillStatus(orderId, refillId) {
+    if (!refillId) return;
+    setOrderBusy(orderId, 'refillStatus');
+    await window.api.votes.refillStatus({ token, refillId });
+    await refreshAll();
+    setOrderBusy(orderId, null);
   }
 
-  async function syncAll() {
-    if (!orders.length) return;
+  async function syncAll(quiet) {
     const ids = orders.map((o) => o.remote_order_id).filter(Boolean);
     if (!ids.length) return;
-    setLoading(true);
+    if (!quiet) setLoading(true);
     const res = await window.api.votes.statusMulti({ token, remoteOrderIds: ids });
-    setLoading(false);
-    if (!res.ok) { setErr(res.error); return; }
+    if (!quiet) setLoading(false);
+    if (!res.ok) { if (!quiet) setErr(res.error); return; }
     refreshAll();
   }
 
@@ -181,7 +213,7 @@ export default function UpvotesPanel() {
           sub={stats.currency || ''}
         />
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-          <button className="ghost" onClick={syncAll} disabled={loading || !orders.length}>
+          <button className="ghost" onClick={() => syncAll()} disabled={loading || !orders.length}>
             ↻ Sync all
           </button>
           <button className="ghost" onClick={refreshAll} disabled={loading}>
@@ -204,7 +236,7 @@ export default function UpvotesPanel() {
           </div>
 
           <form onSubmit={placeOrder}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1.6fr 0.7fr auto', gap: 12, alignItems: 'end', marginTop: 14 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1.6fr 0.9fr 0.7fr auto', gap: 12, alignItems: 'end', marginTop: 14 }}>
               <div>
                 <label>Service</label>
                 <input
@@ -239,6 +271,15 @@ export default function UpvotesPanel() {
                   value={form.link}
                   onChange={(e) => setForm({ ...form, link: e.target.value })}
                 />
+              </div>
+              <div>
+                <label>Model</label>
+                <select value={form.profileId} onChange={(e) => setForm({ ...form, profileId: e.target.value })}>
+                  <option value="">— none —</option>
+                  {profiles.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label>Quantity</label>
@@ -289,6 +330,7 @@ export default function UpvotesPanel() {
               <thead>
                 <tr style={{ background: 'var(--bg-1)' }}>
                   <th style={th}>#</th>
+                  <th style={th}>Model</th>
                   <th style={th}>Service</th>
                   <th style={th}>Target</th>
                   <th style={{ ...th, textAlign: 'right' }}>Qty</th>
@@ -309,6 +351,14 @@ export default function UpvotesPanel() {
                   return (
                     <tr key={o.id} style={tr}>
                       <td style={td} className="mono dim">#{o.remote_order_id}</td>
+                      <td style={td}>
+                        {o.profile_name ? (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 999, background: o.profile_color || 'var(--gold)', flexShrink: 0 }} />
+                            {o.profile_name}
+                          </span>
+                        ) : <span className="dim">—</span>}
+                      </td>
                       <td style={td}>{o.service_name || `service ${o.service_id}`}</td>
                       <td style={td}>
                         <a href={o.link} target="_blank" rel="noreferrer" style={linkA} title={o.link}>
@@ -328,18 +378,17 @@ export default function UpvotesPanel() {
                         </div>
                       </td>
                       <td style={td}>
-                        {refills[o.remote_order_id] ? (
+                        {o.refill_id ? (
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                            <span className="mono dim" style={{ fontSize: 11 }}>#{refills[o.remote_order_id].refillId}</span>
-                            <span style={statusStyle(refills[o.remote_order_id].status)}>
-                              {refills[o.remote_order_id].status}
-                            </span>
+                            <span className="mono dim" style={{ fontSize: 11 }}>#{o.refill_id}</span>
+                            <span style={statusStyle(o.refill_status)}>{o.refill_status || 'Pending'}</span>
                             <button
                               className="ghost"
-                              onClick={() => checkRefillStatus(o.remote_order_id)}
+                              onClick={() => checkRefillStatus(o.id, o.refill_id)}
                               style={tinyBtn}
+                              disabled={busy[o.id] === 'refillStatus'}
                               title="Check refill status"
-                            >↻</button>
+                            >{busy[o.id] === 'refillStatus' ? '…' : '↻'}</button>
                           </span>
                         ) : <span className="dim">—</span>}
                       </td>
@@ -347,17 +396,24 @@ export default function UpvotesPanel() {
                         {o.created_at ? new Date(o.created_at + 'Z').toLocaleString() : '—'}
                       </td>
                       <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        <button className="ghost" onClick={() => refreshOrder(o.id)} style={tinyBtn} title="Refresh this order">
-                          Sync
+                        <button
+                          className="ghost"
+                          onClick={() => refreshOrder(o.id)}
+                          style={tinyBtn}
+                          disabled={!!busy[o.id]}
+                          title="Refresh this order"
+                        >
+                          {busy[o.id] === 'sync' ? '…' : 'Sync'}
                         </button>
                         {canPlaceOrders && (
                           <button
                             className="ghost"
-                            onClick={() => refillOrder(o.remote_order_id)}
+                            onClick={() => refillOrder(o.id, o.remote_order_id)}
                             style={{ ...tinyBtn, marginLeft: 4 }}
+                            disabled={!!busy[o.id]}
                             title="Request a refill from upvote.biz"
                           >
-                            Refill
+                            {busy[o.id] === 'refill' ? '…' : 'Refill'}
                           </button>
                         )}
                       </td>

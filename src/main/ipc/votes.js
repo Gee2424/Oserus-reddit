@@ -70,11 +70,14 @@ function ensureOrdersTable() {
       last_checked_at TEXT
     );
   `);
-  // Additive: upvote.biz status responses include start_count.
+  // Additive migrations: status responses include start_count; orders can be
+  // attributed to a model profile and carry a refill request + its status.
   const cols = db.prepare("PRAGMA table_info(upvote_orders)").all();
-  if (!cols.some((c) => c.name === 'start_count')) {
-    db.exec('ALTER TABLE upvote_orders ADD COLUMN start_count TEXT');
-  }
+  const have = (name) => cols.some((c) => c.name === name);
+  if (!have('start_count')) db.exec('ALTER TABLE upvote_orders ADD COLUMN start_count TEXT');
+  if (!have('profile_id')) db.exec('ALTER TABLE upvote_orders ADD COLUMN profile_id INTEGER REFERENCES model_profiles(id) ON DELETE SET NULL');
+  if (!have('refill_id')) db.exec('ALTER TABLE upvote_orders ADD COLUMN refill_id TEXT');
+  if (!have('refill_status')) db.exec('ALTER TABLE upvote_orders ADD COLUMN refill_status TEXT');
 }
 
 function register(ipcMain) {
@@ -135,7 +138,7 @@ function register(ipcMain) {
     }
   });
 
-  ipcMain.handle('votes:order', async (_e, { token, serviceId, serviceName, link, quantity }) => {
+  ipcMain.handle('votes:order', async (_e, { token, serviceId, serviceName, link, quantity, profileId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
@@ -150,8 +153,8 @@ function register(ipcMain) {
       if (!remoteId) throw new Error('Order did not return an id');
       ensureOrdersTable();
       getDb().prepare(
-        `INSERT INTO upvote_orders (remote_order_id, service_id, service_name, link, quantity, charge, currency, status, placed_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO upvote_orders (remote_order_id, service_id, service_name, link, quantity, charge, currency, status, placed_by_user_id, profile_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         String(remoteId),
         String(serviceId),
@@ -161,7 +164,8 @@ function register(ipcMain) {
         data.charge != null ? String(data.charge) : null,
         data.currency || null,
         'pending',
-        user.id
+        user.id,
+        profileId != null ? Number(profileId) : null
       );
       log(user, 'votes.order', 'order', remoteId, `${serviceName || serviceId} qty=${quantity} link=${link}`);
       return { ok: true, orderId: remoteId };
@@ -176,7 +180,14 @@ function register(ipcMain) {
       if (!user) throw new Error('Not authenticated');
       ensureOrdersTable();
       const rows = getDb()
-        .prepare('SELECT * FROM upvote_orders ORDER BY id DESC LIMIT 200')
+        .prepare(
+          `SELECT o.*, p.name AS profile_name, p.avatar_color AS profile_color,
+                  u.display_name AS placed_by_name
+           FROM upvote_orders o
+           LEFT JOIN model_profiles p ON p.id = o.profile_id
+           LEFT JOIN users u ON u.id = o.placed_by_user_id
+           ORDER BY o.id DESC LIMIT 200`
+        )
         .all();
       return { ok: true, orders: rows };
     } catch (err) {
@@ -243,6 +254,10 @@ function register(ipcMain) {
       const data = await call(getKey(), 'refill', { order_id: String(remoteOrderId) });
       const refillId = data.refill || data.refill_id || data.id;
       if (!refillId) throw new Error('Refill did not return an id');
+      ensureOrdersTable();
+      getDb()
+        .prepare("UPDATE upvote_orders SET refill_id = ?, refill_status = 'Pending' WHERE remote_order_id = ?")
+        .run(String(refillId), String(remoteOrderId));
       log(user, 'votes.refill', 'order', remoteOrderId, `refill_id=${refillId}`);
       return { ok: true, refillId };
     } catch (err) {
@@ -257,6 +272,10 @@ function register(ipcMain) {
       if (!user) throw new Error('Not authenticated');
       if (!refillId) throw new Error('refillId is required');
       const data = await call(getKey(), 'refill_status', { refill: String(refillId) });
+      ensureOrdersTable();
+      getDb()
+        .prepare('UPDATE upvote_orders SET refill_status = ? WHERE refill_id = ?')
+        .run(data.status || null, String(refillId));
       return { ok: true, status: data.status };
     } catch (err) {
       return { ok: false, error: err.message };
