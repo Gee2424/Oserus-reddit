@@ -48,7 +48,7 @@ export default function RedditApiPage({ initialTab, navigate }) {
 
       {tab === 'posting' && <SchedulerPage embedded />}
       {tab === 'reddit' && <AccountsPage navigate={navigate} embedded />}
-      {tab === 'inbox' && <InboxPage embedded />}
+      {tab === 'inbox' && <InboxPage embedded navigate={navigate} />}
     </div>
   );
 }

@@ -24,7 +24,7 @@ function timeAgo(unixSec) {
   return `${Math.floor(mo / 12)}y ago`;
 }
 
-export default function InboxPage({ embedded }) {
+export default function InboxPage({ embedded, navigate }) {
   const { token } = useAuth();
   const { forPlatform } = useActiveAccount();
   const { active, accounts: redditAccounts, setActive } = forPlatform('reddit');
@@ -136,9 +136,20 @@ export default function InboxPage({ embedded }) {
           {!active ? (
             <Empty text="No Reddit account selected. Add one under Reddit → Accounts." />
           ) : notLoggedIn ? (
-            <Empty
-              text={`u/${active.username} isn't logged into Reddit yet. Open this account in the Browser tab and sign in once — the inbox will read from that session.`}
-            />
+            <div style={{ padding: 40, textAlign: 'center' }}>
+              <div style={{ color: '#818384', fontSize: 13, lineHeight: 1.6, maxWidth: 420, margin: '0 auto' }}>
+                u/{active.username} isn't logged into Reddit yet. Open this account in the
+                Browser, sign in once, and the inbox will read straight from that session.
+              </div>
+              {navigate && (
+                <button
+                  onClick={() => { setActive(active.id); navigate('reddit'); }}
+                  style={{ ...replyBtn, marginTop: 16 }}
+                >
+                  Open in Browser to sign in ↗
+                </button>
+              )}
+            </div>
           ) : err ? (
             <div style={{ padding: 24, color: '#ff8a8a', fontSize: 13 }}>{err}</div>
           ) : loading && messages.length === 0 ? (
