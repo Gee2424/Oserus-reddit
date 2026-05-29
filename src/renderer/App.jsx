@@ -17,6 +17,7 @@ import DocsPage from './pages/Docs.jsx';
 import AnalyticsPage from './pages/Analytics.jsx';
 import ActivityPage from './pages/Activity.jsx';
 import OperationsPage from './pages/Operations.jsx';
+import AutopilotPage from './pages/Autopilot.jsx';
 import RedditApiPage from './pages/RedditApi.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
@@ -60,6 +61,7 @@ function Inner() {
       case 'analytics': return <AnalyticsPage />;
       case 'activity': return <ActivityPage />;
       case 'operations': return <OperationsPage navigate={navigate} />;
+      case 'autopilot': return <AutopilotPage />;
       default: return <DashboardPage navigate={navigate} />;
     }
   })();

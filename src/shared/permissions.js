@@ -12,6 +12,7 @@ const PERMISSIONS = [
   { key: 'page.reddit-api',    group: 'Pages',      label: 'Reddit API workspace' },
   { key: 'page.operations',    group: 'Pages',      label: 'Operations' },
   { key: 'page.subreddits',    group: 'Pages',      label: 'Warm-up subs' },
+  { key: 'page.autopilot',     group: 'Pages',      label: 'Autopilot & Protocols' },
   { key: 'page.team',          group: 'Pages',      label: 'Team' },
   { key: 'page.activity',      group: 'Pages',      label: 'Activity log' },
   { key: 'page.docs',          group: 'Pages',      label: 'Docs' },
@@ -41,6 +42,10 @@ const PERMISSIONS = [
 
   // Posts / scheduling
   { key: 'posts.publish',      group: 'Posting',    label: 'Publish posts on behalf of accounts' },
+
+  // Autopilot / posting protocols
+  { key: 'protocols.manage',   group: 'Autopilot',  label: 'Edit posting protocols & toggle autopilot' },
+  { key: 'protocols.run',      group: 'Autopilot',  label: 'Run an autopilot pass manually' },
 
   // Subreddits
   { key: 'subreddits.manage',  group: 'Subreddits', label: 'Manage warm-up subreddits' },
@@ -92,11 +97,11 @@ const BUILTIN_ROLES = [
     description: 'Reddit assistant. Can post, place upvotes, view proxies.',
     permissions: [
       'page.dashboard', 'page.analytics', 'page.profiles', 'page.reddit-api',
-      'page.operations', 'page.subreddits', 'page.docs',
+      'page.operations', 'page.subreddits', 'page.docs', 'page.autopilot',
       'page.settings', 'page.reddit', 'page.redgifs', 'page.webviews',
       'redditapi.posting', 'redditapi.reddit', 'redditapi.inbox',
       'infra.upvotes.view', 'infra.upvotes.place_order',
-      'posts.publish',
+      'posts.publish', 'protocols.run',
     ],
   },
   {

@@ -131,6 +131,18 @@ const api = {
     markRead: (data) => ipcRenderer.invoke('inbox:markRead', data),
     reply: (data) => ipcRenderer.invoke('inbox:reply', data),
   },
+  protocols: {
+    get: (data) => ipcRenderer.invoke('protocols:get', data),
+    set: (data) => ipcRenderer.invoke('protocols:set', data),
+    eligibility: (data) => ipcRenderer.invoke('protocols:eligibility', data),
+    events: (data) => ipcRenderer.invoke('protocols:events', data),
+  },
+  autopilot: {
+    status: (data) => ipcRenderer.invoke('autopilot:status', data),
+    setEnabled: (data) => ipcRenderer.invoke('autopilot:setEnabled', data),
+    setInterval: (data) => ipcRenderer.invoke('autopilot:setInterval', data),
+    runNow: (data) => ipcRenderer.invoke('autopilot:runNow', data),
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);

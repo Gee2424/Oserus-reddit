@@ -13,6 +13,7 @@ const NAV = [
 
   { key: 'operations', label: 'Operations', icon: '◧', group: 'Ops', perm: 'page.operations' },
   { key: 'subreddits', label: 'Warm-up Subs', icon: '✦', group: 'Ops', perm: 'page.subreddits' },
+  { key: 'autopilot', label: 'Autopilot', icon: '⟳', group: 'Ops', perm: 'page.autopilot' },
 
   { key: 'users', label: 'Team', icon: '◉', group: 'Team', perm: 'page.team' },
   { key: 'activity', label: 'Activity', icon: '☷', group: 'Team', perm: 'page.activity' },

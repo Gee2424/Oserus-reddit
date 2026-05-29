@@ -21,6 +21,8 @@ const registerActivityHandlers = require('./ipc/activity');
 const registerRedditHandlers = require('./ipc/reddit');
 const registerRolesHandlers = require('./ipc/roles');
 const registerInboxHandlers = require('./ipc/inbox');
+const registerProtocolHandlers = require('./ipc/protocols');
+const coordinator = require('./services/coordinator');
 
 const isDev = !app.isPackaged;
 let mainWindow;
@@ -146,8 +148,13 @@ app.whenReady().then(() => {
   registerRedditHandlers(ipcMain);
   registerRolesHandlers(ipcMain);
   registerInboxHandlers(ipcMain);
+  registerProtocolHandlers(ipcMain);
 
   createWindow();
+
+  // Autopilot coordinator — only acts when an admin has enabled it AND a
+  // protocol is enabled. Starting the timer here is harmless when disabled.
+  coordinator.start();
   initAutoUpdater(mainWindow);
   createTray(mainWindow, checkNow);
 
