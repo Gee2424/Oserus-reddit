@@ -1,32 +1,8 @@
 const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
 const { requirePermission } = require('../permissions');
-const { generatePost } = require('../services/postgen');
+const { generatePost, callGrok } = require('../services/postgen');
 const { getSetting, setSetting } = require('../services/settings');
-
-async function callAnthropic(apiKey, system, userMessage, options = {}) {
-  const body = {
-    model: options.model || 'claude-sonnet-4-5',
-    max_tokens: options.maxTokens || 1500,
-    system,
-    messages: [{ role: 'user', content: userMessage }],
-  };
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error?.message || `Anthropic API error: ${res.status}`);
-  }
-  const text = data.content?.filter(c => c.type === 'text').map(c => c.text).join('\n') || '';
-  return text;
-}
 
 function tryParseJson(text) {
   const cleaned = text.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/\s*```\s*$/, '').trim();
@@ -39,7 +15,7 @@ function register(ipcMain) {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'ai.admin');
-      setSetting('anthropic_api_key', apiKey ? encryptSecret(apiKey) : null);
+      setSetting('grok_api_key', apiKey ? encryptSecret(apiKey) : null);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -50,7 +26,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      const v = getSetting('anthropic_api_key');
+      const v = getSetting('grok_api_key');
       return { ok: true, hasKey: !!v };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -75,7 +51,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      const encKey = getSetting('anthropic_api_key');
+      const encKey = getSetting('grok_api_key');
       if (!encKey) throw new Error('No API key set');
       const apiKey = decryptSecret(encKey);
 
@@ -100,7 +76,7 @@ Each variant under 300 chars.`;
 Current title: "${currentTitle}"
 Give 3 rewrites with varied angles.`;
 
-      const text = await callAnthropic(apiKey, system, userMsg, { maxTokens: 600 });
+      const text = await callGrok(apiKey, system, userMsg, { maxTokens: 600 });
       try {
         const parsed = tryParseJson(text);
         return { ok: true, variants: parsed.variants || [] };

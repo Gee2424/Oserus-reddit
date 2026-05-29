@@ -1,13 +1,13 @@
 :root {
-  /* Oserus palette - forest green / olive / gold on near-black */
-  --bg-0: #0a0e0a;
-  --bg-1: #10160f;
-  --bg-2: #161e15;
-  --bg-3: #1f291d;
-  --bg-elev: #131a12;
-  --border: #20291e;
-  --border-strong: #2e3b2a;
-  --border-glow: #3d6b4f;
+  /* Oserus palette — black-forward with green depth + gold accents */
+  --bg-0: #050805;
+  --bg-1: #080b08;
+  --bg-2: #0c100c;
+  --bg-3: #141a13;
+  --bg-elev: #0a0e0a;
+  --border: #1a221a;
+  --border-strong: #28331f;
+  --border-glow: #d4a64a;
 
   --text-0: #e8e4d0;
   --text-1: #c4bfa6;
@@ -28,12 +28,12 @@
   --gradient-brand: linear-gradient(135deg, #2d5a3f 0%, #4f8a64 35%, #a8a14e 70%, #d4a64a 100%);
   --gradient-brand-soft: linear-gradient(135deg, rgba(45,90,63,0.25) 0%, rgba(79,138,100,0.18) 40%, rgba(212,166,74,0.15) 100%);
   --gradient-brand-line: linear-gradient(90deg, transparent, var(--green-bright) 20%, var(--gold) 80%, transparent);
-  --gradient-sidebar: linear-gradient(180deg, #0c130c 0%, #0a0e0a 50%, #0e120d 100%);
+  --gradient-sidebar: linear-gradient(180deg, #070b07 0%, #050805 60%, #080b08 100%);
   --gradient-card-hover: linear-gradient(135deg, rgba(79,138,100,0.08), rgba(212,166,74,0.05));
 
-  --accent: var(--green-bright);
-  --accent-hover: var(--green);
-  --accent-soft: var(--green-soft);
+  --accent: var(--gold);
+  --accent-hover: var(--gold-bright);
+  --accent-soft: var(--gold-soft);
 
   --warn: var(--gold);
   --danger: #b3473a;
@@ -63,9 +63,9 @@ html, body, #root {
 body {
   font-family: var(--font-body);
   background:
-    radial-gradient(ellipse 60% 40% at 15% 0%, rgba(79,138,100,0.10), transparent 60%),
-    radial-gradient(ellipse 50% 40% at 95% 20%, rgba(212,166,74,0.07), transparent 65%),
-    radial-gradient(ellipse 80% 60% at 50% 110%, rgba(45,90,63,0.08), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 15% 0%, rgba(79,138,100,0.06), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 95% 20%, rgba(212,166,74,0.05), transparent 65%),
+    radial-gradient(ellipse 80% 60% at 50% 110%, rgba(45,90,63,0.05), transparent 60%),
     var(--bg-0);
   color: var(--text-0);
   font-size: 14px;

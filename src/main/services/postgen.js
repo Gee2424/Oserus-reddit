@@ -1,7 +1,7 @@
 // Post generation service — single source of truth for turning an account +
-// mode into Reddit post suggestions via Claude. Used by the ai:suggestPost
-// IPC handler (VA clicks "suggest") AND the autopilot coordinator (offline
-// hourly posting). Pure-ish: only touches DB + Anthropic, no Electron/IPC.
+// mode into Reddit post suggestions via Grok (x.ai). Used by the
+// ai:suggestPost IPC handler (VA clicks "suggest") AND the autopilot
+// coordinator. Pure-ish: only touches DB + Grok, no Electron/IPC.
 //
 // targetSubreddit is free-form: a VA (or the coordinator) can warm up in ANY
 // subreddit, not just the saved warm-up list. If the target isn't on the
@@ -10,25 +10,27 @@
 const { getDb, decryptSecret } = require('../db');
 const { getSetting } = require('./settings');
 
-async function callAnthropic(apiKey, system, userMessage, options = {}) {
+// Grok uses an OpenAI-compatible chat-completions API.
+async function callGrok(apiKey, system, userMessage, options = {}) {
   const body = {
-    model: options.model || 'claude-sonnet-4-5',
+    model: options.model || getSetting('grok_model') || 'grok-2-latest',
     max_tokens: options.maxTokens || 1500,
-    system,
-    messages: [{ role: 'user', content: userMessage }],
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: userMessage },
+    ],
   };
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch('https://api.x.ai/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data?.error?.message || `Anthropic API error: ${res.status}`);
-  return data.content?.filter((c) => c.type === 'text').map((c) => c.text).join('\n') || '';
+  if (!res.ok) throw new Error(data?.error?.message || data?.error || `Grok API error: ${res.status}`);
+  return data.choices?.[0]?.message?.content || '';
 }
 
 function tryParseJson(text) {
@@ -37,7 +39,7 @@ function tryParseJson(text) {
 }
 
 async function generatePost({ accountId, mode, hint, targetSubreddit }) {
-  const encKey = getSetting('anthropic_api_key');
+  const encKey = getSetting('grok_api_key');
   if (!encKey) throw new Error('No API key set. Admin needs to add one under Settings.');
   const apiKey = decryptSecret(encKey);
   if (!apiKey) throw new Error('API key could not be decrypted');
@@ -145,7 +147,7 @@ ${cleanTarget && targetOnList ? `\nFocus on r/${cleanTarget}.` : ''}
 Generate 3 post ideas.`;
   }
 
-  const text = await callAnthropic(apiKey, system, userMsg);
+  const text = await callGrok(apiKey, system, userMsg);
   try {
     const parsed = tryParseJson(text);
     return { ok: true, mode: isSfw ? 'sfw' : 'nsfw', suggestions: parsed.suggestions || [] };
@@ -154,4 +156,4 @@ Generate 3 post ideas.`;
   }
 }
 
-module.exports = { generatePost, callAnthropic, tryParseJson, getSetting };
+module.exports = { generatePost, callGrok, tryParseJson, getSetting };

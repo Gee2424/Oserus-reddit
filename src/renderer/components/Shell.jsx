@@ -8,19 +8,21 @@ const NAV = [
   { key: 'dashboard', label: 'Dashboard', icon: '⬢', group: 'Overview', perm: 'page.dashboard' },
   { key: 'analytics', label: 'Analytics', icon: '◧', group: 'Overview', perm: 'page.analytics' },
 
-  { key: 'profiles', label: 'Models', icon: '◇', group: 'Models', perm: 'page.profiles' },
-  { key: 'reddit-api', label: 'Reddit API', icon: '◈', group: 'Models', perm: 'page.reddit-api' },
+  { key: 'profiles', label: 'Manage Classes', icon: '◇', group: 'Accounts', perm: 'page.profiles' },
+  { key: 'reddit-api', label: 'Reddit API', icon: '◈', group: 'Accounts', perm: 'page.reddit-api' },
+  { key: 'redgifs', label: 'RedGIFs', icon: '▮', group: 'Accounts', perm: 'page.redgifs' },
 
-  { key: 'operations', label: 'Operations', icon: '◧', group: 'Ops', perm: 'page.operations' },
-  { key: 'subreddits', label: 'Warm-up Subs', icon: '✦', group: 'Ops', perm: 'page.subreddits' },
+  { key: 'operations', label: 'Operations', icon: '▷', group: 'Ops', perm: 'page.operations' },
+  { key: 'subreddits', label: 'Warmup & Karma Farm', icon: '✦', group: 'Ops', perm: 'page.subreddits' },
   { key: 'autopilot', label: 'Autopilot', icon: '⟳', group: 'Ops', perm: 'page.autopilot' },
   { key: 'scheduler-pro', label: 'Scheduler Pro', icon: '◷', group: 'Ops', perm: 'page.scheduler' },
+  { key: 'inbox', label: 'Inbox Manager', icon: '✉', group: 'Ops', perm: 'page.reddit-api' },
 
   { key: 'users', label: 'Team', icon: '◉', group: 'Team', perm: 'page.team' },
   { key: 'activity', label: 'Activity', icon: '☷', group: 'Team', perm: 'page.activity' },
-  { key: 'docs', label: 'Docs', icon: '◫', group: 'Team', perm: 'page.docs' },
+  { key: 'docs', label: 'Documentation', icon: '◫', group: 'Team', perm: 'page.docs' },
 
-  { key: 'settings', label: 'Settings', icon: '⚙', group: 'Configure', perm: 'page.settings' },
+  { key: 'settings', label: 'Configuration', icon: '⚙', group: 'Configure', perm: 'page.settings' },
 ];
 
 export default function Shell({ route, navigate, children }) {
@@ -158,11 +160,11 @@ const styles = {
     transition: 'background 0.12s, color 0.12s, border-color 0.12s',
   },
   navItemActive: {
-    background: 'linear-gradient(90deg, rgba(79,138,100,0.22) 0%, rgba(212,166,74,0.10) 100%)',
+    background: 'linear-gradient(90deg, rgba(212,166,74,0.20) 0%, rgba(212,166,74,0.05) 100%)',
     color: 'var(--gold-bright)',
     borderColor: 'transparent',
-    fontWeight: 500,
-    boxShadow: 'inset 2px 0 0 var(--gold), 0 0 18px rgba(79,138,100,0.18)',
+    fontWeight: 600,
+    boxShadow: 'inset 3px 0 0 var(--gold)',
   },
   navIcon: {
     width: 22,
@@ -174,7 +176,7 @@ const styles = {
     fontFamily: 'var(--font-mono)',
     flexShrink: 0,
   },
-  navIconActive: { color: 'var(--gold)' },
+  navIconActive: { color: 'var(--gold-bright)' },
   userBlock: {
     margin: 12,
     padding: 10,

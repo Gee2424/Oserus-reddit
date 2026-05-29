@@ -48,7 +48,7 @@ export default function SettingsPage() {
   }
 
   async function clearApiKey() {
-    if (!confirm('Remove the saved Anthropic API key? AI features will stop working until you add a new one.')) return;
+    if (!confirm('Remove the saved Grok API key? AI features will stop working until you add a new one.')) return;
     await window.api.ai.setApiKey({ token, apiKey: null });
     setHasApiKey(false);
     setApiKeyMsg({ kind: 'ok', text: 'API key removed.' });
@@ -89,9 +89,9 @@ export default function SettingsPage() {
 
       {isAdmin && (
         <div className="card" style={{ marginBottom: 22, borderColor: hasApiKey ? 'var(--ok)' : 'var(--border)' }}>
-          <h3 style={{ marginBottom: 6 }}>Anthropic API key {hasApiKey && <span className="mono" style={{ fontSize: 11, color: 'var(--ok)', marginLeft: 8 }}>✓ configured</span>}</h3>
+          <h3 style={{ marginBottom: 6 }}>Grok API key {hasApiKey && <span className="mono" style={{ fontSize: 11, color: 'var(--ok)', marginLeft: 8 }}>✓ configured</span>}</h3>
           <div className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
-            Used by the AI composer to generate post ideas. Get a key at console.anthropic.com → API Keys. Stored encrypted on disk using your OS keychain.
+            Used by the AI composer, scheduler, and autopilot to generate post titles. Get a key at console.x.ai → API Keys. Stored encrypted on disk using your OS keychain.
           </div>
           {apiKeyMsg && (
             <div className={apiKeyMsg.kind === 'err' ? 'error-banner' : ''} style={apiKeyMsg.kind === 'ok' ? styles.ok : {}}>
@@ -101,7 +101,7 @@ export default function SettingsPage() {
           <form onSubmit={saveApiKey} style={{ display: 'flex', gap: 8 }}>
             <input
               type="password"
-              placeholder={hasApiKey ? '••••••••••••••••  (paste a new key to replace)' : 'sk-ant-…'}
+              placeholder={hasApiKey ? '••••••••••••••••  (paste a new key to replace)' : 'xai-…'}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               style={{ flex: 1 }}
