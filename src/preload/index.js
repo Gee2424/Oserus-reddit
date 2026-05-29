@@ -107,6 +107,9 @@ const api = {
   scheduled: {
     list: (data) => ipcRenderer.invoke('scheduled:list', data),
     create: (data) => ipcRenderer.invoke('scheduled:create', data),
+    bulkCreate: (data) => ipcRenderer.invoke('scheduled:bulkCreate', data),
+    reschedule: (data) => ipcRenderer.invoke('scheduled:reschedule', data),
+    checkConflicts: (data) => ipcRenderer.invoke('scheduled:checkConflicts', data),
     cancel: (data) => ipcRenderer.invoke('scheduled:cancel', data),
     delete: (data) => ipcRenderer.invoke('scheduled:delete', data),
   },

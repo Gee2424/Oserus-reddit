@@ -146,21 +146,82 @@ async function runOnce({ dryRun = false } = {}) {
   return summary;
 }
 
+// Fire any scheduled posts that are due. Runs every tick regardless of the
+// autopilot master switch — a scheduled post is an explicit user action, not
+// autonomous posting. Honors the post_locks TTL so it can't race the
+// autopilot pass for the same account.
+async function runDueScheduled() {
+  const db = getDb();
+  db.exec(`CREATE TABLE IF NOT EXISTS scheduled_posts (id INTEGER PRIMARY KEY AUTOINCREMENT);`);
+  let due;
+  try {
+    due = db.prepare(
+      `SELECT s.*, a.platform AS platform, a.profile_id AS profile_id
+       FROM scheduled_posts s
+       JOIN reddit_accounts a ON a.id = s.account_id
+       WHERE s.status = 'pending' AND s.scheduled_for <= datetime('now')
+       ORDER BY s.scheduled_for ASC LIMIT 25`
+    ).all();
+  } catch {
+    return; // table shape not ready yet
+  }
+  for (const post of due) {
+    const platform = post.platform || 'reddit';
+    if (!protocols.acquireLock(platform, post.account_id, HOLDER, 300)) continue;
+    try {
+      const adapter = getAdapter(platform);
+      if (!adapter || !adapter.configured) {
+        db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?")
+          .run(`No adapter for ${platform}`, post.id);
+        continue;
+      }
+      const result = await adapter.submitPost({
+        accountId: post.account_id, subreddit: post.subreddit,
+        title: post.title, body: post.body, kind: post.kind, url: post.url,
+      });
+      if (result.ok) {
+        db.prepare("UPDATE scheduled_posts SET status='posted', posted_at=datetime('now') WHERE id=?").run(post.id);
+        protocols.recordEvent({
+          platform, account_id: post.account_id, profile_id: post.profile_id,
+          subreddit: post.subreddit, title: post.title, remote_id: result.id,
+          status: 'posted', source: 'scheduled',
+        });
+      } else {
+        db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?").run(result.error, post.id);
+        protocols.recordEvent({
+          platform, account_id: post.account_id, profile_id: post.profile_id,
+          subreddit: post.subreddit, title: post.title,
+          status: 'failed', source: 'scheduled', error: result.error,
+        });
+      }
+    } catch (err) {
+      db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?").run(err.message, post.id);
+    } finally {
+      protocols.releaseLock(platform, post.account_id);
+    }
+  }
+}
+
+let schedTimer = null;
+
 function tick() {
   if (!isEnabled()) return;
-  runOnce().catch(() => {});
+  runOnce().catch(() => {});           // autonomous autopilot only when enabled
 }
 
 function start() {
   if (timer) return;
   const mins = Number(getSetting('autopilot_interval_min') || 30);
   timer = setInterval(tick, Math.max(5, mins) * 60 * 1000);
-  // Kick one shortly after boot so it's responsive, but only if enabled.
+  // Scheduled posts fire on their own ~1-min cadence regardless of autopilot.
+  schedTimer = setInterval(() => runDueScheduled().catch(() => {}), 60 * 1000);
+  setTimeout(() => runDueScheduled().catch(() => {}), 15 * 1000);
   setTimeout(tick, 60 * 1000);
 }
 
 function stop() {
   if (timer) { clearInterval(timer); timer = null; }
+  if (schedTimer) { clearInterval(schedTimer); schedTimer = null; }
 }
 
 function status() {
