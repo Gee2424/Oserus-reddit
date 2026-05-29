@@ -21,19 +21,13 @@ const { getDb } = require('../db');
 const protocols = require('./protocols');
 const { getAdapter } = require('../platforms');
 const { generatePost } = require('./postgen');
+const { getSetting } = require('./settings');
 
 const HOLDER = `${os.hostname()}-${process.pid}`;
 let timer = null;
 let running = false;
 let lastRun = null;
 let lastSummary = null;
-
-function getSetting(key) {
-  const db = getDb();
-  db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);`);
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : null;
-}
 
 function isEnabled() {
   return getSetting('autopilot_enabled') === '1';

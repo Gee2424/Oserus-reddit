@@ -1,9 +1,6 @@
-const { net } = require('electron');
-const { getDb } = require('../db');
 const { userFromToken } = require('./auth');
 const { log } = require('./activity');
-
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36';
+const { partitionFor, request, modhashFor } = require('../services/redditSession');
 
 const FOLDERS = {
   all: 'https://www.reddit.com/message/inbox.json?raw_json=1&limit=100',
@@ -12,36 +9,6 @@ const FOLDERS = {
   mentions: 'https://www.reddit.com/message/mentions.json?raw_json=1&limit=100',
   sent: 'https://www.reddit.com/message/sent.json?raw_json=1&limit=100',
 };
-
-function partitionFor(accountId) {
-  const row = getDb()
-    .prepare("SELECT partition_key, username FROM reddit_accounts WHERE id = ? AND platform = 'reddit'")
-    .get(accountId);
-  return row ? { partition: `persist:${row.partition_key}`, username: row.username } : null;
-}
-
-// Make a request through the account's logged-in session partition. Cookies
-// from that partition authenticate us as the account — same as the browser.
-function request(partition, url, { method = 'GET', form, modhash } = {}) {
-  return new Promise((resolve, reject) => {
-    const req = net.request({ method, url, partition, useSessionCookies: true });
-    req.setHeader('User-Agent', UA);
-    if (modhash) req.setHeader('X-Modhash', modhash);
-    if (form) req.setHeader('Content-Type', 'application/x-www-form-urlencoded');
-    let body = '';
-    req.on('response', (res) => {
-      res.on('data', (c) => { body += c.toString(); });
-      res.on('end', () => {
-        if (res.statusCode === 401 || res.statusCode === 403) { reject(new Error('NOT_LOGGED_IN')); return; }
-        try { resolve(JSON.parse(body)); }
-        catch { reject(new Error('NOT_LOGGED_IN')); } // login redirect returns HTML
-      });
-    });
-    req.on('error', (e) => reject(e));
-    if (form) req.write(form);
-    req.end();
-  });
-}
 
 function normalize(listing) {
   const kids = listing?.data?.children || [];
@@ -63,15 +30,6 @@ function normalize(listing) {
       permalink: d.context ? `https://www.reddit.com${d.context}` : null,
     };
   });
-}
-
-async function modhashFor(partition) {
-  try {
-    const me = await request(partition, 'https://www.reddit.com/api/me.json?raw_json=1');
-    return me?.data?.modhash || me?.modhash || null;
-  } catch {
-    return null;
-  }
 }
 
 function register(ipcMain) {

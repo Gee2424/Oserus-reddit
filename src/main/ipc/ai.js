@@ -2,30 +2,7 @@ const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
 const { requirePermission } = require('../permissions');
 const { generatePost } = require('../services/postgen');
-
-function ensureSettingsTable() {
-  getDb().exec(`
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `);
-}
-
-function setSetting(key, value) {
-  ensureSettingsTable();
-  getDb().prepare(
-    'INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime(\'now\')) ' +
-    'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime(\'now\')'
-  ).run(key, value);
-}
-
-function getSetting(key) {
-  ensureSettingsTable();
-  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : null;
-}
+const { getSetting, setSetting } = require('../services/settings');
 
 async function callAnthropic(apiKey, system, userMessage, options = {}) {
   const body = {

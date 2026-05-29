@@ -7,21 +7,7 @@ const { log } = require('./activity');
 const protocols = require('../services/protocols');
 const coordinator = require('../services/coordinator');
 const { getDb } = require('../db');
-
-function setSetting(key, value) {
-  const db = getDb();
-  db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);`);
-  db.prepare(
-    `INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`
-  ).run(key, value == null ? null : String(value));
-}
-function getSetting(key) {
-  const db = getDb();
-  db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);`);
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : null;
-}
+const { getSetting, setSetting } = require('../services/settings');
 
 function register(ipcMain) {
   // --- Protocol config CRUD (override hierarchy) ---

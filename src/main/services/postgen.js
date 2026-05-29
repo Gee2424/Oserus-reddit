@@ -8,13 +8,7 @@
 // list, we still generate for it and tell the model to write for that sub.
 
 const { getDb, decryptSecret } = require('../db');
-
-function getSetting(key) {
-  const db = getDb();
-  db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);`);
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : null;
-}
+const { getSetting } = require('./settings');
 
 async function callAnthropic(apiKey, system, userMessage, options = {}) {
   const body = {

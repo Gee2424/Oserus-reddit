@@ -2,35 +2,12 @@ const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
 const { log } = require('./activity');
 const { requirePermission } = require('../permissions');
+const { getSetting, setSetting } = require('../services/settings');
 
 // upvote.biz uses the SMM-panel-standard API: POST form-encoded body to /api/v2
 // with key=API_KEY and action=balance|services|add|status. If their base URL
 // or shape differs, the only change required is here.
 const API_URL = 'https://upvote.biz/api/v1';
-
-function ensureSettingsTable() {
-  getDb().exec(`
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `);
-}
-
-function setSetting(key, value) {
-  ensureSettingsTable();
-  getDb().prepare(
-    'INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime(\'now\')) ' +
-    'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime(\'now\')'
-  ).run(key, value);
-}
-
-function getSetting(key) {
-  ensureSettingsTable();
-  const row = getDb().prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : null;
-}
 
 async function call(apiKey, action, extra = {}) {
   const body = new URLSearchParams({ key: apiKey, action, ...extra });
