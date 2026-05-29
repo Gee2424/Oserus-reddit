@@ -19,6 +19,7 @@ import ActivityPage from './pages/Activity.jsx';
 import OperationsPage from './pages/Operations.jsx';
 import AutopilotPage from './pages/Autopilot.jsx';
 import SchedulerProPage from './pages/SchedulerPro.jsx';
+import IntelligencePage from './pages/Intelligence.jsx';
 import RedditApiPage from './pages/RedditApi.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
@@ -72,6 +73,7 @@ function Inner() {
       case 'operations': return <OperationsPage navigate={navigate} />;
       case 'autopilot': return <AutopilotPage />;
       case 'scheduler-pro': return <SchedulerProPage />;
+      case 'intel': return <IntelligencePage />;
       default: return <DashboardPage navigate={navigate} />;
     }
   })();

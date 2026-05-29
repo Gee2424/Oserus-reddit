@@ -95,6 +95,32 @@ function register(ipcMain) {
     }
   });
 
+  // --- AI / poster settings (Scheduler Pro AI panel) ---
+  ipcMain.handle('aiconfig:get', (_e, { token }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      const v = getSetting('ai_poster_config');
+      const cfg = v ? JSON.parse(v) : {};
+      return { ok: true, config: cfg };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('aiconfig:set', (_e, { token, config }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'protocols.manage');
+      setSetting('ai_poster_config', JSON.stringify(config || {}));
+      if (config && config.model) setSetting('grok_model', config.model);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('coordination:test', async (_e, { token }) => {
     try {
       const user = userFromToken(token);

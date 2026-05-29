@@ -54,6 +54,17 @@ async function generatePost({ accountId, mode, hint, targetSubreddit }) {
     .get(accountId);
   if (!account) throw new Error('Account not found');
 
+  // Poster persona + title-length + custom prompt from the Scheduler AI panel.
+  let poster = {};
+  try { poster = JSON.parse(getSetting('ai_poster_config') || '{}'); } catch { poster = {}; }
+  const personaLines = [
+    poster.gender ? `Poster gender: ${poster.gender}` : null,
+    poster.age ? `Poster age: ${poster.age}` : null,
+    poster.location ? `Location: ${poster.location}` : null,
+    (poster.titleMin || poster.titleMax) ? `Title length: ${poster.titleMin || 3}–${poster.titleMax || 12} words` : null,
+  ].filter(Boolean).join('\n');
+  const customPrompt = (poster.mode === 'custom' && poster.customPrompt) ? poster.customPrompt.trim() : null;
+
   const isSfw = mode === 'sfw' || (mode !== 'nsfw' && account.status === 'warming');
 
   let candidates;
@@ -146,6 +157,10 @@ ${cleanTarget && targetOnList ? `\nFocus on r/${cleanTarget}.` : ''}
 
 Generate 3 post ideas.`;
   }
+
+  // Layer the poster persona + any custom prompt override onto the system msg.
+  if (personaLines) system += `\n\nPoster persona:\n${personaLines}`;
+  if (customPrompt) system += `\n\nAdditional instructions:\n${customPrompt}`;
 
   const text = await callGrok(apiKey, system, userMsg);
   try {

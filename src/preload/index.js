@@ -151,6 +151,15 @@ const api = {
     set: (data) => ipcRenderer.invoke('coordination:set', data),
     test: (data) => ipcRenderer.invoke('coordination:test', data),
   },
+  intel: {
+    list: (data) => ipcRenderer.invoke('intel:list', data),
+    fetch: (data) => ipcRenderer.invoke('intel:fetch', data),
+    delete: (data) => ipcRenderer.invoke('intel:delete', data),
+  },
+  aiconfig: {
+    get: (data) => ipcRenderer.invoke('aiconfig:get', data),
+    set: (data) => ipcRenderer.invoke('aiconfig:set', data),
+  },
   windows: {
     openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),
     setAlwaysOnTop: (data) => ipcRenderer.invoke('window:setAlwaysOnTop', data),

@@ -14,6 +14,7 @@ const PERMISSIONS = [
   { key: 'page.subreddits',    group: 'Pages',      label: 'Warm-up subs' },
   { key: 'page.autopilot',     group: 'Pages',      label: 'Autopilot & Protocols' },
   { key: 'page.scheduler',     group: 'Pages',      label: 'Scheduler Pro' },
+  { key: 'page.intel',         group: 'Pages',      label: 'Reddit Intelligence' },
   { key: 'page.team',          group: 'Pages',      label: 'Team' },
   { key: 'page.activity',      group: 'Pages',      label: 'Activity log' },
   { key: 'page.docs',          group: 'Pages',      label: 'Docs' },
@@ -98,7 +99,7 @@ const BUILTIN_ROLES = [
     description: 'Reddit assistant. Can post, place upvotes, view proxies.',
     permissions: [
       'page.dashboard', 'page.analytics', 'page.profiles', 'page.reddit-api',
-      'page.operations', 'page.subreddits', 'page.docs', 'page.autopilot', 'page.scheduler',
+      'page.operations', 'page.subreddits', 'page.docs', 'page.autopilot', 'page.scheduler', 'page.intel',
       'page.settings', 'page.reddit', 'page.redgifs', 'page.webviews',
       'redditapi.posting', 'redditapi.reddit', 'redditapi.inbox',
       'infra.upvotes.view', 'infra.upvotes.place_order',

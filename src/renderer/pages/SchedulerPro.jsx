@@ -40,6 +40,7 @@ export default function SchedulerProPage() {
   const [msg, setMsg] = useState(null);
   const [err, setErr] = useState(null);
   const [showCompose, setShowCompose] = useState(false);
+  const [showAI, setShowAI] = useState(false);
 
   const load = useCallback(async () => {
     const res = await window.api.scheduled.list({
@@ -112,9 +113,12 @@ export default function SchedulerProPage() {
             Due posts fire automatically while the app is open.
           </div>
         </div>
-        <button className="primary" onClick={() => setShowCompose((v) => !v)}>
-          {showCompose ? 'Close' : '+ Schedule posts'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="ghost" onClick={() => setShowAI((v) => !v)}>{showAI ? 'Close AI' : '✦ AI Settings'}</button>
+          <button className="primary" onClick={() => setShowCompose((v) => !v)}>
+            {showCompose ? 'Close' : '+ Schedule posts'}
+          </button>
+        </div>
       </div>
 
       {err && <div className="error-banner" style={{ marginBottom: 14 }}>{err}</div>}
@@ -122,6 +126,8 @@ export default function SchedulerProPage() {
       {pendingConflicts > 0 && (
         <div style={warnBanner}>⚠ {pendingConflicts} scheduled post{pendingConflicts > 1 ? 's' : ''} conflict with posting protocols.</div>
       )}
+
+      {showAI && <AISettings token={token} onMsg={setMsg} onError={setErr} />}
 
       {showCompose && (
         <Composer
@@ -206,6 +212,98 @@ export default function SchedulerProPage() {
           </div>
         ))
       )}
+    </div>
+  );
+}
+
+function AISettings({ token, onMsg, onError }) {
+  const [cfg, setCfg] = useState({
+    mode: 'assistive', gender: 'female', age: '20', location: '',
+    titleMin: 3, titleMax: 8, model: 'grok-2-latest', customPrompt: '',
+  });
+  const [hasKey, setHasKey] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    window.api.aiconfig.get({ token }).then((r) => { if (r.ok && r.config) setCfg((c) => ({ ...c, ...r.config })); });
+    window.api.ai.hasApiKey({ token }).then((r) => setHasKey(!!(r.ok && r.hasKey)));
+  }, [token]);
+
+  async function save() {
+    setBusy(true);
+    const res = await window.api.aiconfig.set({ token, config: cfg });
+    setBusy(false);
+    if (res.ok) onMsg('AI settings saved.'); else onError(res.error);
+  }
+
+  const set = (k, v) => setCfg((c) => ({ ...c, [k]: v }));
+
+  return (
+    <div className="card bordered-glow" style={{ padding: 18, marginBottom: 18 }}>
+      <h3 style={{ marginTop: 0, marginBottom: 4 }}>AI Settings</h3>
+      <div style={{ fontSize: 12, color: hasKey ? '#bdd5a3' : 'var(--gold)', marginBottom: 14 }}>
+        {hasKey ? '✓ Grok API is configured and ready to use.' : '⚠ No Grok key yet — add one in Configuration.'}
+      </div>
+
+      <label>AI mode</label>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {[
+          { v: 'none', l: 'No AI', d: 'Use captions from vault only' },
+          { v: 'assistive', l: 'Assistive', d: 'Tweak captions to match subreddit rules' },
+          { v: 'creator', l: 'Creator', d: 'Generate titles with AI' },
+        ].map((m) => (
+          <button key={m.v} onClick={() => set('mode', m.v)} title={m.d}
+            className={cfg.mode === m.v ? 'primary' : 'ghost'} style={{ flex: 1, flexDirection: 'column', alignItems: 'flex-start', padding: '10px 12px' }}>
+            <span style={{ fontWeight: 600 }}>{m.l}</span>
+            <span style={{ fontSize: 10, opacity: 0.8, marginTop: 2 }}>{m.d}</span>
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+        <div>
+          <label>Poster gender</label>
+          <select value={cfg.gender} onChange={(e) => set('gender', e.target.value)}>
+            <option value="female">Female</option>
+            <option value="male">Male</option>
+          </select>
+        </div>
+        <div>
+          <label>Poster age</label>
+          <input type="number" min={18} value={cfg.age} onChange={(e) => set('age', e.target.value)} />
+        </div>
+        <div>
+          <label>Location (city or country)</label>
+          <input value={cfg.location} placeholder="e.g. Arizona" onChange={(e) => set('location', e.target.value)} />
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
+        <div>
+          <label>Title length min (words)</label>
+          <input type="number" min={1} value={cfg.titleMin} onChange={(e) => set('titleMin', e.target.value)} />
+        </div>
+        <div>
+          <label>Title length max (words)</label>
+          <input type="number" min={1} value={cfg.titleMax} onChange={(e) => set('titleMax', e.target.value)} />
+        </div>
+        <div>
+          <label>Grok model</label>
+          <input value={cfg.model} onChange={(e) => set('model', e.target.value)} placeholder="grok-2-latest" />
+        </div>
+      </div>
+
+      <label>System prompt override (optional)</label>
+      <textarea
+        value={cfg.customPrompt}
+        onChange={(e) => set('customPrompt', e.target.value)}
+        placeholder="Leave blank to use the built-in prompt. Add instructions here to override per your needs."
+        style={{ minHeight: 90, fontSize: 13 }}
+      />
+
+      <button className="primary" onClick={save} disabled={busy} style={{ marginTop: 14 }}>
+        {busy ? 'Saving…' : 'Save AI settings'}
+      </button>
     </div>
   );
 }

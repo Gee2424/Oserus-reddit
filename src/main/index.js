@@ -22,6 +22,7 @@ const registerRedditHandlers = require('./ipc/reddit');
 const registerRolesHandlers = require('./ipc/roles');
 const registerInboxHandlers = require('./ipc/inbox');
 const registerProtocolHandlers = require('./ipc/protocols');
+const registerIntelHandlers = require('./ipc/intelligence');
 const coordinator = require('./services/coordinator');
 
 const isDev = !app.isPackaged;
@@ -205,6 +206,7 @@ app.whenReady().then(() => {
   registerRolesHandlers(ipcMain);
   registerInboxHandlers(ipcMain);
   registerProtocolHandlers(ipcMain);
+  registerIntelHandlers(ipcMain);
 
   createWindow();
 

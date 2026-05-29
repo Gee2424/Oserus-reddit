@@ -17,6 +17,7 @@ const NAV = [
   { key: 'autopilot', label: 'Autopilot', icon: '⟳', group: 'Ops', perm: 'page.autopilot' },
   { key: 'scheduler-pro', label: 'Scheduler Pro', icon: '◷', group: 'Ops', perm: 'page.scheduler' },
   { key: 'inbox', label: 'Inbox Manager', icon: '✉', group: 'Ops', perm: 'page.reddit-api' },
+  { key: 'intel', label: 'Reddit Intelligence', icon: '◎', group: 'Ops', perm: 'page.intel' },
 
   { key: 'users', label: 'Team', icon: '◉', group: 'Team', perm: 'page.team' },
   { key: 'activity', label: 'Activity', icon: '☷', group: 'Team', perm: 'page.activity' },
