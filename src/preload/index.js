@@ -146,6 +146,11 @@ const api = {
     setInterval: (data) => ipcRenderer.invoke('autopilot:setInterval', data),
     runNow: (data) => ipcRenderer.invoke('autopilot:runNow', data),
   },
+  coordination: {
+    get: (data) => ipcRenderer.invoke('coordination:get', data),
+    set: (data) => ipcRenderer.invoke('coordination:set', data),
+    test: (data) => ipcRenderer.invoke('coordination:test', data),
+  },
   windows: {
     openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),
     setAlwaysOnTop: (data) => ipcRenderer.invoke('window:setAlwaysOnTop', data),

@@ -58,7 +58,49 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      return { ok: true, ...coordinator.status() };
+      return { ok: true, ...coordinator.status(), backend: protocols.backendName() };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // --- Cloud coordination (Supabase) config ---
+  ipcMain.handle('coordination:get', (_e, { token }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      return {
+        ok: true,
+        backend: protocols.backendName(),
+        url: getSetting('supabase_url') || '',
+        hasKey: !!getSetting('supabase_key'),
+      };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('coordination:set', (_e, { token, backend, url, key }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'protocols.manage');
+      if (backend != null) setSetting('coordination_backend', backend === 'supabase' ? 'supabase' : 'local');
+      if (url != null) setSetting('supabase_url', url);
+      if (key) setSetting('supabase_key', key); // only overwrite when provided
+      log(user, 'coordination.set', 'system', null, `backend=${backend}`);
+      return { ok: true, backend: protocols.backendName() };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('coordination:test', async (_e, { token }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      const coordination = require('../services/coordination');
+      return await coordination.testConnection();
     } catch (err) {
       return { ok: false, error: err.message };
     }

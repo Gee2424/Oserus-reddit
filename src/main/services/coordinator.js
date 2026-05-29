@@ -66,7 +66,9 @@ async function runOnce({ dryRun = false } = {}) {
   try {
     const accounts = candidateAccounts();
     for (const acct of accounts) {
-      const elig = protocols.checkEligibility({
+      // Shared eligibility consults the coordination log (cross-machine when
+      // Supabase is active) so we don't repeat what another VA just posted.
+      const elig = await protocols.checkEligibilityShared({
         platform: 'reddit', accountId: acct.id, profileId: acct.profile_id,
       });
       if (!elig.eligible) {
@@ -80,9 +82,9 @@ async function runOnce({ dryRun = false } = {}) {
         continue;
       }
 
-      // Claim lock (TTL) so concurrent passes don't double-post.
+      // Claim lock (TTL) so concurrent passes/machines don't double-post.
       const ttl = Number(getSetting('autopilot_lock_ttl') || 300);
-      if (!protocols.acquireLock('reddit', acct.id, HOLDER, ttl)) {
+      if (!(await protocols.acquireLock('reddit', acct.id, HOLDER, ttl))) {
         summary.skipped++;
         summary.details.push({ account: acct.username, action: 'skip', reason: 'Locked by another pass/machine' });
         continue;
@@ -93,7 +95,7 @@ async function runOnce({ dryRun = false } = {}) {
         if (!content || !content.subreddit || !content.title) {
           summary.skipped++;
           summary.details.push({ account: acct.username, action: 'skip', reason: 'No content generated (check warm-up subs / API key)' });
-          protocols.releaseLock('reddit', acct.id);
+          await protocols.releaseLock('reddit', acct.id);
           continue;
         }
 
@@ -107,7 +109,7 @@ async function runOnce({ dryRun = false } = {}) {
         });
 
         if (result.ok) {
-          protocols.recordEvent({
+          await protocols.recordEvent({
             platform: 'reddit', account_id: acct.id, profile_id: acct.profile_id,
             subreddit: content.subreddit, title: content.title, remote_id: result.id,
             status: 'posted', source: 'auto',
@@ -115,7 +117,7 @@ async function runOnce({ dryRun = false } = {}) {
           summary.posted++;
           summary.details.push({ account: acct.username, action: 'posted', subreddit: content.subreddit, title: content.title });
         } else {
-          protocols.recordEvent({
+          await protocols.recordEvent({
             platform: 'reddit', account_id: acct.id, profile_id: acct.profile_id,
             subreddit: content.subreddit, title: content.title,
             status: 'failed', source: 'auto', error: result.error,
@@ -127,7 +129,7 @@ async function runOnce({ dryRun = false } = {}) {
         summary.failed++;
         summary.details.push({ account: acct.username, action: 'failed', reason: err.message });
       } finally {
-        protocols.releaseLock('reddit', acct.id);
+        await protocols.releaseLock('reddit', acct.id);
       }
     }
   } catch (err) {
@@ -161,7 +163,7 @@ async function runDueScheduled() {
   }
   for (const post of due) {
     const platform = post.platform || 'reddit';
-    if (!protocols.acquireLock(platform, post.account_id, HOLDER, 300)) continue;
+    if (!(await protocols.acquireLock(platform, post.account_id, HOLDER, 300))) continue;
     try {
       const adapter = getAdapter(platform);
       if (!adapter || !adapter.configured) {
@@ -175,14 +177,14 @@ async function runDueScheduled() {
       });
       if (result.ok) {
         db.prepare("UPDATE scheduled_posts SET status='posted', posted_at=datetime('now') WHERE id=?").run(post.id);
-        protocols.recordEvent({
+        await protocols.recordEvent({
           platform, account_id: post.account_id, profile_id: post.profile_id,
           subreddit: post.subreddit, title: post.title, remote_id: result.id,
           status: 'posted', source: 'scheduled',
         });
       } else {
         db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?").run(result.error, post.id);
-        protocols.recordEvent({
+        await protocols.recordEvent({
           platform, account_id: post.account_id, profile_id: post.profile_id,
           subreddit: post.subreddit, title: post.title,
           status: 'failed', source: 'scheduled', error: result.error,
@@ -191,7 +193,7 @@ async function runDueScheduled() {
     } catch (err) {
       db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?").run(err.message, post.id);
     } finally {
-      protocols.releaseLock(platform, post.account_id);
+      await protocols.releaseLock(platform, post.account_id);
     }
   }
 }

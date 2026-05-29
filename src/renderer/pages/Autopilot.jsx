@@ -36,6 +36,9 @@ export default function AutopilotPage() {
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [interval, setIntervalMin] = useState(30);
+  const [cloud, setCloud] = useState({ backend: 'local', url: '', hasKey: false });
+  const [cloudKey, setCloudKey] = useState('');
+  const [cloudTest, setCloudTest] = useState(null);
 
   const loadConfig = useCallback(async () => {
     const sid = scope === 'platform' ? (scopeId || 'reddit') : null;
@@ -52,7 +55,29 @@ export default function AutopilotPage() {
     if (e.ok) setEvents(e.events || []);
   }, [token]);
 
+  const loadCloud = useCallback(async () => {
+    const res = await window.api.coordination.get({ token });
+    if (res.ok) setCloud(res);
+  }, [token]);
+
+  async function saveCloud(nextBackend) {
+    const res = await window.api.coordination.set({
+      token,
+      backend: nextBackend ?? cloud.backend,
+      url: cloud.url,
+      key: cloudKey || undefined,
+    });
+    if (res.ok) { setCloudKey(''); setMsg('Cloud sync settings saved.'); loadCloud(); loadStatus(); }
+    else setErr(res.error);
+  }
+  async function testCloud() {
+    setCloudTest('testing');
+    const res = await window.api.coordination.test({ token });
+    setCloudTest(res.ok ? 'ok' : `fail: ${res.error}`);
+  }
+
   useEffect(() => { loadConfig(); }, [loadConfig]);
+  useEffect(() => { loadCloud(); }, [loadCloud]);
   useEffect(() => {
     loadStatus();
     const id = setInterval(loadStatus, 15000);
@@ -158,6 +183,45 @@ export default function AutopilotPage() {
           </div>
         )}
       </div>
+
+      {/* Cloud sync (multi-VA coordination) */}
+      {canManage && (
+        <div className="card" style={{ marginBottom: 18, padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <h3 style={{ margin: 0 }}>Multi-VA coordination</h3>
+            <span style={{ ...pill, ...(cloud.backend === 'supabase' ? { background: 'rgba(122,154,90,0.15)', color: '#bdd5a3' } : { background: 'rgba(255,255,255,0.06)', color: 'var(--text-3)' }) }}>
+              {cloud.backend === 'supabase' ? 'Cloud (shared)' : 'Local only'}
+            </span>
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 14, lineHeight: 1.6 }}>
+            Local only: each PC tracks its own posts — VAs can't see each other's activity.
+            Cloud: all machines share one Supabase DB, so autopilot never double-posts an account across VAs.
+            Run the schema in <span className="mono">docs/supabase-schema.sql</span> first.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr auto', gap: 10, alignItems: 'end' }}>
+            <div>
+              <label>Supabase URL</label>
+              <input placeholder="https://xxxx.supabase.co" value={cloud.url} onChange={(e) => setCloud({ ...cloud, url: e.target.value })} />
+            </div>
+            <div>
+              <label>Service key {cloud.hasKey && <span className="dim" style={{ textTransform: 'none' }}>(saved — leave blank to keep)</span>}</label>
+              <input type="password" placeholder={cloud.hasKey ? '••••••••' : 'service_role key'} value={cloudKey} onChange={(e) => setCloudKey(e.target.value)} />
+            </div>
+            <button className="ghost" onClick={testCloud}>Test</button>
+          </div>
+          {cloudTest && (
+            <div style={{ fontSize: 12, marginTop: 8, color: cloudTest === 'ok' ? '#bdd5a3' : cloudTest === 'testing' ? 'var(--text-2)' : '#e2a3a3' }}>
+              {cloudTest === 'ok' ? '✓ Connected — tables reachable.' : cloudTest === 'testing' ? 'Testing…' : `✗ ${cloudTest.replace('fail: ', '')}`}
+            </div>
+          )}
+          <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
+            <button className="ghost" onClick={() => saveCloud()}>Save settings</button>
+            {cloud.backend === 'supabase'
+              ? <button className="danger" onClick={() => saveCloud('local')}>Switch to local</button>
+              : <button className="primary" onClick={() => saveCloud('supabase')}>Enable cloud sync</button>}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 18 }}>
         {/* Protocol editor */}

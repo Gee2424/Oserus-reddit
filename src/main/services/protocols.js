@@ -17,6 +17,7 @@
 // lifted to a hosted backend later without changes.
 
 const { getDb } = require('../db');
+const coordination = require('./coordination');
 
 const DEFAULT_PROTOCOL = {
   enabled: false,            // safe by default — nothing posts until turned on
@@ -181,46 +182,58 @@ function checkEligibility({ platform, accountId, profileId, now = new Date() }) 
   return { eligible: true, reason: 'Eligible', protocol: p };
 }
 
-// --- locks (TTL) ---
+// Locks + events delegate to the coordination repository (local SQLite, or
+// shared Supabase when configured). ensureTables() keeps the local tables
+// present either way — they're the fallback target. These are async because
+// a remote backend may be active.
 function acquireLock(platform, accountId, holder, ttlSeconds = 300) {
   ensureTables();
-  const db = getDb();
-  const nowIso = new Date().toISOString().replace('T', ' ').slice(0, 19);
-  const expIso = new Date(Date.now() + ttlSeconds * 1000).toISOString().replace('T', ' ').slice(0, 19);
-  // Clear expired lock first.
-  db.prepare('DELETE FROM post_locks WHERE platform = ? AND account_id = ? AND expires_at < ?')
-    .run(platform, accountId, nowIso);
-  try {
-    db.prepare('INSERT INTO post_locks (platform, account_id, holder, acquired_at, expires_at) VALUES (?,?,?,?,?)')
-      .run(platform, accountId, holder, nowIso, expIso);
-    return true;
-  } catch {
-    return false; // someone holds it
-  }
+  return coordination.acquireLock(platform, accountId, holder, ttlSeconds);
 }
-
 function releaseLock(platform, accountId) {
   ensureTables();
-  getDb().prepare('DELETE FROM post_locks WHERE platform = ? AND account_id = ?').run(platform, accountId);
+  return coordination.releaseLock(platform, accountId);
 }
-
 function recordEvent(ev) {
   ensureTables();
-  getDb().prepare(
-    `INSERT INTO post_events (platform, account_id, profile_id, subreddit, title, remote_id, status, source, error, created_by_user_id)
-     VALUES (@platform, @account_id, @profile_id, @subreddit, @title, @remote_id, @status, @source, @error, @created_by_user_id)`
-  ).run({
-    platform: ev.platform,
-    account_id: ev.account_id,
-    profile_id: ev.profile_id ?? null,
-    subreddit: ev.subreddit ?? null,
-    title: ev.title ?? null,
-    remote_id: ev.remote_id ?? null,
-    status: ev.status || 'posted',
-    source: ev.source || 'manual',
-    error: ev.error ?? null,
-    created_by_user_id: ev.created_by_user_id ?? null,
-  });
+  return coordination.recordEvent(ev);
+}
+
+// Async eligibility check that consults the shared post log (cross-machine
+// when Supabase is active). The synchronous checkEligibility() above stays
+// for the local IPC preview; the coordinator uses this one before posting.
+async function checkEligibilityShared({ platform, accountId, profileId, now = new Date() }) {
+  const p = resolveProtocol({ platform, profileId, accountId });
+  if (!p.enabled) return { eligible: false, reason: 'Protocol disabled' };
+
+  const hour = now.getHours();
+  if (isQuietHour(hour, p.quietStart, p.quietEnd)) {
+    return { eligible: false, reason: `Quiet hours (${p.quietStart}:00–${p.quietEnd}:00)` };
+  }
+
+  const dayAgo = new Date(now.getTime() - 24 * 3600 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  const postsToday = await coordination.countPostsSince(platform, accountId, dayAgo);
+  if (p.dailyCap && postsToday >= p.dailyCap) {
+    return { eligible: false, reason: `Daily cap reached (${postsToday}/${p.dailyCap})` };
+  }
+
+  const last = await coordination.lastPostAt(platform, accountId);
+  if (last) {
+    const lastMs = new Date(last.replace(' ', 'T') + 'Z').getTime();
+    const sinceH = (now.getTime() - lastMs) / 3600000;
+    if (p.postsBeforeBreak) {
+      const burstWindow = new Date(now.getTime() - (p.breakHoursMax || 12) * 3600 * 1000)
+        .toISOString().replace('T', ' ').slice(0, 19);
+      const recent = await coordination.countPostsSince(platform, accountId, burstWindow);
+      if (recent >= p.postsBeforeBreak) {
+        const breakH = rand(p.breakHoursMin || 6, p.breakHoursMax || 12);
+        if (sinceH < breakH) return { eligible: false, reason: `On break after ${recent} posts (resting ~${breakH.toFixed(1)}h)` };
+      }
+    }
+    const gapH = rand(p.hoursBetweenMin || 4, p.hoursBetweenMax || 8);
+    if (sinceH < gapH) return { eligible: false, reason: `Too soon (waited ${sinceH.toFixed(1)}h, needs ~${gapH.toFixed(1)}h)` };
+  }
+  return { eligible: true, reason: 'Eligible', protocol: p };
 }
 
 module.exports = {
@@ -230,9 +243,11 @@ module.exports = {
   setConfig,
   resolveProtocol,
   checkEligibility,
+  checkEligibilityShared,
   acquireLock,
   releaseLock,
   recordEvent,
   lastPostAt,
   countPostsSince,
+  backendName: coordination.backendName,
 };
