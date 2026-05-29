@@ -16,15 +16,27 @@ const ORANGE = '#ff4500';
 function timeAgo(unixSec) {
   if (!unixSec) return '';
   const s = Math.floor(Date.now() / 1000 - unixSec);
-  if (s < 60) return 'just now';
-  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24); if (d < 30) return `${d}d ago`;
-  const mo = Math.floor(d / 30); if (mo < 12) return `${mo}mo ago`;
-  return `${Math.floor(mo / 12)}y ago`;
+  if (s < 60) return 'now';
+  const m = Math.floor(s / 60); if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24); if (d < 30) return `${d}d`;
+  const mo = Math.floor(d / 30); if (mo < 12) return `${mo}mo`;
+  return `${Math.floor(mo / 12)}y`;
+}
+function fullTime(unixSec) {
+  if (!unixSec) return '';
+  try { return new Date(unixSec * 1000).toLocaleString(); } catch { return ''; }
+}
+function initial(name) {
+  return (name || '?').replace(/^u\//, '').charAt(0).toUpperCase();
+}
+function avatarColor(name) {
+  let h = 0;
+  for (let i = 0; i < (name || '').length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+  return `hsl(${h}, 45%, 42%)`;
 }
 
-export default function InboxPage({ embedded, navigate }) {
+export default function InboxPage({ embedded, standalone, navigate }) {
   const { token } = useAuth();
   const { forPlatform } = useActiveAccount();
   const { active, accounts: redditAccounts, setActive } = forPlatform('reddit');
@@ -34,11 +46,11 @@ export default function InboxPage({ embedded, navigate }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [notLoggedIn, setNotLoggedIn] = useState(false);
-  const [openId, setOpenId] = useState(null);
+  const [selectedId, setSelectedId] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+  const [search, setSearch] = useState('');
 
-  // Auto-pick the first reddit account so the page is never empty.
   useEffect(() => {
     if (!active && redditAccounts && redditAccounts.length > 0) setActive(redditAccounts[0].id);
   }, [active, redditAccounts]);
@@ -46,22 +58,29 @@ export default function InboxPage({ embedded, navigate }) {
   const load = useCallback(async () => {
     if (!active) { setMessages([]); return; }
     setLoading(true); setErr(null); setNotLoggedIn(false);
-    // Ensure proxy + UA are applied to this account's session first.
     await window.api.session.prepareForAccount({ accountId: active.id });
     const res = await window.api.inbox.fetch({ token, accountId: active.id, folder });
     setLoading(false);
-    if (res.ok) { setMessages(res.messages || []); }
+    if (res.ok) setMessages(res.messages || []);
     else if (res.notLoggedIn) { setNotLoggedIn(true); setMessages([]); }
     else setErr(res.error);
   }, [active?.id, folder, token]);
 
-  useEffect(() => { load(); setOpenId(null); }, [load]);
+  useEffect(() => { load(); setSelectedId(null); }, [load]);
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(load, 60000);
+    return () => clearInterval(id);
+  }, [load, active]);
 
   const unreadCount = messages.filter((m) => m.isNew).length;
+  const filtered = search.trim()
+    ? messages.filter((m) => `${m.subject} ${m.body} ${m.author} ${m.subreddit}`.toLowerCase().includes(search.toLowerCase()))
+    : messages;
+  const selected = messages.find((m) => m.id === selectedId) || null;
 
   async function openMessage(m) {
-    if (openId === m.id) { setOpenId(null); return; }
-    setOpenId(m.id);
+    setSelectedId(m.id);
     setReplyText('');
     if (m.isNew) {
       await window.api.inbox.markRead({ token, accountId: active.id, fullname: m.name });
@@ -69,19 +88,138 @@ export default function InboxPage({ embedded, navigate }) {
     }
   }
 
-  async function sendReply(m) {
-    if (!replyText.trim()) return;
+  async function sendReply() {
+    if (!replyText.trim() || !selected) return;
     setSending(true); setErr(null);
-    const res = await window.api.inbox.reply({
-      token, accountId: active.id, parentFullname: m.name, text: replyText.trim(),
-    });
+    const res = await window.api.inbox.reply({ token, accountId: active.id, parentFullname: selected.name, text: replyText.trim() });
     setSending(false);
-    if (res.ok) { setReplyText(''); setOpenId(null); load(); }
+    if (res.ok) { setReplyText(''); load(); }
     else setErr(res.error);
   }
 
+  async function popOut() {
+    await window.api.windows.openPopout({ route: 'inbox', title: 'Inbox — Oserus', width: 900, height: 720 });
+  }
+
+  // ---- list pane ----
+  const listPane = (
+    <div style={{ ...listCol, ...(standalone && selected ? { display: 'none' } : {}) }}>
+      <div style={searchWrap}>
+        <input
+          placeholder="Search messages…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={searchInput}
+        />
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {!active ? (
+          <Empty text="No Reddit account selected." />
+        ) : notLoggedIn ? (
+          <div style={{ padding: 26, textAlign: 'center' }}>
+            <div style={{ color: '#818384', fontSize: 13, lineHeight: 1.6 }}>
+              u/{active.username} isn't logged into Reddit yet.
+            </div>
+            {navigate && (
+              <button onClick={() => { setActive(active.id); navigate('reddit'); }} style={{ ...primaryBtn, marginTop: 14 }}>
+                Sign in via Browser ↗
+              </button>
+            )}
+          </div>
+        ) : loading && messages.length === 0 ? (
+          <Empty text="Loading…" />
+        ) : filtered.length === 0 ? (
+          <Empty text={folder === 'unread' ? 'Inbox zero ✓' : 'No messages.'} />
+        ) : (
+          filtered.map((m) => {
+            const who = folder === 'sent' ? m.dest : m.author || m.dest;
+            const isSel = m.id === selectedId;
+            return (
+              <button key={m.id} onClick={() => openMessage(m)} style={{ ...listItem, ...(isSel ? listItemActive : {}) }}>
+                <div style={{ ...avatar, background: avatarColor(who) }}>{initial(who)}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                    <span style={{ fontWeight: m.isNew ? 700 : 500, fontSize: 13, color: '#d7dadc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {who ? `u/${who}` : '(reddit)'}
+                    </span>
+                    <span style={{ marginLeft: 'auto', fontSize: 11, color: '#818384', flexShrink: 0 }}>{timeAgo(m.created)}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: m.isNew ? '#d7dadc' : '#b8babd', fontWeight: m.isNew ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
+                    {m.subject || '(no subject)'}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#818384', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
+                    {(m.body || '').replace(/\s+/g, ' ').slice(0, 80)}
+                  </div>
+                </div>
+                {m.isNew && <span style={unreadDot} />}
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+
+  // ---- thread / detail pane ----
+  const detailPane = (
+    <div style={{ ...detailCol, ...(standalone && !selected ? { display: 'none' } : {}) }}>
+      {!selected ? (
+        <div style={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+          <div style={{ textAlign: 'center', color: '#5c5e60' }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>✉</div>
+            <div style={{ fontSize: 13 }}>Select a message to read</div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div style={threadHeader}>
+            {standalone && (
+              <button onClick={() => setSelectedId(null)} style={backBtn}>←</button>
+            )}
+            <div style={{ ...avatar, background: avatarColor(selected.author || selected.dest), width: 36, height: 36 }}>
+              {initial(selected.author || selected.dest)}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, color: '#d7dadc' }}>
+                {folder === 'sent' ? `to u/${selected.dest}` : `u/${selected.author || selected.dest || 'reddit'}`}
+              </div>
+              <div style={{ fontSize: 11, color: '#818384' }}>
+                {selected.subreddit ? `r/${selected.subreddit} · ` : ''}{fullTime(selected.created)}
+              </div>
+            </div>
+          </div>
+
+          <div style={threadBody}>
+            <div style={subjectLine}>{selected.subject || '(no subject)'}</div>
+            <div style={msgBubble}>{selected.body}</div>
+            {selected.linkTitle && (
+              <div style={{ fontSize: 11, color: '#818384', marginTop: 10 }}>
+                {selected.wasComment ? 'Comment reply on:' : 'Re:'} {selected.linkTitle}
+              </div>
+            )}
+          </div>
+
+          {folder !== 'sent' && (
+            <div style={composer}>
+              <textarea
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder={`Reply as u/${active.username}…`}
+                style={composerInput}
+                onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendReply(); }}
+              />
+              <button onClick={sendReply} disabled={sending || !replyText.trim()} style={sendBtn}>
+                {sending ? '…' : '➤'}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
   return (
-    <div>
+    <div style={embedded ? {} : undefined}>
       {!embedded && (
         <div className="title-block">
           <div>
@@ -91,134 +229,42 @@ export default function InboxPage({ embedded, navigate }) {
         </div>
       )}
 
-      {/* Reddit-styled inbox card */}
       <div style={shell}>
-        {/* Reddit header bar */}
+        {/* header */}
         <div style={header}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <Snoo />
-            <span style={{ fontWeight: 700, color: '#fff', fontSize: 15 }}>Reddit Inbox</span>
-            {active && (
-              <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>
-                u/{active.username}
-              </span>
-            )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <span style={snoo}>✉</span>
+            <span style={{ fontWeight: 700, color: '#fff', fontSize: 14 }}>Inbox</span>
+            {active && <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>u/{active.username}</span>}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <AccountSwitcher platform="reddit" />
-            <button onClick={load} disabled={loading} style={refreshBtn}>
-              {loading ? '…' : '↻'}
-            </button>
+            <button onClick={load} disabled={loading} style={iconBtn} title="Refresh">{loading ? '…' : '↻'}</button>
+            {!standalone && (
+              <button onClick={popOut} style={iconBtn} title="Pop out into its own window">⧉</button>
+            )}
           </div>
         </div>
 
-        {/* Folder tabs */}
+        {/* folders */}
         <div style={folderBar}>
           {FOLDERS.map((f) => {
             const isActive = folder === f.key;
             return (
-              <button
-                key={f.key}
-                onClick={() => setFolder(f.key)}
-                style={{ ...folderTab, ...(isActive ? folderTabActive : {}) }}
-              >
+              <button key={f.key} onClick={() => { setFolder(f.key); setSelectedId(null); }} style={{ ...folderTab, ...(isActive ? folderTabActive : {}) }}>
                 {f.label}
-                {f.key === 'unread' && unreadCount > 0 && (
-                  <span style={unreadBadge}>{unreadCount}</span>
-                )}
+                {f.key === 'unread' && unreadCount > 0 && <span style={badge}>{unreadCount}</span>}
               </button>
             );
           })}
         </div>
 
-        {/* Body */}
-        <div style={body}>
-          {!active ? (
-            <Empty text="No Reddit account selected. Add one under Reddit → Accounts." />
-          ) : notLoggedIn ? (
-            <div style={{ padding: 40, textAlign: 'center' }}>
-              <div style={{ color: '#818384', fontSize: 13, lineHeight: 1.6, maxWidth: 420, margin: '0 auto' }}>
-                u/{active.username} isn't logged into Reddit yet. Open this account in the
-                Browser, sign in once, and the inbox will read straight from that session.
-              </div>
-              {navigate && (
-                <button
-                  onClick={() => { setActive(active.id); navigate('reddit'); }}
-                  style={{ ...replyBtn, marginTop: 16 }}
-                >
-                  Open in Browser to sign in ↗
-                </button>
-              )}
-            </div>
-          ) : err ? (
-            <div style={{ padding: 24, color: '#ff8a8a', fontSize: 13 }}>{err}</div>
-          ) : loading && messages.length === 0 ? (
-            <Empty text="Loading messages…" />
-          ) : messages.length === 0 ? (
-            <Empty text={folder === 'unread' ? 'No unread messages. Inbox zero.' : 'No messages here.'} />
-          ) : (
-            messages.map((m) => (
-              <div key={m.id}>
-                <div
-                  onClick={() => openMessage(m)}
-                  style={{ ...msgRow, ...(m.isNew ? msgRowUnread : {}) }}
-                >
-                  {m.isNew && <span style={unreadDot} />}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                      <span style={{ fontWeight: m.isNew ? 700 : 600, color: '#d7dadc', fontSize: 13 }}>
-                        {m.subject || '(no subject)'}
-                      </span>
-                      {m.subreddit && <span style={subredditPill}>r/{m.subreddit}</span>}
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
-                      <span style={{ color: ORANGE, fontSize: 12, fontWeight: 500 }}>
-                        {folder === 'sent' ? `to u/${m.dest}` : `u/${m.author || m.dest || 'reddit'}`}
-                      </span>
-                      <span style={{ color: '#818384', fontSize: 12 }}>· {timeAgo(m.created)}</span>
-                    </div>
-                    {openId !== m.id && (
-                      <div style={preview}>{m.body?.replace(/\s+/g, ' ').slice(0, 140)}</div>
-                    )}
-                  </div>
-                </div>
+        {err && <div style={{ background: 'rgba(180,90,90,0.15)', color: '#e2a3a3', padding: '8px 14px', fontSize: 12 }}>{err}</div>}
 
-                {openId === m.id && (
-                  <div style={expanded}>
-                    <div style={msgBody}>{m.body}</div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' }}>
-                      {m.permalink && (
-                        <span style={{ color: '#818384', fontSize: 11 }}>
-                          {m.wasComment ? 'Comment reply' : 'Direct message'}
-                          {m.linkTitle ? ` · ${m.linkTitle}` : ''}
-                        </span>
-                      )}
-                    </div>
-                    {folder !== 'sent' && (
-                      <div style={{ marginTop: 10 }}>
-                        <textarea
-                          value={replyText}
-                          onChange={(e) => setReplyText(e.target.value)}
-                          placeholder={`Reply as u/${active.username}…`}
-                          style={replyBox}
-                        />
-                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                          <button
-                            onClick={() => sendReply(m)}
-                            disabled={sending || !replyText.trim()}
-                            style={replyBtn}
-                          >
-                            {sending ? 'Sending…' : 'Reply'}
-                          </button>
-                          <button onClick={() => setOpenId(null)} className="ghost">Close</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))
-          )}
+        {/* two-pane body */}
+        <div style={{ ...body, height: standalone ? 'calc(100vh - 180px)' : body.height }}>
+          {listPane}
+          {detailPane}
         </div>
       </div>
     </div>
@@ -226,125 +272,32 @@ export default function InboxPage({ embedded, navigate }) {
 }
 
 function Empty({ text }) {
-  return <div style={{ padding: 40, textAlign: 'center', color: '#818384', fontSize: 13, lineHeight: 1.6 }}>{text}</div>;
+  return <div style={{ padding: 40, textAlign: 'center', color: '#818384', fontSize: 13 }}>{text}</div>;
 }
 
-function Snoo() {
-  return (
-    <span style={{
-      width: 24, height: 24, borderRadius: '50%', background: ORANGE,
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 14, flexShrink: 0,
-    }}>
-      <span style={{ color: '#fff', fontWeight: 700 }}>✉</span>
-    </span>
-  );
-}
-
-const shell = {
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-lg)',
-  overflow: 'hidden',
-  background: '#1a1a1b',
-};
-const header = {
-  background: ORANGE,
-  padding: '10px 16px',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-};
-const refreshBtn = {
-  background: 'rgba(255,255,255,0.2)',
-  border: 'none',
-  color: '#fff',
-  width: 30, height: 30,
-  borderRadius: '50%',
-  cursor: 'pointer',
-  fontSize: 15,
-};
-const folderBar = {
-  display: 'flex',
-  gap: 2,
-  padding: '0 10px',
-  background: '#272729',
-  borderBottom: '1px solid #343536',
-};
-const folderTab = {
-  background: 'transparent',
-  border: 'none',
-  color: '#818384',
-  padding: '12px 16px',
-  fontSize: 13,
-  fontWeight: 600,
-  cursor: 'pointer',
-  borderBottom: '3px solid transparent',
-  display: 'flex',
-  alignItems: 'center',
-  gap: 6,
-};
-const folderTabActive = {
-  color: '#d7dadc',
-  borderBottomColor: ORANGE,
-};
-const unreadBadge = {
-  background: ORANGE,
-  color: '#fff',
-  fontSize: 10,
-  fontWeight: 700,
-  borderRadius: 999,
-  padding: '1px 6px',
-  minWidth: 16,
-  textAlign: 'center',
-};
-const body = { maxHeight: '62vh', overflowY: 'auto', background: '#1a1a1b' };
-const msgRow = {
-  display: 'flex',
-  alignItems: 'flex-start',
-  gap: 10,
-  padding: '12px 16px',
-  borderBottom: '1px solid #272729',
-  cursor: 'pointer',
-};
-const msgRowUnread = { background: 'rgba(255,69,0,0.06)' };
-const unreadDot = {
-  width: 8, height: 8, borderRadius: '50%', background: ORANGE,
-  marginTop: 6, flexShrink: 0,
-};
-const subredditPill = {
-  fontSize: 11, color: '#818384', fontWeight: 500,
-};
-const preview = {
-  color: '#818384', fontSize: 12, marginTop: 4,
-  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-};
-const expanded = {
-  padding: '14px 16px 18px 16px',
-  background: '#131314',
-  borderBottom: '1px solid #272729',
-};
-const msgBody = {
-  color: '#d7dadc', fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap',
-};
-const replyBox = {
-  width: '100%',
-  minHeight: 72,
-  background: '#1a1a1b',
-  border: '1px solid #343536',
-  borderRadius: 8,
-  color: '#d7dadc',
-  padding: '10px 12px',
-  fontSize: 13,
-  resize: 'vertical',
-  fontFamily: 'inherit',
-};
-const replyBtn = {
-  background: ORANGE,
-  border: 'none',
-  color: '#fff',
-  fontWeight: 700,
-  fontSize: 13,
-  padding: '8px 20px',
-  borderRadius: 999,
-  cursor: 'pointer',
-};
+const shell = { border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', background: '#1a1a1b', display: 'flex', flexDirection: 'column' };
+const header = { background: ORANGE, padding: '9px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 };
+const snoo = { width: 22, height: 22, borderRadius: '50%', background: 'rgba(255,255,255,0.25)', display: 'inline-grid', placeItems: 'center', fontSize: 12, color: '#fff' };
+const iconBtn = { background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', width: 28, height: 28, borderRadius: 6, cursor: 'pointer', fontSize: 14, flexShrink: 0 };
+const folderBar = { display: 'flex', gap: 2, padding: '0 8px', background: '#272729', borderBottom: '1px solid #343536' };
+const folderTab = { background: 'transparent', border: 'none', color: '#818384', padding: '10px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', borderBottom: '3px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 };
+const folderTabActive = { color: '#d7dadc', borderBottomColor: ORANGE };
+const badge = { background: ORANGE, color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '1px 6px', minWidth: 16, textAlign: 'center' };
+const body = { display: 'flex', height: '60vh', minHeight: 420 };
+const listCol = { width: 300, flexShrink: 0, borderRight: '1px solid #272729', display: 'flex', flexDirection: 'column', background: '#161617' };
+const detailCol = { flex: 1, display: 'flex', flexDirection: 'column', background: '#1a1a1b', minWidth: 0 };
+const searchWrap = { padding: 8, borderBottom: '1px solid #272729' };
+const searchInput = { width: '100%', background: '#0f0f10', border: '1px solid #343536', borderRadius: 8, color: '#d7dadc', padding: '7px 11px', fontSize: 12.5 };
+const listItem = { display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderBottom: '1px solid #222223', cursor: 'pointer' };
+const listItemActive = { background: 'rgba(255,69,0,0.10)' };
+const avatar = { width: 32, height: 32, borderRadius: '50%', display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: 13, flexShrink: 0 };
+const unreadDot = { width: 9, height: 9, borderRadius: '50%', background: ORANGE, flexShrink: 0, alignSelf: 'center' };
+const threadHeader = { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid #272729' };
+const backBtn = { background: '#272729', border: 'none', color: '#d7dadc', width: 30, height: 30, borderRadius: 8, cursor: 'pointer', fontSize: 16, flexShrink: 0 };
+const threadBody = { flex: 1, overflowY: 'auto', padding: '16px 18px' };
+const subjectLine = { fontSize: 15, fontWeight: 700, color: '#d7dadc', marginBottom: 12 };
+const msgBubble = { background: '#222223', borderRadius: 12, padding: '12px 14px', color: '#d7dadc', fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-wrap' };
+const composer = { display: 'flex', gap: 8, padding: 12, borderTop: '1px solid #272729', alignItems: 'flex-end' };
+const composerInput = { flex: 1, minHeight: 42, maxHeight: 140, background: '#0f0f10', border: '1px solid #343536', borderRadius: 20, color: '#d7dadc', padding: '11px 16px', fontSize: 13, resize: 'none', fontFamily: 'inherit' };
+const sendBtn = { background: ORANGE, border: 'none', color: '#fff', width: 42, height: 42, borderRadius: '50%', cursor: 'pointer', fontSize: 16, flexShrink: 0 };
+const primaryBtn = { background: ORANGE, border: 'none', color: '#fff', fontWeight: 700, fontSize: 13, padding: '8px 18px', borderRadius: 999, cursor: 'pointer' };

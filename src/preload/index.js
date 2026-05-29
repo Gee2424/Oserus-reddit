@@ -146,6 +146,11 @@ const api = {
     setInterval: (data) => ipcRenderer.invoke('autopilot:setInterval', data),
     runNow: (data) => ipcRenderer.invoke('autopilot:runNow', data),
   },
+  windows: {
+    openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),
+    setAlwaysOnTop: (data) => ipcRenderer.invoke('window:setAlwaysOnTop', data),
+    close: () => ipcRenderer.invoke('window:close'),
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);

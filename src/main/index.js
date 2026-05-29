@@ -116,6 +116,62 @@ ipcMain.handle('session:clear', async (_e, partitionKey) => {
   return { ok: true };
 });
 
+// --- Detachable pop-out windows (Infloww-style) ---
+// Each pop-out is a BrowserWindow loading the same renderer with a
+// #popout=<route> hash. Same process, same origin (localStorage shared) so
+// auth + state carry over. One window per route key; re-opening focuses it.
+const popoutWindows = new Map();
+
+function openPopout(routeKey, opts = {}) {
+  const key = String(routeKey || 'inbox');
+  const existing = popoutWindows.get(key);
+  if (existing && !existing.isDestroyed()) {
+    existing.show();
+    existing.focus();
+    return { ok: true, focused: true };
+  }
+  const win = new BrowserWindow({
+    width: opts.width || 460,
+    height: opts.height || 760,
+    minWidth: 360,
+    minHeight: 480,
+    backgroundColor: '#0d0c0a',
+    title: opts.title || 'Oserus',
+    titleBarStyle: 'hiddenInset',
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webviewTag: true,
+    },
+  });
+  const hash = `popout=${encodeURIComponent(key)}`;
+  if (isDev) {
+    win.loadURL(`http://localhost:5173/#${hash}`);
+  } else {
+    win.loadFile(path.join(__dirname, '../../dist/index.html'), { hash });
+  }
+  win.on('closed', () => popoutWindows.delete(key));
+  popoutWindows.set(key, win);
+  return { ok: true };
+}
+
+ipcMain.handle('window:openPopout', (_e, { route, title, width, height }) => {
+  return openPopout(route, { title, width, height });
+});
+
+ipcMain.handle('window:setAlwaysOnTop', (e, { value }) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win) win.setAlwaysOnTop(!!value, 'floating');
+  return { ok: true, value: !!value };
+});
+
+ipcMain.handle('window:close', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (win) win.close();
+  return { ok: true };
+});
+
 // Restart the app (used by updater)
 ipcMain.handle('app:restart', () => {
   app.relaunch();

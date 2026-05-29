@@ -22,10 +22,18 @@ import SchedulerProPage from './pages/SchedulerPro.jsx';
 import RedditApiPage from './pages/RedditApi.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
+// A pop-out window loads the renderer with #popout=<route>. Detect it and
+// render a minimal standalone shell (no sidebar) for that one module.
+function getPopoutRoute() {
+  const m = (window.location.hash || '').match(/popout=([^&]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 function Inner() {
   const { user, loading } = useAuth();
   const [route, setRoute] = useState('dashboard');
   const [routeParams, setRouteParams] = useState({});
+  const popoutRoute = getPopoutRoute();
 
   if (loading) {
     return <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
@@ -68,6 +76,24 @@ function Inner() {
     }
   })();
 
+  // Standalone pop-out: just the module + a slim pinnable titlebar.
+  if (popoutRoute) {
+    const popPage = (() => {
+      switch (popoutRoute) {
+        case 'inbox': return <InboxPage embedded standalone />;
+        case 'scheduler-pro': return <SchedulerProPage />;
+        default: return <InboxPage embedded standalone />;
+      }
+    })();
+    return (
+      <PermissionsProvider>
+        <ActiveAccountProvider>
+          <PopoutShell>{popPage}</PopoutShell>
+        </ActiveAccountProvider>
+      </PermissionsProvider>
+    );
+  }
+
   return (
     <PermissionsProvider>
       <ActiveAccountProvider>
@@ -75,6 +101,37 @@ function Inner() {
         <UpdateBanner />
       </ActiveAccountProvider>
     </PermissionsProvider>
+  );
+}
+
+function PopoutShell({ children }) {
+  const [pinned, setPinned] = useState(false);
+  async function togglePin() {
+    const next = !pinned;
+    setPinned(next);
+    await window.api.windows.setAlwaysOnTop({ value: next });
+  }
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-0)' }}>
+      <div style={{
+        height: 38, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+        gap: 6, padding: '0 10px', borderBottom: '1px solid var(--border)',
+        background: 'var(--bg-1)', WebkitAppRegion: 'drag', paddingTop: 4,
+      }}>
+        <button
+          onClick={togglePin}
+          title={pinned ? 'Unpin (allow behind other windows)' : 'Pin on top'}
+          style={{
+            WebkitAppRegion: 'no-drag', background: pinned ? 'var(--gold)' : 'transparent',
+            color: pinned ? 'var(--bg-0)' : 'var(--text-2)', border: '1px solid var(--border)',
+            borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer',
+          }}
+        >
+          {pinned ? '📌 Pinned' : '📌 Pin on top'}
+        </button>
+      </div>
+      <div style={{ flex: 1, overflow: 'auto', padding: 14 }}>{children}</div>
+    </div>
   );
 }
 
