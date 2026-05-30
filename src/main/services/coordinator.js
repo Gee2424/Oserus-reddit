@@ -212,6 +212,38 @@ async function runDueScheduled() {
           subreddit: post.subreddit, title: post.title, remote_id: result.id,
           status: 'posted', source: 'scheduled',
         });
+        // Integrated boosting: if the row was scheduled with an upvote
+        // service + quantity, fire an order against upvote.biz now that the
+        // post has a URL. Best-effort — failures don't fail the post itself.
+        if (post.boost_service_id && Number(post.boost_qty) > 0 && result.url) {
+          try {
+            const { getSetting } = require('./settings');
+            const { decryptSecret } = require('../db');
+            const enc = getSetting('upvote_biz_api_key');
+            const apiKey = enc ? decryptSecret(enc) : null;
+            if (apiKey) {
+              const body = new URLSearchParams({
+                key: apiKey, action: 'add',
+                service: String(post.boost_service_id),
+                link: result.url,
+                quantity: String(post.boost_qty),
+              });
+              const res = await fetch('https://upvote.biz/api/v1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body.toString(),
+              });
+              const data = await res.json().catch(() => null);
+              const ok = data && (data.order || data.orderid || data.id);
+              db.prepare("UPDATE scheduled_posts SET boost_status=? WHERE id=?")
+                .run(ok ? 'ordered' : 'failed', post.id);
+            } else {
+              db.prepare("UPDATE scheduled_posts SET boost_status='failed' WHERE id=?").run(post.id);
+            }
+          } catch {
+            db.prepare("UPDATE scheduled_posts SET boost_status='failed' WHERE id=?").run(post.id);
+          }
+        }
       } else {
         db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?").run(result.error, post.id);
         await protocols.recordEvent({

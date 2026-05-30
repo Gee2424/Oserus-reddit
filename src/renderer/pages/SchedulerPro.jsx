@@ -44,6 +44,8 @@ export default function SchedulerProPage({ initialProTab }) {
   const { token } = useAuth();
   const { accounts } = useActiveAccount();
 
+  const [mode, setMode] = useState(() => localStorage.getItem('scheduler_mode') || 'advanced');
+  useEffect(() => { localStorage.setItem('scheduler_mode', mode); }, [mode]);
   const [proTab, setProTab] = useState(initialProTab && PRO_TABS.some((t) => t.key === initialProTab) ? initialProTab : 'configure');
   const [posts, setPosts] = useState([]);
   const [filters, setFilters] = useState({ platform: '', profileId: '', accountId: '', status: '' });
@@ -131,9 +133,26 @@ export default function SchedulerProPage({ initialProTab }) {
             Due posts fire automatically while the app is open.
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <PopOutButton route="scheduler-pro" title="Scheduler Pro" />
-          <button className="ghost" onClick={() => setShowAI((v) => !v)}>{showAI ? 'Close AI' : '✦ AI Settings'}</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{
+            display: 'inline-flex', background: 'var(--bg-1)', border: '1px solid var(--border)',
+            borderRadius: 999, padding: 2, gap: 2,
+          }}>
+            {['basic', 'advanced'].map((m) => (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                style={{
+                  padding: '5px 12px', borderRadius: 999, border: 'none', cursor: 'pointer',
+                  fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
+                  background: mode === m ? 'var(--gold)' : 'transparent',
+                  color: mode === m ? '#1a1a14' : 'var(--text-2)',
+                }}
+              >{m}</button>
+            ))}
+          </div>
+          <PopOutButton route="scheduler-pro" title="Scheduler" />
+          {mode === 'advanced' && <button className="ghost" onClick={() => setShowAI((v) => !v)}>{showAI ? 'Close AI' : '✦ AI Settings'}</button>}
           <button className="primary" onClick={() => setShowCompose((v) => !v)}>
             {showCompose ? 'Close' : '+ Schedule posts'}
           </button>
@@ -146,8 +165,8 @@ export default function SchedulerProPage({ initialProTab }) {
         <div style={warnBanner}>⚠ {pendingConflicts} scheduled post{pendingConflicts > 1 ? 's' : ''} conflict with posting protocols.</div>
       )}
 
-      {/* Pro-tab selector cards */}
-      <div style={proTabRow}>
+      {/* Pro-tab selector cards (Advanced only) */}
+      {mode === 'advanced' && <div style={proTabRow}>
         {PRO_TABS.map((t) => (
           <button key={t.key} onClick={() => setProTab(t.key)}
             style={{ ...proTabCard, ...(proTab === t.key ? proTabCardActive : {}) }}>
@@ -156,13 +175,13 @@ export default function SchedulerProPage({ initialProTab }) {
             <div style={{ marginTop: 2, fontSize: 11, color: 'var(--text-2)', lineHeight: 1.4 }}>{t.desc}</div>
           </button>
         ))}
-      </div>
+      </div>}
 
-      {proTab === 'run' && <RunProSchedules token={token} accounts={accounts} onMsg={setMsg} onError={setErr} />}
-      {proTab === 'monitor' && <MonitorProSchedules token={token} />}
-      {proTab === 'replenish' && <ReplenishProSchedules accounts={accounts} posts={posts} />}
+      {mode === 'advanced' && proTab === 'run' && <RunProSchedules token={token} accounts={accounts} onMsg={setMsg} onError={setErr} />}
+      {mode === 'advanced' && proTab === 'monitor' && <MonitorProSchedules token={token} />}
+      {mode === 'advanced' && proTab === 'replenish' && <ReplenishProSchedules accounts={accounts} posts={posts} />}
 
-      {proTab !== 'configure' ? null : <>
+      {(mode === 'basic' || proTab === 'configure') ? <>
 
       {showAI && <AISettings token={token} onMsg={setMsg} onError={setErr} />}
 
@@ -284,7 +303,7 @@ export default function SchedulerProPage({ initialProTab }) {
           </div>
         ))
       )}
-      </>}
+      </> : null}
     </div>
   );
 }
@@ -886,6 +905,18 @@ function Composer({ token, accounts, onDone, onError }) {
   const [targets, setTargets] = useState([]); // account ids for "send to all"
   const [conflicts, setConflicts] = useState([]);
   const [busy, setBusy] = useState(false);
+  // Boosting: integrated from Operations → Upvotes per the new architecture.
+  const [boost, setBoost] = useState({ enabled: false, serviceId: '', qty: 25 });
+  const [services, setServices] = useState([]);
+  const [balance, setBalance] = useState(null);
+
+  useEffect(() => {
+    window.api.votes.hasApiKey({ token }).then((r) => {
+      if (!(r.ok && r.hasKey)) return;
+      window.api.votes.services({ token }).then((s) => { if (s.ok) setServices(s.services || []); });
+      window.api.votes.balance({ token }).then((b) => { if (b.ok) setBalance({ balance: b.balance, currency: b.currency }); });
+    });
+  }, [token]);
 
   // Live conflict preview against the first selected target.
   useEffect(() => {
@@ -914,6 +945,8 @@ function Composer({ token, accounts, onDone, onError }) {
       kind: form.kind,
       url: form.url,
       scheduledFor: toStored(form.when),
+      boostServiceId: boost.enabled ? boost.serviceId : null,
+      boostQty: boost.enabled ? Number(boost.qty) : 0,
     }));
     const res = await window.api.scheduled.bulkCreate({ token, items });
     setBusy(false);
@@ -979,6 +1012,36 @@ function Composer({ token, accounts, onDone, onError }) {
           ⚠ {conflicts.join(' · ')} (you can still schedule it)
         </div>
       )}
+
+      {/* Boosting — integrated from Operations → Upvotes per the new architecture */}
+      <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 14, background: 'var(--bg-1)' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, cursor: 'pointer', color: 'var(--text-1)', fontWeight: 600, fontSize: 13, marginBottom: 0 }}>
+          <input type="checkbox" checked={boost.enabled} onChange={(e) => setBoost({ ...boost, enabled: e.target.checked })} style={{ width: 'auto' }} />
+          ▲ Boost this post after it fires
+          {balance && <span className="muted" style={{ marginLeft: 'auto', fontWeight: 400, fontSize: 12 }}>Balance: ${balance.balance}</span>}
+        </label>
+        {boost.enabled && (
+          services.length === 0
+            ? <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>No upvote.biz services available. Set an API key under Operations → Upvotes.</div>
+            : (
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10, marginTop: 10 }}>
+                <div>
+                  <label>Service</label>
+                  <select value={boost.serviceId} onChange={(e) => setBoost({ ...boost, serviceId: e.target.value })}>
+                    <option value="">— pick a service —</option>
+                    {services.map((s) => (
+                      <option key={s.service} value={s.service}>{s.name} {s.rate ? `· $${s.rate}/1k` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label>Quantity</label>
+                  <input type="number" min={1} value={boost.qty} onChange={(e) => setBoost({ ...boost, qty: e.target.value })} />
+                </div>
+              </div>
+            )
+        )}
+      </div>
 
       <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
         <button className="primary" onClick={submit} disabled={busy}>

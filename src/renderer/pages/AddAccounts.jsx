@@ -6,6 +6,7 @@ const TABS = [
   { key: 'bulk',   label: 'Bulk Paste',          hint: 'username:password per line' },
   { key: 'direct', label: 'Direct Input',        hint: 'one account at a time' },
   { key: 'login',  label: 'Login Authentication', hint: 'sign into Reddit in-app' },
+  { key: 'warmup', label: 'Warm-up Subs',         hint: 'subreddits for karma farming' },
 ];
 
 const PLATFORMS = [
@@ -236,8 +237,89 @@ export default function AddAccountsPage({ navigate }) {
               </button>
             </div>
           )}
+
+          {tab === 'warmup' && <WarmupSubsPanel token={token} />}
         </div>
       </div>
+    </div>
+  );
+}
+
+function WarmupSubsPanel({ token }) {
+  const [list, setList] = useState([]);
+  const [name, setName] = useState('');
+  const [vibe, setVibe] = useState('');
+  const [desc, setDesc] = useState('');
+  const [err, setErr] = useState(null);
+
+  async function load() {
+    const r = await window.api.subs.listWarmup({ token });
+    if (r.ok) setList(r.subs || []);
+  }
+  useEffect(() => { load(); }, []);
+
+  async function add() {
+    setErr(null);
+    if (!name.trim()) { setErr('Subreddit name required.'); return; }
+    const r = await window.api.subs.createWarmup({ token, name: name.trim(), vibe: vibe.trim() || null, description: desc.trim() || null });
+    if (r.ok) { setName(''); setVibe(''); setDesc(''); load(); } else setErr(r.error);
+  }
+  async function del(id) {
+    if (!confirm('Remove this warm-up subreddit?')) return;
+    await window.api.subs.deleteWarmup({ token, id });
+    load();
+  }
+
+  return (
+    <div>
+      <div className="muted" style={{ fontSize: 12, marginBottom: 14, lineHeight: 1.6 }}>
+        The library of subreddits Grok picks from when generating warm-up posts for any account.
+        Use mainstream, non-NSFW subs — these get used while accounts are still building karma.
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 2fr auto', gap: 10, alignItems: 'end', marginBottom: 14 }}>
+        <div>
+          <label>Subreddit</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. AskReddit" />
+        </div>
+        <div>
+          <label>Vibe (optional)</label>
+          <input value={vibe} onChange={(e) => setVibe(e.target.value)} placeholder="curious · casual · funny…" />
+        </div>
+        <div>
+          <label>Description (optional)</label>
+          <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="what people typically post here" />
+        </div>
+        <button className="primary" onClick={add}>+ Add</button>
+      </div>
+      {err && <Banner kind="err">{err}</Banner>}
+
+      {list.length === 0 ? (
+        <div className="muted" style={{ padding: 20, textAlign: 'center', fontSize: 13 }}>No warm-up subs yet. Add a few that your accounts can post in safely.</div>
+      ) : (
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr style={{ background: 'var(--bg-2)' }}>
+              <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Subreddit</th>
+              <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Vibe</th>
+              <th style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 500 }}>Description</th>
+              <th></th>
+            </tr></thead>
+            <tbody>
+              {list.map((s) => (
+                <tr key={s.id} style={{ borderTop: '1px solid var(--border)' }}>
+                  <td style={{ padding: '10px 14px' }}><span style={{ color: 'var(--gold)' }}>r/{s.name}</span></td>
+                  <td style={{ padding: '10px 14px' }} className="muted">{s.vibe || '—'}</td>
+                  <td style={{ padding: '10px 14px' }} className="muted">{s.description || '—'}</td>
+                  <td style={{ padding: '10px 14px', textAlign: 'right' }}>
+                    <button className="ghost" onClick={() => del(s.id)} style={{ fontSize: 11, padding: '4px 10px' }}>Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

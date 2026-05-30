@@ -27,8 +27,11 @@ function ensureTable() {
   // fire-time instead of stored up front.
   const cols = db.prepare('PRAGMA table_info(scheduled_posts)').all();
   const have = (n) => cols.some((c) => c.name === n);
-  if (!have('template_id'))   db.exec('ALTER TABLE scheduled_posts ADD COLUMN template_id INTEGER');
-  if (!have('auto_generate')) db.exec('ALTER TABLE scheduled_posts ADD COLUMN auto_generate INTEGER DEFAULT 0');
+  if (!have('template_id'))      db.exec('ALTER TABLE scheduled_posts ADD COLUMN template_id INTEGER');
+  if (!have('auto_generate'))    db.exec('ALTER TABLE scheduled_posts ADD COLUMN auto_generate INTEGER DEFAULT 0');
+  if (!have('boost_service_id')) db.exec('ALTER TABLE scheduled_posts ADD COLUMN boost_service_id TEXT');
+  if (!have('boost_qty'))        db.exec('ALTER TABLE scheduled_posts ADD COLUMN boost_qty INTEGER DEFAULT 0');
+  if (!have('boost_status'))     db.exec('ALTER TABLE scheduled_posts ADD COLUMN boost_status TEXT'); // queued | ordered | failed
 }
 
 // Flag scheduling conflicts for a candidate (account, time) against the
@@ -151,8 +154,9 @@ function register(ipcMain) {
       ensureTable();
       if (!Array.isArray(items) || !items.length) throw new Error('No items to schedule');
       const stmt = getDb().prepare(
-        `INSERT INTO scheduled_posts (account_id, subreddit, title, body, kind, url, scheduled_for, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO scheduled_posts
+           (account_id, subreddit, title, body, kind, url, scheduled_for, created_by_user_id, boost_service_id, boost_qty, boost_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       let created = 0; const errors = [];
       const tx = getDb().transaction((rows) => {
@@ -161,9 +165,13 @@ function register(ipcMain) {
             errors.push(`Skipped (missing fields): ${it.title || it.subreddit || '?'}`);
             continue;
           }
+          const wantsBoost = it.boostServiceId && Number(it.boostQty) > 0;
           stmt.run(
             it.accountId, String(it.subreddit).replace(/^r\//i, '').trim(), it.title,
-            it.body || null, it.kind || 'self', it.url || null, it.scheduledFor, user.id
+            it.body || null, it.kind || 'self', it.url || null, it.scheduledFor, user.id,
+            wantsBoost ? String(it.boostServiceId) : null,
+            wantsBoost ? Math.max(1, Number(it.boostQty)) : 0,
+            wantsBoost ? 'queued' : null
           );
           created++;
         }

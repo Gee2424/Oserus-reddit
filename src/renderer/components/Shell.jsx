@@ -18,7 +18,6 @@ const NAV = [
   { key: 'reddit-api', label: 'Reddit',              icon: '◈', group: 'Reddit', perm: 'page.reddit-api' },
   { key: 'inbox',      label: 'Inbox Manager',       icon: '✉', group: 'Reddit', perm: 'page.reddit-api' },
   { key: 'intel',      label: 'Reddit Intelligence', icon: '◎', group: 'Reddit', perm: 'page.intel' },
-  { key: 'subreddits', label: 'Warmup & Karma Farm', icon: '✦', group: 'Reddit', perm: 'page.subreddits' },
   { key: 'redgifs',    label: 'RedGIFs',             icon: '▮', group: 'Reddit', perm: 'page.redgifs' },
 
   { key: 'scheduler-pro', label: 'Scheduler', icon: '◷', group: 'Workspace', perm: 'page.scheduler' },
