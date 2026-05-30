@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useCan } from '../lib/permissions.jsx';
 import UpvotesPanel from '../components/UpvotesPanel.jsx';
 import ProxiesPanel from '../components/ProxiesPanel.jsx';
+import PopOutButton from '../components/PopOutButton.jsx';
 
 export default function OperationsPage() {
   const can = useCan();
@@ -24,6 +25,9 @@ export default function OperationsPage() {
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
             Place upvote orders and manage your proxies — everything in one place.
           </div>
+        </div>
+        <div style={{ marginLeft: 'auto' }}>
+          <PopOutButton route="operations" title="Operations" />
         </div>
       </div>
 

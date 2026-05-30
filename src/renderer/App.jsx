@@ -20,6 +20,7 @@ import OperationsPage from './pages/Operations.jsx';
 import AutopilotPage from './pages/Autopilot.jsx';
 import SchedulerProPage from './pages/SchedulerPro.jsx';
 import IntelligencePage from './pages/Intelligence.jsx';
+import AddAccountsPage from './pages/AddAccounts.jsx';
 import RedditApiPage from './pages/RedditApi.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
@@ -74,6 +75,7 @@ function Inner() {
       case 'autopilot': return <AutopilotPage />;
       case 'scheduler-pro': return <SchedulerProPage />;
       case 'intel': return <IntelligencePage />;
+      case 'add-accounts': return <AddAccountsPage navigate={navigate} />;
       default: return <DashboardPage navigate={navigate} />;
     }
   })();
@@ -84,6 +86,10 @@ function Inner() {
       switch (popoutRoute) {
         case 'inbox': return <InboxPage embedded standalone />;
         case 'scheduler-pro': return <SchedulerProPage />;
+        case 'operations': return <OperationsPage navigate={navigate} />;
+        case 'autopilot': return <AutopilotPage />;
+        case 'analytics': return <AnalyticsPage />;
+        case 'intel': return <IntelligencePage />;
         default: return <InboxPage embedded standalone />;
       }
     })();

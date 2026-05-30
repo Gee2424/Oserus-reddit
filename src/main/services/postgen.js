@@ -60,9 +60,19 @@ async function generatePost({ accountId, mode, hint, targetSubreddit }) {
   const personaLines = [
     poster.gender ? `Poster gender: ${poster.gender}` : null,
     poster.age ? `Poster age: ${poster.age}` : null,
-    poster.location ? `Location: ${poster.location}` : null,
+    poster.location ? `Location: ${poster.location}${poster.matchCity ? ' (use this in CTAs when natural)' : ''}` : null,
     (poster.titleMin || poster.titleMax) ? `Title length: ${poster.titleMin || 3}–${poster.titleMax || 12} words` : null,
+    poster.nightInfo ? `Scene / mood: ${poster.nightInfo}` : null,
+    poster.ctaInfo ? `CTA / offer context: ${poster.ctaInfo}` : null,
+    (poster.typoRate && Number(poster.typoRate) > 0)
+      ? `Realism: include the occasional natural typo (~${Math.round(Number(poster.typoRate) * 100)}% of posts).`
+      : null,
+    poster.detectLanguage ? 'Mirror the language of the subreddit description if it isn\'t English.' : null,
   ].filter(Boolean).join('\n');
+  const ctaList = Array.isArray(poster.customCtas) ? poster.customCtas.filter((c) => c && c.url) : [];
+  const ctaBlock = ctaList.length
+    ? `Available CTAs (${poster.randomCta === false ? 'use the first one' : 'pick one at random per post'}):\n${ctaList.map((c) => `- ${c.platform || 'link'}: ${c.url}`).join('\n')}`
+    : null;
   const customPrompt = (poster.mode === 'custom' && poster.customPrompt) ? poster.customPrompt.trim() : null;
 
   const isSfw = mode === 'sfw' || (mode !== 'nsfw' && account.status === 'warming');
@@ -158,8 +168,9 @@ ${cleanTarget && targetOnList ? `\nFocus on r/${cleanTarget}.` : ''}
 Generate 3 post ideas.`;
   }
 
-  // Layer the poster persona + any custom prompt override onto the system msg.
+  // Layer the poster persona, CTA block, and any custom prompt override.
   if (personaLines) system += `\n\nPoster persona:\n${personaLines}`;
+  if (ctaBlock) system += `\n\n${ctaBlock}`;
   if (customPrompt) system += `\n\nAdditional instructions:\n${customPrompt}`;
 
   const text = await callGrok(apiKey, system, userMsg);

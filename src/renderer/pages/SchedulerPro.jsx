@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
+import PopOutButton from '../components/PopOutButton.jsx';
 
 const PLATFORM_ICON = { reddit: '◈', redgifs: '▮', x: '𝕏', instagram: '◉', tiktok: '♪' };
 const STATUS_COLOR = {
@@ -114,6 +115,7 @@ export default function SchedulerProPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <PopOutButton route="scheduler-pro" title="Scheduler Pro" />
           <button className="ghost" onClick={() => setShowAI((v) => !v)}>{showAI ? 'Close AI' : '✦ AI Settings'}</button>
           <button className="primary" onClick={() => setShowCompose((v) => !v)}>
             {showCompose ? 'Close' : '+ Schedule posts'}
@@ -216,10 +218,40 @@ export default function SchedulerProPage() {
   );
 }
 
+function Toggle({ label, value, onChange }) {
+  return (
+    <button
+      onClick={() => onChange(!value)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+        background: 'transparent', border: '1px solid var(--border)', borderRadius: 8,
+        color: 'var(--text-1)', cursor: 'pointer', textAlign: 'left',
+      }}
+    >
+      <span style={{
+        width: 32, height: 18, borderRadius: 999, position: 'relative', flexShrink: 0,
+        background: value ? 'var(--blue)' : 'var(--bg-3)',
+        border: '1px solid ' + (value ? 'var(--blue-bright)' : 'var(--border-strong)'),
+        transition: 'background 0.15s, border-color 0.15s',
+      }}>
+        <span style={{
+          position: 'absolute', top: 1, left: value ? 14 : 1,
+          width: 14, height: 14, borderRadius: '50%', background: '#fff',
+          transition: 'left 0.15s',
+        }} />
+      </span>
+      <span style={{ fontSize: 12 }}>{label}</span>
+    </button>
+  );
+}
+
 function AISettings({ token, onMsg, onError }) {
   const [cfg, setCfg] = useState({
     mode: 'assistive', gender: 'female', age: '20', location: '',
     titleMin: 3, titleMax: 8, model: 'grok-2-latest', customPrompt: '',
+    nightInfo: '', ctaInfo: '', typoRate: 0,
+    matchCity: false, randomCta: true, detectLanguage: false,
+    customCtas: [], // [{ platform, url }]
   });
   const [hasKey, setHasKey] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -300,6 +332,79 @@ function AISettings({ token, onMsg, onError }) {
         placeholder="Leave blank to use the built-in prompt. Add instructions here to override per your needs."
         style={{ minHeight: 90, fontSize: 13 }}
       />
+
+      <div style={{ borderTop: '1px solid var(--border)', marginTop: 22, paddingTop: 18 }}>
+        <h3 style={{ marginTop: 0, marginBottom: 4 }}>CTA & Persona Details</h3>
+        <div className="muted" style={{ fontSize: 12, marginBottom: 16 }}>
+          Optional context the AI weaves into generated posts/comments (no
+          field is required).
+        </div>
+
+        <label>Setting / night info</label>
+        <textarea
+          value={cfg.nightInfo}
+          onChange={(e) => set('nightInfo', e.target.value)}
+          placeholder="e.g. You finished your homework. You are now bored and lonely cleaning your bedroom."
+          style={{ minHeight: 70, fontSize: 13, marginBottom: 14 }}
+        />
+
+        <label>CTA info</label>
+        <textarea
+          value={cfg.ctaInfo}
+          onChange={(e) => set('ctaInfo', e.target.value)}
+          placeholder="e.g. Your page is $3 a month. You post full nude videos. You are active every day…"
+          style={{ minHeight: 70, fontSize: 13, marginBottom: 14 }}
+        />
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+          <div>
+            <label>Typo rate (0–1)</label>
+            <input
+              type="number" min={0} max={1} step={0.05}
+              value={cfg.typoRate}
+              onChange={(e) => set('typoRate', Number(e.target.value))}
+            />
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              0 = perfect grammar. 0.2 ≈ occasional realistic typo.
+            </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, justifyContent: 'center' }}>
+            <Toggle label="Match city / location"   value={cfg.matchCity}      onChange={(v) => set('matchCity', v)} />
+            <Toggle label="Choose random CTA"       value={cfg.randomCta}      onChange={(v) => set('randomCta', v)} />
+            <Toggle label="Detect language"         value={cfg.detectLanguage} onChange={(v) => set('detectLanguage', v)} />
+          </div>
+        </div>
+
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <span style={{ fontWeight: 600 }}>Use Custom CTA Data</span>
+            <span className="muted" style={{ fontSize: 11 }}>
+              If provided, these replace the CTAs saved to your preset.
+            </span>
+          </div>
+          {cfg.customCtas.length === 0 && (
+            <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>No custom CTAs yet.</div>
+          )}
+          {cfg.customCtas.map((c, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 8, marginBottom: 8 }}>
+              <input
+                placeholder="platform (e.g. onlyfans)"
+                value={c.platform}
+                onChange={(e) => { const list = [...cfg.customCtas]; list[i] = { ...list[i], platform: e.target.value }; set('customCtas', list); }}
+              />
+              <input
+                placeholder="URL or handle"
+                value={c.url}
+                onChange={(e) => { const list = [...cfg.customCtas]; list[i] = { ...list[i], url: e.target.value }; set('customCtas', list); }}
+              />
+              <button className="danger" onClick={() => set('customCtas', cfg.customCtas.filter((_, j) => j !== i))}>Remove</button>
+            </div>
+          ))}
+          <button className="ghost" onClick={() => set('customCtas', [...cfg.customCtas, { platform: '', url: '' }])} style={{ marginTop: 4 }}>
+            + Add CTA Entry
+          </button>
+        </div>
+      </div>
 
       <button className="primary" onClick={save} disabled={busy} style={{ marginTop: 14 }}>
         {busy ? 'Saving…' : 'Save AI settings'}

@@ -83,7 +83,7 @@ export default function DashboardPage({ navigate }) {
       <div style={actionBar}>
         <button className="ghost" onClick={toggleAll}>{selected.size === filtered.length && filtered.length ? 'Deselect' : 'Select All'}</button>
         <button className="ghost" onClick={() => navigate('profiles')}>Manage Classes</button>
-        <button className="ghost" onClick={() => navigate('reddit-api', { tab: 'reddit' })}>+ Add Accounts</button>
+        <button className="ghost" onClick={() => navigate('add-accounts')}>+ Add Accounts</button>
         <button className="ghost" onClick={load}>Refresh Data</button>
         <button className="ghost" onClick={() => navigate('operations')}>Send to Operations</button>
         <button className="ghost" onClick={() => navigate('scheduler-pro')}>Scheduler</button>

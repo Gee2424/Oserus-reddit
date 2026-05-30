@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
+import PopOutButton from '../components/PopOutButton.jsx';
 
 const FIELDS = [
   { key: 'hoursBetweenMin', label: 'Min hours between posts', type: 'number', step: 0.5 },
@@ -147,6 +148,9 @@ export default function AutopilotPage() {
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
             Claude posts warm-up content on a schedule while the app is open, obeying the rules below.
           </div>
+        </div>
+        <div style={{ marginLeft: 'auto' }}>
+          <PopOutButton route="autopilot" title="Autopilot" />
         </div>
       </div>
 

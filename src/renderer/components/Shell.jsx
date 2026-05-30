@@ -9,6 +9,7 @@ const NAV = [
   { key: 'analytics', label: 'Analytics', icon: '◧', group: 'Overview', perm: 'page.analytics' },
 
   { key: 'profiles', label: 'Manage Classes', icon: '◇', group: 'Accounts', perm: 'page.profiles' },
+  { key: 'add-accounts', label: '+ Add Accounts', icon: '＋', group: 'Accounts', perm: 'page.reddit-api' },
   { key: 'reddit-api', label: 'Reddit API', icon: '◈', group: 'Accounts', perm: 'page.reddit-api' },
   { key: 'redgifs', label: 'RedGIFs', icon: '▮', group: 'Accounts', perm: 'page.redgifs' },
 
