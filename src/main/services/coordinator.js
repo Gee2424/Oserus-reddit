@@ -171,9 +171,39 @@ async function runDueScheduled() {
           .run(`No adapter for ${platform}`, post.id);
         continue;
       }
+      // Template-generated rows hold an empty title — fill it from Grok
+      // just before posting using the account's mode (warming = SFW).
+      let title = post.title || '';
+      let body = post.body || '';
+      let kind = post.kind || 'self';
+      if (post.auto_generate && !title) {
+        try {
+          const g = await generatePost({ accountId: post.account_id, mode: 'sfw', targetSubreddit: post.subreddit });
+          const pick = (g.suggestions || [])[0];
+          if (pick) {
+            title = pick.title || '';
+            if (pick.body) body = pick.body;
+            if (pick.kind) kind = pick.kind;
+            // persist for the events feed / audit
+            db.prepare("UPDATE scheduled_posts SET title=?, body=?, kind=? WHERE id=?")
+              .run(title, body, kind, post.id);
+          }
+        } catch (e) {
+          db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?")
+            .run(`Auto-gen failed: ${e.message}`, post.id);
+          await protocols.releaseLock(platform, post.account_id);
+          continue;
+        }
+        if (!title) {
+          db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?")
+            .run('Auto-gen returned no title', post.id);
+          await protocols.releaseLock(platform, post.account_id);
+          continue;
+        }
+      }
       const result = await adapter.submitPost({
         accountId: post.account_id, subreddit: post.subreddit,
-        title: post.title, body: post.body, kind: post.kind, url: post.url,
+        title, body, kind, url: post.url,
       });
       if (result.ok) {
         db.prepare("UPDATE scheduled_posts SET status='posted', posted_at=datetime('now') WHERE id=?").run(post.id);

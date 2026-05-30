@@ -23,17 +23,40 @@ export default function DashboardPage({ navigate }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selected, setSelected] = useState(() => new Set());
 
+  const [templates, setTemplates] = useState([]);
+
   async function load() {
     setLoading(true);
-    const [a, sum] = await Promise.all([
+    const [a, sum, tpl] = await Promise.all([
       window.api.accounts.listForUser({ token }),
       window.api.analytics.summary({ token }).catch(() => ({ ok: false })),
+      window.api.templates.list({ token }).catch(() => ({ ok: false })),
     ]);
     const base = a.ok ? a.accounts : [];
     const karma = {};
     if (sum.ok && sum.accounts) for (const s of sum.accounts) karma[s.id] = s;
     setAccounts(base.map((x) => ({ ...x, ...(karma[x.id] || {}) })));
+    setTemplates(tpl.ok ? (tpl.templates || []) : []);
     setLoading(false);
+  }
+
+  // Account → list of templates that include it (for the Pro Schedule column).
+  const templatesByAccount = useMemo(() => {
+    const m = new Map();
+    for (const t of templates) for (const aid of t.accountIds || []) {
+      if (!m.has(aid)) m.set(aid, []);
+      m.get(aid).push(t);
+    }
+    return m;
+  }, [templates]);
+
+  async function toggleStarred() {
+    if (selected.size === 0) return;
+    // If any selected isn't starred, star all; otherwise unstar all.
+    const sel = accounts.filter((a) => selected.has(a.id));
+    const anyUnstarred = sel.some((a) => !a.starred);
+    const res = await window.api.accounts.setStarred({ token, accountIds: [...selected], starred: anyUnstarred });
+    if (res.ok) load();
   }
   useEffect(() => { load(); }, []);
 
@@ -87,6 +110,17 @@ export default function DashboardPage({ navigate }) {
         <button className="ghost" onClick={load}>Refresh Data</button>
         <button className="ghost" onClick={() => navigate('operations')}>Send to Operations</button>
         <button className="ghost" onClick={() => navigate('operations')}>Change Proxy</button>
+        <button
+          onClick={toggleStarred}
+          disabled={selected.size === 0}
+          style={{
+            background: selected.size > 0 ? 'linear-gradient(135deg, var(--gold), var(--gold-orange))' : 'transparent',
+            color: selected.size > 0 ? '#1a1a14' : 'var(--text-3)',
+            border: '1px solid var(--gold)', borderRadius: 'var(--radius)',
+            padding: '8px 14px', fontSize: 13, fontWeight: 600,
+            cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
+          }}
+        >★ Star User</button>
         <button className="ghost" onClick={() => navigate('scheduler-pro')}>Scheduler</button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: 130 }}>
@@ -131,7 +165,17 @@ export default function DashboardPage({ navigate }) {
                     <td style={td}><input type="checkbox" checked={sel} onChange={() => toggle(a.id)} /></td>
                     <td style={td}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <Avatar name={a.username} size={30} />
+                        <div style={{ position: 'relative' }}>
+                          <Avatar name={a.username} size={30} />
+                          {a.starred ? (
+                            <span style={{
+                              position: 'absolute', top: -4, right: -4,
+                              background: 'var(--gold)', color: '#1a1a14', borderRadius: '50%',
+                              width: 14, height: 14, display: 'grid', placeItems: 'center',
+                              fontSize: 9, fontWeight: 800, border: '1.5px solid var(--bg-0)',
+                            }}>★</span>
+                          ) : null}
+                        </div>
                         <div style={{ fontWeight: 500 }}>{a.username}</div>
                       </div>
                     </td>
@@ -151,7 +195,16 @@ export default function DashboardPage({ navigate }) {
                       <span style={{ display: 'inline-grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', background: '#ff4500', color: '#fff', fontWeight: 700, fontSize: 12 }} title={`u/${a.username}`}>R</span>
                     </td>
                     <td style={td}><Tag tone="neutral">{a.profile_name || '—'}</Tag></td>
-                    <td style={td}><Tag tone="blue">No Schedule</Tag></td>
+                    <td style={td}>
+                      {(() => {
+                        const ts = templatesByAccount.get(a.id) || [];
+                        if (!ts.length) return <Tag tone="neutral">No Schedule</Tag>;
+                        const running = ts.find((t) => t.status === 'running');
+                        return running
+                          ? <Tag tone="green">● {running.name}</Tag>
+                          : <Tag tone="blue">{ts[0].name}{ts.length > 1 ? ` +${ts.length - 1}` : ''}</Tag>;
+                      })()}
+                    </td>
                   </tr>
                 );
               })}

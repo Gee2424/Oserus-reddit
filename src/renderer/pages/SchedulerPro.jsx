@@ -150,7 +150,7 @@ export default function SchedulerProPage() {
         ))}
       </div>
 
-      {proTab === 'run' && <RunProSchedules posts={posts} accounts={accounts} />}
+      {proTab === 'run' && <RunProSchedules token={token} accounts={accounts} onMsg={setMsg} onError={setErr} />}
       {proTab === 'monitor' && <MonitorProSchedules token={token} />}
       {proTab === 'replenish' && <ReplenishProSchedules accounts={accounts} posts={posts} />}
 
@@ -248,40 +248,147 @@ export default function SchedulerProPage() {
 
 /* --------------------- Run / Monitor / Replenishment --------------------- */
 
-function RunProSchedules({ posts, accounts }) {
-  // Group pending posts by account for the "schedule card" grid.
-  const byAcc = new Map();
-  for (const p of posts.filter((x) => x.status === 'pending')) {
-    const k = p.account_id;
-    if (!byAcc.has(k)) byAcc.set(k, { account_id: k, username: p.account_username, profile: p.profile_name, color: p.profile_color, subs: new Set(), count: 0 });
-    const e = byAcc.get(k);
-    e.subs.add(p.subreddit);
-    e.count++;
+function RunProSchedules({ token, accounts, onMsg, onError }) {
+  const [templates, setTemplates] = useState([]);
+  const [showCreate, setShowCreate] = useState(false);
+
+  const load = async () => {
+    const r = await window.api.templates.list({ token });
+    if (r.ok) setTemplates(r.templates || []);
+  };
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 10000);
+    return () => clearInterval(id);
+    /* eslint-disable-next-line */
+  }, [token]);
+
+  async function start(id) {
+    const r = await window.api.templates.start({ token, id });
+    if (r.ok) { onMsg(`Started — ${r.created} posts queued.`); load(); } else onError(r.error);
   }
-  const cards = [...byAcc.values()];
+  async function stop(id) {
+    const r = await window.api.templates.stop({ token, id });
+    if (r.ok) { onMsg(`Stopped — ${r.cancelled} pending posts cancelled.`); load(); } else onError(r.error);
+  }
+  async function del(id) {
+    if (!confirm('Delete this template? Pending posts from it will be cancelled.')) return;
+    const r = await window.api.templates.delete({ token, id });
+    if (r.ok) { load(); } else onError(r.error);
+  }
 
   return (
     <div>
-      <SectionHeader title="Run Pro Schedules" desc="Pending schedules grouped by account. Start fires the autopilot pass; Stop pauses all of that account's pending posts." />
-      {cards.length === 0 ? (
+      <SectionHeader title="Run Pro Schedules" desc="Templates bundle accounts + subreddits + cadence. Start spreads a batch of posts across the cadence window; Stop cancels its remaining pending posts." />
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+        <button className="primary" onClick={() => setShowCreate((v) => !v)}>{showCreate ? 'Close' : '+ New Template'}</button>
+      </div>
+      {showCreate && (
+        <TemplateForm token={token} accounts={accounts}
+          onDone={() => { setShowCreate(false); onMsg('Template saved.'); load(); }}
+          onError={onError} />
+      )}
+      {templates.length === 0 ? (
         <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-2)' }}>
-          No pending schedules. Create some under Configure first.
+          No templates yet. Create one above to bundle accounts × subreddits × cadence.
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
-          {cards.map((c) => (
-            <div key={c.account_id} style={runCard}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: c.color || 'var(--green-bright)', boxShadow: '0 0 6px currentColor' }} />
-                <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-0)' }}>{c.profile || 'Unknown'} · u/{c.username}</span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
+          {templates.map((t) => {
+            const running = t.status === 'running' || t.pendingPosts > 0;
+            return (
+              <div key={t.id} style={{ ...runCard, borderColor: running ? 'var(--green)' : 'var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: running ? 'var(--green-bright)' : 'var(--text-3)', boxShadow: running ? '0 0 8px var(--green-bright)' : 'none' }} />
+                  <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-0)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                  <button className="ghost" onClick={() => del(t.id)} title="Delete template" style={{ fontSize: 11, padding: '3px 8px' }}>✕</button>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.6 }}>
+                  {t.accountIds.length} account{t.accountIds.length === 1 ? '' : 's'} · {t.subreddits.length} subreddit{t.subreddits.length === 1 ? '' : 's'}<br />
+                  Cadence {t.cadenceMinH}–{t.cadenceMaxH}h · {t.postsPerAccount}/account<br />
+                  Pending: <span style={{ color: t.pendingPosts > 0 ? 'var(--gold)' : 'var(--text-3)' }}>{t.pendingPosts}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
+                  {running
+                    ? <button className="danger" onClick={() => stop(t.id)} style={{ flex: 1 }}>Stop</button>
+                    : <button className="primary" onClick={() => start(t.id)} style={{ flex: 1 }}>▷ Start</button>}
+                </div>
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-2)' }}>
-                {c.count} pending post{c.count === 1 ? '' : 's'} · {c.subs.size} subreddit{c.subs.size === 1 ? '' : 's'}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+    </div>
+  );
+}
+
+function TemplateForm({ token, accounts, onDone, onError }) {
+  const [name, setName] = useState('');
+  const [subs, setSubs] = useState('');
+  const [accIds, setAccIds] = useState([]);
+  const [minH, setMinH] = useState(4);
+  const [maxH, setMaxH] = useState(8);
+  const [perAccount, setPerAccount] = useState(3);
+  const [busy, setBusy] = useState(false);
+
+  function toggleAcc(id) {
+    setAccIds((cur) => cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]);
+  }
+  async function save() {
+    setBusy(true);
+    const r = await window.api.templates.create({
+      token, name, accountIds: accIds,
+      subreddits: subs.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
+      cadenceMinH: Number(minH), cadenceMaxH: Number(maxH),
+      postsPerAccount: Number(perAccount),
+    });
+    setBusy(false);
+    if (r.ok) onDone(); else onError(r.error);
+  }
+
+  return (
+    <div className="card bordered-glow" style={{ padding: 18, marginBottom: 16 }}>
+      <h3 style={{ marginTop: 0, marginBottom: 14 }}>New Template</h3>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
+        <div>
+          <label>Name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mia · main run" />
+        </div>
+        <div>
+          <label>Posts per account</label>
+          <input type="number" min={1} value={perAccount} onChange={(e) => setPerAccount(e.target.value)} />
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 12 }}>
+        <div>
+          <label>Cadence min (hours)</label>
+          <input type="number" min={0.25} step={0.25} value={minH} onChange={(e) => setMinH(e.target.value)} />
+        </div>
+        <div>
+          <label>Cadence max (hours)</label>
+          <input type="number" min={0.5} step={0.25} value={maxH} onChange={(e) => setMaxH(e.target.value)} />
+        </div>
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <label>Subreddits (one per line, no r/)</label>
+        <textarea value={subs} onChange={(e) => setSubs(e.target.value)} style={{ minHeight: 90, fontFamily: 'var(--font-mono)', fontSize: 13 }} placeholder={'gonewild\ntittydrop\nnsfw'} />
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <label>Accounts {accIds.length > 0 && <span className="dim">({accIds.length} selected)</span>}</label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 130, overflowY: 'auto', marginTop: 6 }}>
+          {accounts.filter((a) => (a.platform || 'reddit') === 'reddit').map((a) => {
+            const on = accIds.includes(a.id);
+            return (
+              <button key={a.id} onClick={() => toggleAcc(a.id)} className={on ? 'primary' : 'ghost'} style={{ fontSize: 12, padding: '4px 10px' }}>
+                u/{a.username}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <button className="primary" onClick={save} disabled={busy || !name.trim()} style={{ marginTop: 14 }}>
+        {busy ? 'Saving…' : 'Save Template'}
+      </button>
     </div>
   );
 }

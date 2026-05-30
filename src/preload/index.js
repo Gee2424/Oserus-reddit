@@ -35,6 +35,7 @@ const api = {
     create: (data) => ipcRenderer.invoke('accounts:create', data),
     bulkCreate: (data) => ipcRenderer.invoke('accounts:bulkCreate', data),
     update: (data) => ipcRenderer.invoke('accounts:update', data),
+    setStarred: (data) => ipcRenderer.invoke('accounts:setStarred', data),
     getCredentials: (data) => ipcRenderer.invoke('accounts:getCredentials', data),
     delete: (data) => ipcRenderer.invoke('accounts:delete', data),
   },
@@ -159,6 +160,14 @@ const api = {
   aiconfig: {
     get: (data) => ipcRenderer.invoke('aiconfig:get', data),
     set: (data) => ipcRenderer.invoke('aiconfig:set', data),
+  },
+  templates: {
+    list:   (data) => ipcRenderer.invoke('templates:list', data),
+    create: (data) => ipcRenderer.invoke('templates:create', data),
+    update: (data) => ipcRenderer.invoke('templates:update', data),
+    delete: (data) => ipcRenderer.invoke('templates:delete', data),
+    start:  (data) => ipcRenderer.invoke('templates:start', data),
+    stop:   (data) => ipcRenderer.invoke('templates:stop', data),
   },
   windows: {
     openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),

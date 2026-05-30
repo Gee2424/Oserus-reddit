@@ -21,7 +21,33 @@ function hydrateAccount(a) {
   };
 }
 
+function ensureStarredColumn() {
+  const db = getDb();
+  const cols = db.prepare('PRAGMA table_info(reddit_accounts)').all();
+  if (!cols.some((c) => c.name === 'starred')) {
+    db.exec('ALTER TABLE reddit_accounts ADD COLUMN starred INTEGER NOT NULL DEFAULT 0');
+  }
+}
+
 function register(ipcMain) {
+  ensureStarredColumn();
+
+  ipcMain.handle('accounts:setStarred', (_e, { token, accountIds, starred }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      ensureStarredColumn();
+      const ids = (Array.isArray(accountIds) ? accountIds : [accountIds]).map(Number).filter(Boolean);
+      if (!ids.length) throw new Error('No accounts selected');
+      const stmt = getDb().prepare('UPDATE reddit_accounts SET starred = ? WHERE id = ?');
+      const tx = getDb().transaction(() => { for (const id of ids) stmt.run(starred ? 1 : 0, id); });
+      tx();
+      return { ok: true, updated: ids.length };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('accounts:listForProfile', (_e, { token, profileId, platform }) => {
     const user = userFromToken(token);
     if (!user) return { ok: false, error: 'Not authenticated' };

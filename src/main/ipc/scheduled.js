@@ -3,7 +3,8 @@ const { userFromToken } = require('./auth');
 const protocols = require('../services/protocols');
 
 function ensureTable() {
-  getDb().exec(`
+  const db = getDb();
+  db.exec(`
     CREATE TABLE IF NOT EXISTS scheduled_posts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       account_id INTEGER NOT NULL,
@@ -21,6 +22,13 @@ function ensureTable() {
       FOREIGN KEY(account_id) REFERENCES reddit_accounts(id) ON DELETE CASCADE
     );
   `);
+  // Additive: template_id ties a scheduled post to a Pro template,
+  // auto_generate flags rows whose title should be filled by Grok at
+  // fire-time instead of stored up front.
+  const cols = db.prepare('PRAGMA table_info(scheduled_posts)').all();
+  const have = (n) => cols.some((c) => c.name === n);
+  if (!have('template_id'))   db.exec('ALTER TABLE scheduled_posts ADD COLUMN template_id INTEGER');
+  if (!have('auto_generate')) db.exec('ALTER TABLE scheduled_posts ADD COLUMN auto_generate INTEGER DEFAULT 0');
 }
 
 // Flag scheduling conflicts for a candidate (account, time) against the
