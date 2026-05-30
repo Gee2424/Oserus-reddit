@@ -13,6 +13,15 @@ const PLATFORMS = [
   { v: 'redgifs', label: 'RedGIFs' },
 ];
 
+const USER_AGENTS = [
+  { v: '',                                                                                                       label: '— default (Windows / Chrome 127) —' },
+  { v: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',     label: 'Windows · Chrome 127' },
+  { v: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',  label: 'macOS · Safari 17' },
+  { v: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',               label: 'Linux · Chrome 127' },
+  { v: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1', label: 'iPhone · Safari 17' },
+  { v: 'Mozilla/5.0 (Linux; Android 14; SM-S921B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36', label: 'Android · Chrome 127' },
+];
+
 const STATUSES = [
   { v: 'warming', label: 'Warming' },
   { v: 'ready',   label: 'Live' },
@@ -26,6 +35,7 @@ export default function AddAccountsPage({ navigate }) {
   const [proxies, setProxies] = useState([]);
   const [form, setForm] = useState({
     profileId: '', platform: 'reddit', proxyId: '', status: 'warming',
+    userAgent: '',
     lines: '', username: '', password: '', email: '', emailPw: '',
   });
   const [busy, setBusy] = useState(false);
@@ -142,6 +152,16 @@ export default function AddAccountsPage({ navigate }) {
               <select value={form.status} onChange={(e) => set('status', e.target.value)}>
                 {STATUSES.map((s) => <option key={s.v} value={s.v}>{s.label}</option>)}
               </select>
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 18 }}>
+            <label>User Agent (browser identity for these accounts' sessions)</label>
+            <select value={form.userAgent} onChange={(e) => set('userAgent', e.target.value)}>
+              {USER_AGENTS.map((u, i) => <option key={i} value={u.v}>{u.label}</option>)}
+            </select>
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              Stored on the account for now; future builds will set it on the per-account browser session.
             </div>
           </div>
 

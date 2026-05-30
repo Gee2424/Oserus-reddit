@@ -251,6 +251,9 @@ export default function SchedulerProPage() {
 function RunProSchedules({ token, accounts, onMsg, onError }) {
   const [templates, setTemplates] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
+  const [search, setSearch] = useState('');
+  const [progress, setProgress] = useState(null); // { done, total, label }
 
   const load = async () => {
     const r = await window.api.templates.list({ token });
@@ -262,6 +265,45 @@ function RunProSchedules({ token, accounts, onMsg, onError }) {
     return () => clearInterval(id);
     /* eslint-disable-next-line */
   }, [token]);
+
+  const filtered = templates.filter((t) =>
+    !search.trim() || t.name.toLowerCase().includes(search.toLowerCase())
+  );
+  const running = templates.filter((t) => t.status === 'running' || t.pendingPosts > 0);
+  const idle = templates.filter((t) => t.status !== 'running' && t.pendingPosts === 0);
+
+  function toggle(id) {
+    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function selectAll() { setSelected(new Set(filtered.map((t) => t.id))); }
+  function unselectAll() { setSelected(new Set()); }
+
+  async function startSelected() {
+    const ids = [...selected];
+    if (!ids.length) { onError('Select at least one template.'); return; }
+    setProgress({ done: 0, total: ids.length, label: 'Starting' });
+    let failed = 0;
+    for (let i = 0; i < ids.length; i++) {
+      const r = await window.api.templates.start({ token, id: ids[i] });
+      if (!r.ok) failed++;
+      setProgress({ done: i + 1, total: ids.length, label: 'Starting' });
+    }
+    setProgress(null);
+    onMsg(`Started ${ids.length - failed}/${ids.length} template${ids.length === 1 ? '' : 's'}.${failed ? ` ${failed} failed.` : ''}`);
+    load();
+  }
+  async function stopSelected() {
+    const ids = [...selected];
+    if (!ids.length) { onError('Select at least one template.'); return; }
+    setProgress({ done: 0, total: ids.length, label: 'Stopping' });
+    for (let i = 0; i < ids.length; i++) {
+      await window.api.templates.stop({ token, id: ids[i] });
+      setProgress({ done: i + 1, total: ids.length, label: 'Stopping' });
+    }
+    setProgress(null);
+    onMsg(`Stopped ${ids.length} template${ids.length === 1 ? '' : 's'}.`);
+    load();
+  }
 
   async function start(id) {
     const r = await window.api.templates.start({ token, id });
@@ -279,29 +321,85 @@ function RunProSchedules({ token, accounts, onMsg, onError }) {
 
   return (
     <div>
-      <SectionHeader title="Run Pro Schedules" desc="Templates bundle accounts + subreddits + cadence. Start spreads a batch of posts across the cadence window; Stop cancels its remaining pending posts." />
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+      <SectionHeader title="Run Pro Schedules" desc="Click templates to select (multi-select supported), then run or stop them. State is shared across the app." />
+
+      {/* Batch action bar */}
+      <div className="card" style={{ padding: 12, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <input placeholder="Search templates…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 220 }} />
+        {search && <button className="ghost" onClick={() => setSearch('')} style={{ fontSize: 11, padding: '4px 8px' }}>✕</button>}
+        <button className="ghost" onClick={selectAll} disabled={!filtered.length}>Select all</button>
+        <button className="ghost" onClick={unselectAll} disabled={!selected.size}>Unselect all</button>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-2)' }}>
+          {selected.size} of {filtered.length} selected
+        </span>
+        <button
+          onClick={startSelected}
+          disabled={!selected.size || !!progress}
+          style={{ background: 'var(--green)', borderColor: 'var(--green-bright)', color: '#fff', fontWeight: 600 }}
+        >▷ Start</button>
+        <button
+          onClick={stopSelected}
+          disabled={!selected.size || !!progress}
+          style={{ background: '#6e2c2c', borderColor: 'var(--danger)', color: '#fff', fontWeight: 600 }}
+        >■ Stop</button>
         <button className="primary" onClick={() => setShowCreate((v) => !v)}>{showCreate ? 'Close' : '+ New Template'}</button>
       </div>
+
+      {/* Progress bar when batching */}
+      {progress && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 6 }}>
+            {progress.label} {progress.total} template{progress.total === 1 ? '' : 's'}… {progress.done}/{progress.total}
+          </div>
+          <div style={{ height: 6, background: 'var(--bg-3)', borderRadius: 999, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%', width: `${(progress.done / progress.total) * 100}%`,
+              background: 'linear-gradient(90deg, var(--green-bright), var(--gold))',
+              transition: 'width 0.25s',
+            }} />
+          </div>
+        </div>
+      )}
+
+      {/* Status pills */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: 'rgba(79,138,100,0.18)', color: '#7fd99a', fontSize: 11, fontWeight: 700 }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#7fd99a', boxShadow: '0 0 6px #7fd99a' }} />
+          {running.length} running
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.05)', color: 'var(--text-2)', fontSize: 11, fontWeight: 700 }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--text-3)' }} />
+          {idle.length} idle
+        </span>
+      </div>
+
       {showCreate && (
         <TemplateForm token={token} accounts={accounts}
           onDone={() => { setShowCreate(false); onMsg('Template saved.'); load(); }}
           onError={onError} />
       )}
-      {templates.length === 0 ? (
+      {filtered.length === 0 ? (
         <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-2)' }}>
-          No templates yet. Create one above to bundle accounts × subreddits × cadence.
+          {search ? `No templates match "${search}".` : 'No templates yet. Create one above to bundle accounts × subreddits × cadence.'}
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
-          {templates.map((t) => {
-            const running = t.status === 'running' || t.pendingPosts > 0;
+          {filtered.map((t) => {
+            const isRunning = t.status === 'running' || t.pendingPosts > 0;
+            const isSel = selected.has(t.id);
             return (
-              <div key={t.id} style={{ ...runCard, borderColor: running ? 'var(--green)' : 'var(--border)' }}>
+              <div key={t.id} onClick={() => toggle(t.id)} style={{
+                ...runCard,
+                borderColor: isSel ? 'var(--gold)' : (isRunning ? 'var(--green)' : 'var(--border)'),
+                boxShadow: isSel
+                  ? '0 0 0 1px var(--gold) inset, 0 0 14px -4px var(--gold-soft)'
+                  : (isRunning ? '0 0 12px -6px var(--green-glow)' : 'none'),
+                cursor: 'pointer',
+              }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: running ? 'var(--green-bright)' : 'var(--text-3)', boxShadow: running ? '0 0 8px var(--green-bright)' : 'none' }} />
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: isRunning ? 'var(--green-bright)' : 'var(--text-3)', boxShadow: isRunning ? '0 0 8px var(--green-bright)' : 'none' }} />
                   <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-0)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
-                  <button className="ghost" onClick={() => del(t.id)} title="Delete template" style={{ fontSize: 11, padding: '3px 8px' }}>✕</button>
+                  <button onClick={(e) => { e.stopPropagation(); del(t.id); }} className="ghost" title="Delete template" style={{ fontSize: 11, padding: '3px 8px' }}>✕</button>
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.6 }}>
                   {t.accountIds.length} account{t.accountIds.length === 1 ? '' : 's'} · {t.subreddits.length} subreddit{t.subreddits.length === 1 ? '' : 's'}<br />
@@ -309,9 +407,9 @@ function RunProSchedules({ token, accounts, onMsg, onError }) {
                   Pending: <span style={{ color: t.pendingPosts > 0 ? 'var(--gold)' : 'var(--text-3)' }}>{t.pendingPosts}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
-                  {running
-                    ? <button className="danger" onClick={() => stop(t.id)} style={{ flex: 1 }}>Stop</button>
-                    : <button className="primary" onClick={() => start(t.id)} style={{ flex: 1 }}>▷ Start</button>}
+                  {isRunning
+                    ? <button onClick={(e) => { e.stopPropagation(); stop(t.id); }} className="danger" style={{ flex: 1 }}>Stop</button>
+                    : <button onClick={(e) => { e.stopPropagation(); start(t.id); }} className="primary" style={{ flex: 1 }}>▷ Start</button>}
                 </div>
               </div>
             );
@@ -524,6 +622,7 @@ function AISettings({ token, onMsg, onError }) {
     titleMin: 3, titleMax: 8, model: 'grok-2-latest', customPrompt: '',
     nightInfo: '', ctaInfo: '', typoRate: 0,
     matchCity: false, randomCta: true, detectLanguage: false,
+    includeMedia: false,
     customCtas: [], // [{ platform, url }]
   });
   const [hasKey, setHasKey] = useState(false);
@@ -596,6 +695,45 @@ function AISettings({ token, onMsg, onError }) {
           <label>Grok model</label>
           <input value={cfg.model} onChange={(e) => set('model', e.target.value)} placeholder="grok-2-latest" />
         </div>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <Toggle label="Include media (photo/video) in AI generation" value={cfg.includeMedia} onChange={(v) => set('includeMedia', v)} />
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6, lineHeight: 1.5 }}>
+          Sends the post's image/video to Grok for visual context when generating titles. More accurate captions, but uses many more tokens.
+        </div>
+      </div>
+
+      <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 12, marginBottom: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', marginBottom: 8, fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          Token Usage Comparison
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ color: 'var(--text-3)', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <th style={{ padding: '6px 8px', fontWeight: 500 }}>Input Type</th>
+              <th style={{ padding: '6px 8px', fontWeight: 500 }}>Typical Tokens Added</th>
+              <th style={{ padding: '6px 8px', fontWeight: 500 }}>Cost vs Text-Only</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style={{ borderTop: '1px solid var(--border)' }}>
+              <td style={{ padding: '7px 8px' }}>Text only</td>
+              <td style={{ padding: '7px 8px' }} className="mono">100 – 5,000</td>
+              <td style={{ padding: '7px 8px', color: 'var(--green-bright)' }}>1× (cheapest)</td>
+            </tr>
+            <tr style={{ borderTop: '1px solid var(--border)' }}>
+              <td style={{ padding: '7px 8px' }}>+ 1 Photo</td>
+              <td style={{ padding: '7px 8px' }} className="mono">+256 – 1,792</td>
+              <td style={{ padding: '7px 8px', color: 'var(--gold)' }}>2× – 10× higher</td>
+            </tr>
+            <tr style={{ borderTop: '1px solid var(--border)' }}>
+              <td style={{ padding: '7px 8px' }}>+ Video (short)</td>
+              <td style={{ padding: '7px 8px' }} className="mono">+1,000 – 5,000</td>
+              <td style={{ padding: '7px 8px', color: '#e2a3a3' }}>5× – 50× higher</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <label>System prompt override (optional)</label>

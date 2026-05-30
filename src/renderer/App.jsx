@@ -21,6 +21,7 @@ import AutopilotPage from './pages/Autopilot.jsx';
 import SchedulerProPage from './pages/SchedulerPro.jsx';
 import IntelligencePage from './pages/Intelligence.jsx';
 import AddAccountsPage from './pages/AddAccounts.jsx';
+import RedGifsDashboardPage from './pages/RedGifsDashboard.jsx';
 import RedditApiPage from './pages/RedditApi.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
@@ -53,7 +54,8 @@ function Inner() {
     switch (route) {
       case 'dashboard': return <DashboardPage navigate={navigate} />;
       case 'reddit': return <RedditBrowser navigate={navigate} />;
-      case 'redgifs': return <RedGifsBrowser />;
+      case 'redgifs': return <RedGifsDashboardPage navigate={navigate} />;
+      case 'redgifs-browse': return <RedGifsBrowser />;
       case 'reddit-api': return <RedditApiPage initialTab={routeParams.tab} navigate={navigate} />;
       case 'accounts': return <RedditApiPage initialTab="reddit" navigate={navigate} />;
       case 'scheduler': return <RedditApiPage initialTab="posting" navigate={navigate} />;
@@ -91,6 +93,7 @@ function Inner() {
         case 'analytics': return <AnalyticsPage />;
         case 'intel': return <IntelligencePage />;
         case 'dashboard': return <DashboardPage navigate={navigate} />;
+        case 'redgifs-dashboard': return <RedGifsDashboardPage navigate={navigate} />;
         default: return <InboxPage embedded standalone />;
       }
     })();
