@@ -909,6 +909,9 @@ function Composer({ token, accounts, onDone, onError }) {
   const [boost, setBoost] = useState({ enabled: false, serviceId: '', qty: 25 });
   const [services, setServices] = useState([]);
   const [balance, setBalance] = useState(null);
+  // Eligibility intel: subreddit gates × account karma/age.
+  const [intelMap, setIntelMap] = useState(new Map());
+  const [karmaMap, setKarmaMap] = useState(new Map());
 
   useEffect(() => {
     window.api.votes.hasApiKey({ token }).then((r) => {
@@ -916,7 +919,37 @@ function Composer({ token, accounts, onDone, onError }) {
       window.api.votes.services({ token }).then((s) => { if (s.ok) setServices(s.services || []); });
       window.api.votes.balance({ token }).then((b) => { if (b.ok) setBalance({ balance: b.balance, currency: b.currency }); });
     });
+    window.api.intel.list({ token }).then((r) => {
+      if (r.ok) setIntelMap(new Map((r.subs || []).map((s) => [s.name.toLowerCase(), s])));
+    });
+    window.api.analytics.summary({ token }).then((r) => {
+      if (r.ok) setKarmaMap(new Map((r.accounts || []).map((a) => [a.id, a])));
+    });
   }, [token]);
+
+  // Compute per-target eligibility warnings against the typed subreddit.
+  const eligibilityWarnings = useMemo(() => {
+    if (!form.subreddit || !targets.length) return [];
+    const intel = intelMap.get(form.subreddit.replace(/^r\//i, '').trim().toLowerCase());
+    if (!intel) return [];
+    const out = [];
+    for (const id of targets) {
+      const acc = accounts.find((a) => a.id === id);
+      if (!acc) continue;
+      const k = karmaMap.get(id) || {};
+      const reasons = [];
+      if (intel.min_post_karma != null && (k.post_karma == null || k.post_karma < intel.min_post_karma))
+        reasons.push(`post karma ${k.post_karma ?? '?'} / need ${intel.min_post_karma}`);
+      if (intel.min_comment_karma != null && (k.comment_karma == null || k.comment_karma < intel.min_comment_karma))
+        reasons.push(`comment karma ${k.comment_karma ?? '?'} / need ${intel.min_comment_karma}`);
+      if (intel.min_account_age_days != null && acc.created_at) {
+        const days = Math.floor((Date.now() - new Date(acc.created_at.replace(' ', 'T') + 'Z').getTime()) / 86400000);
+        if (days < intel.min_account_age_days) reasons.push(`age ${days}d / need ${intel.min_account_age_days}d`);
+      }
+      if (reasons.length) out.push(`u/${acc.username}: ${reasons.join(' · ')}`);
+    }
+    return out;
+  }, [form.subreddit, targets, intelMap, karmaMap, accounts]);
 
   // Live conflict preview against the first selected target.
   useEffect(() => {
@@ -1010,6 +1043,13 @@ function Composer({ token, accounts, onDone, onError }) {
       {conflicts.length > 0 && (
         <div style={{ ...warnBanner, marginTop: 12, marginBottom: 0 }}>
           ⚠ {conflicts.join(' · ')} (you can still schedule it)
+        </div>
+      )}
+
+      {eligibilityWarnings.length > 0 && (
+        <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 'var(--radius-lg)', background: 'rgba(180,90,90,0.08)', border: '1px solid #6e2c2c', fontSize: 12, color: '#e2a3a3' }}>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>⚠ Subreddit gate may reject these accounts:</div>
+          {eligibilityWarnings.map((w, i) => <div key={i} style={{ marginTop: 2 }}>{w}</div>)}
         </div>
       )}
 

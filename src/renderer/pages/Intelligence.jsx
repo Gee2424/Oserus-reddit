@@ -6,6 +6,7 @@ import PopOutButton from '../components/PopOutButton.jsx';
 
 const INNER_TABS = [
   { k: 'requirements', l: 'Requirements',  d: 'Karma/age gates & rules' },
+  { k: 'compat',       l: 'Compatibility', d: 'Which subs qualify for an account' },
   { k: 'scraper',      l: 'Scraper',       d: 'Hot · Top · Rising · New · Users · Mods · Flairs' },
   { k: 'research',     l: 'Research',      d: 'Trending words & best posting times' },
 ];
@@ -119,6 +120,9 @@ export default function IntelligencePage() {
         ))}
       </div>
 
+      {tab === 'compat' && (
+        <CompatibilityPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} />
+      )}
       {tab === 'scraper' && (
         <ScraperPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
       )}
@@ -213,6 +217,100 @@ export default function IntelligencePage() {
         </div>
       )}
       </>)}
+    </div>
+  );
+}
+
+/* --------------------- COMPATIBILITY (account × intel) ------------------ */
+function CompatibilityPanel({ token, accountId, accounts, onAccount }) {
+  const [subs, setSubs] = useState([]);
+  const [karma, setKarma] = useState({});
+  const [acct, setAcct] = useState(null);
+
+  useEffect(() => {
+    window.api.intel.list({ token }).then((r) => { if (r.ok) setSubs(r.subs || []); });
+    window.api.analytics.summary({ token }).then((r) => {
+      if (r.ok) {
+        const m = {};
+        for (const a of r.accounts) m[a.id] = a;
+        setKarma(m);
+      }
+    });
+  }, [token]);
+
+  useEffect(() => {
+    if (!accountId) { setAcct(null); return; }
+    setAcct(accounts.find((a) => String(a.id) === String(accountId)) || null);
+  }, [accountId, accounts]);
+
+  const rows = useMemo(() => {
+    if (!acct) return [];
+    const k = karma[acct.id] || {};
+    const ageDays = acct.created_at
+      ? Math.floor((Date.now() - new Date(acct.created_at.replace(' ', 'T') + 'Z').getTime()) / 86400000)
+      : null;
+    return subs.map((s) => {
+      const reasons = [];
+      if (s.min_post_karma != null && (k.post_karma == null || k.post_karma < s.min_post_karma))
+        reasons.push(`post karma ${k.post_karma ?? '?'} < ${s.min_post_karma}`);
+      if (s.min_comment_karma != null && (k.comment_karma == null || k.comment_karma < s.min_comment_karma))
+        reasons.push(`comment karma ${k.comment_karma ?? '?'} < ${s.min_comment_karma}`);
+      if (s.min_account_age_days != null && (ageDays == null || ageDays < s.min_account_age_days))
+        reasons.push(`age ${ageDays ?? '?'}d < ${s.min_account_age_days}d`);
+      return { ...s, qualifies: reasons.length === 0, reasons };
+    });
+  }, [subs, karma, acct]);
+
+  const qualifying = rows.filter((r) => r.qualifies);
+  const failing = rows.filter((r) => !r.qualifies);
+
+  return (
+    <div>
+      <div className="card" style={{ padding: 18, marginBottom: 14 }}>
+        <label>Check account</label>
+        <select value={accountId} onChange={(e) => onAccount(e.target.value)}>
+          <option value="">— pick an account —</option>
+          {accounts.map((a) => <option key={a.id} value={a.id}>u/{a.username} · {a.profile_name}</option>)}
+        </select>
+        {acct && (
+          <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+            Post karma {karma[acct.id]?.post_karma ?? '—'} · Comment karma {karma[acct.id]?.comment_karma ?? '—'} · Age {acct.created_at ? Math.floor((Date.now() - new Date(acct.created_at.replace(' ', 'T') + 'Z').getTime()) / 86400000) + 'd' : '—'}
+          </div>
+        )}
+      </div>
+
+      {!acct ? null : subs.length === 0 ? (
+        <div className="card" style={{ padding: 30, textAlign: 'center' }} className="muted">
+          No subreddit intel yet. Fetch some under the Requirements tab first.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+          <div className="card" style={{ padding: 14 }}>
+            <div style={{ fontSize: 11, color: 'var(--green-bright)', marginBottom: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
+              ✓ Qualifies · {qualifying.length}
+            </div>
+            {qualifying.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>None.</div>
+              : qualifying.map((s) => (
+                <div key={s.name} style={{ padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
+                  <span style={{ color: 'var(--gold)' }}>r/{s.name}</span>
+                  <span className="muted" style={{ marginLeft: 8, fontSize: 11 }}>{s.subscribers ? `${s.subscribers.toLocaleString()} subs` : ''}</span>
+                </div>
+              ))}
+          </div>
+          <div className="card" style={{ padding: 14 }}>
+            <div style={{ fontSize: 11, color: '#e2a3a3', marginBottom: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
+              ✗ Fails · {failing.length}
+            </div>
+            {failing.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>None.</div>
+              : failing.map((s) => (
+                <div key={s.name} style={{ padding: '8px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
+                  <div><span style={{ color: 'var(--gold)' }}>r/{s.name}</span></div>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{s.reasons.join(' · ')}</div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
