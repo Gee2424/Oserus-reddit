@@ -20,7 +20,15 @@ export default function AccountSwitcher({ platform }) {
 
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('all');
+  const [modelFilter, setModelFilter] = useState('all'); // Model Switcher
   const ref = useRef(null);
+
+  // Distinct models present in this scope, for the in-switcher Model picker.
+  const models = (() => {
+    const m = new Map();
+    for (const a of accounts) if (a.profile_id) m.set(a.profile_id, a.profile_name || `Model ${a.profile_id}`);
+    return [...m.entries()].map(([id, name]) => ({ id, name }));
+  })();
 
   useEffect(() => {
     function onClick(e) {
@@ -30,7 +38,9 @@ export default function AccountSwitcher({ platform }) {
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
 
-  const filtered = filter === 'all' ? accounts : accounts.filter(a => a.status === filter);
+  const filtered = accounts
+    .filter((a) => filter === 'all' || a.status === filter)
+    .filter((a) => modelFilter === 'all' || String(a.profile_id) === String(modelFilter));
   const groups = {};
   for (const a of filtered) {
     (groups[a.profile_name] = groups[a.profile_name] || []).push(a);
@@ -66,6 +76,19 @@ export default function AccountSwitcher({ platform }) {
 
       {open && (
         <div style={styles.menu}>
+          {models.length > 1 && (
+            <div style={{ padding: '10px 12px 8px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 6 }}>Model</div>
+              <select
+                value={modelFilter}
+                onChange={(e) => setModelFilter(e.target.value)}
+                style={{ width: '100%', fontSize: 12, padding: '5px 8px' }}
+              >
+                <option value="all">All models ({models.length})</option>
+                {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+          )}
           <div style={styles.filterBar}>
             {['all', 'ready', 'warming', 'paused', 'banned'].map(f => (
               <button

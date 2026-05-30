@@ -7,6 +7,7 @@ const TABS = [
   { key: 'direct', label: 'Direct Input',        hint: 'one account at a time' },
   { key: 'login',  label: 'Login Authentication', hint: 'sign into Reddit in-app' },
   { key: 'warmup', label: 'Warm-up Subs',         hint: 'subreddits for karma farming' },
+  { key: 'backup', label: 'Backup Pool',          hint: 'replace banned accounts' },
 ];
 
 const PLATFORMS = [
@@ -239,6 +240,8 @@ export default function AddAccountsPage({ navigate }) {
           )}
 
           {tab === 'warmup' && <WarmupSubsPanel token={token} />}
+
+          {tab === 'backup' && <BackupPoolPanel token={token} />}
         </div>
       </div>
     </div>
@@ -320,6 +323,59 @@ function WarmupSubsPanel({ token }) {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+function BackupPoolPanel({ token }) {
+  const [accounts, setAccounts] = useState([]);
+
+  async function load() {
+    const r = await window.api.accounts.listForUser({ token });
+    if (r.ok) setAccounts(r.accounts || []);
+  }
+  useEffect(() => { load(); }, []);
+
+  async function mark(id, status) {
+    await window.api.accounts.bulkSetStatus({ token, accountIds: [id], status });
+    load();
+  }
+
+  const operating = accounts.filter((a) => a.status === 'ready');
+  const warming = accounts.filter((a) => a.status === 'warming');
+  const banned = accounts.filter((a) => a.status === 'banned');
+
+  return (
+    <div>
+      <div className="muted" style={{ fontSize: 12, marginBottom: 14, lineHeight: 1.6 }}>
+        Account replenishment. Watch which accounts are burned and swap a warming/backup
+        account into rotation with a single click. Marking "Live" promotes a warming
+        account; marking "Banned" pulls a burned one out of rotation.
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+        <BackupCol title={`Live · ${operating.length}`} accounts={operating} color="#7fd99a"
+          actionLabel="Mark banned" onAct={(id) => mark(id, 'banned')} />
+        <BackupCol title={`Backup · ${warming.length}`} accounts={warming} color="var(--gold)"
+          actionLabel="Promote to Live" onAct={(id) => mark(id, 'ready')} />
+        <BackupCol title={`Banned · ${banned.length}`} accounts={banned} color="#e2a3a3"
+          actionLabel="Move to Backup" onAct={(id) => mark(id, 'warming')} />
+      </div>
+    </div>
+  );
+}
+
+function BackupCol({ title, accounts, color, actionLabel, onAct }) {
+  return (
+    <div className="card" style={{ padding: 12 }}>
+      <div style={{ fontSize: 10, color, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 8 }}>{title}</div>
+      {accounts.length === 0
+        ? <div className="muted" style={{ fontSize: 12 }}>None.</div>
+        : accounts.map((a) => (
+          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>u/{a.username}</span>
+            <button className="ghost" onClick={() => onAct(a.id)} style={{ fontSize: 10, padding: '3px 8px' }}>{actionLabel}</button>
+          </div>
+        ))}
     </div>
   );
 }

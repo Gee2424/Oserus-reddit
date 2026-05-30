@@ -990,6 +990,36 @@ function Composer({ token, accounts, onDone, onError }) {
   return (
     <div className="card bordered-glow" style={{ padding: 18, marginBottom: 18 }}>
       <h3 style={{ marginTop: 0, marginBottom: 12 }}>Schedule a post {targets.length > 1 ? `to ${targets.length} accounts` : ''}</h3>
+
+      {/* Platform selector — Reddit is wired today; others slot in once their
+          adapters are configured. Keeps the workflow inside one Scheduler. */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+        {[
+          { k: 'reddit',    l: 'Reddit',    icon: '◈', live: true,  color: '#ff4500' },
+          { k: 'redgifs',   l: 'RedGIFs',   icon: '▮', live: false, color: '#d63d3d' },
+          { k: 'x',         l: 'X',         icon: '𝕏', live: false, color: '#fff'    },
+          { k: 'instagram', l: 'Instagram', icon: '◉', live: false, color: '#e2497d' },
+          { k: 'tiktok',    l: 'TikTok',    icon: '♪', live: false, color: '#69c9d0' },
+        ].map((p) => (
+          <button
+            key={p.k}
+            disabled={!p.live}
+            style={{
+              background: p.live ? 'linear-gradient(135deg, rgba(212,166,74,0.16), rgba(58,111,140,0.06))' : 'var(--bg-1)',
+              border: '1px solid ' + (p.live ? 'var(--gold)' : 'var(--border)'),
+              borderRadius: 999, padding: '5px 12px',
+              color: p.live ? 'var(--gold-bright)' : 'var(--text-3)',
+              fontSize: 11, fontWeight: 600, opacity: p.live ? 1 : 0.5,
+              cursor: p.live ? 'pointer' : 'not-allowed',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            <span style={{ color: p.color }}>{p.icon}</span> {p.l}
+            {!p.live && <span style={{ fontSize: 9, opacity: 0.7 }}>soon</span>}
+          </button>
+        ))}
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div>
           <label>Subreddit</label>
