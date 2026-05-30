@@ -226,6 +226,7 @@ function CompatibilityPanel({ token, accountId, accounts, onAccount }) {
   const [subs, setSubs] = useState([]);
   const [karma, setKarma] = useState({});
   const [acct, setAcct] = useState(null);
+  const [pickedSub, setPickedSub] = useState('');
 
   useEffect(() => {
     window.api.intel.list({ token }).then((r) => { if (r.ok) setSubs(r.subs || []); });
@@ -264,6 +265,30 @@ function CompatibilityPanel({ token, accountId, accounts, onAccount }) {
   const qualifying = rows.filter((r) => r.qualifies);
   const failing = rows.filter((r) => !r.qualifies);
 
+  // Reverse lookup: for a picked subreddit, which accounts meet its gates.
+  const recommendedAccounts = useMemo(() => {
+    if (!pickedSub) return [];
+    const intel = subs.find((s) => s.name.toLowerCase() === pickedSub.toLowerCase());
+    if (!intel) return [];
+    return accounts
+      .filter((a) => (a.platform || 'reddit') === 'reddit')
+      .map((a) => {
+        const k = karma[a.id] || {};
+        const ageDays = a.created_at
+          ? Math.floor((Date.now() - new Date(a.created_at.replace(' ', 'T') + 'Z').getTime()) / 86400000)
+          : null;
+        const reasons = [];
+        if (intel.min_post_karma != null && (k.post_karma == null || k.post_karma < intel.min_post_karma))
+          reasons.push(`post karma`);
+        if (intel.min_comment_karma != null && (k.comment_karma == null || k.comment_karma < intel.min_comment_karma))
+          reasons.push(`comment karma`);
+        if (intel.min_account_age_days != null && (ageDays == null || ageDays < intel.min_account_age_days))
+          reasons.push(`age`);
+        return { ...a, k, ageDays, qualifies: reasons.length === 0, reasons };
+      })
+      .sort((a, b) => Number(b.qualifies) - Number(a.qualifies));
+  }, [pickedSub, subs, accounts, karma]);
+
   return (
     <div>
       <div className="card" style={{ padding: 18, marginBottom: 14 }}>
@@ -275,6 +300,32 @@ function CompatibilityPanel({ token, accountId, accounts, onAccount }) {
         {acct && (
           <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
             Post karma {karma[acct.id]?.post_karma ?? '—'} · Comment karma {karma[acct.id]?.comment_karma ?? '—'} · Age {acct.created_at ? Math.floor((Date.now() - new Date(acct.created_at.replace(' ', 'T') + 'Z').getTime()) / 86400000) + 'd' : '—'}
+          </div>
+        )}
+      </div>
+
+      {/* Recommended accounts for a subreddit */}
+      <div className="card" style={{ padding: 18, marginBottom: 14 }}>
+        <label>Recommended accounts for a subreddit</label>
+        <select value={pickedSub} onChange={(e) => setPickedSub(e.target.value)}>
+          <option value="">— pick a subreddit —</option>
+          {subs.map((s) => <option key={s.name} value={s.name}>r/{s.name}</option>)}
+        </select>
+        {pickedSub && recommendedAccounts.length > 0 && (
+          <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {recommendedAccounts.slice(0, 24).map((a) => (
+              <span key={a.id} style={{
+                padding: '4px 10px', borderRadius: 999, fontSize: 12,
+                border: '1px solid ' + (a.qualifies ? 'var(--green)' : 'var(--border)'),
+                background: a.qualifies ? 'var(--green-soft)' : 'var(--bg-1)',
+                color: a.qualifies ? 'var(--green-bright)' : 'var(--text-3)',
+              }} title={a.qualifies ? 'Meets all gates' : `Missing: ${a.reasons.join(', ')}`}>
+                {a.qualifies ? '✓ ' : '✗ '}u/{a.username}
+              </span>
+            ))}
+            {recommendedAccounts.length > 24 && (
+              <span className="muted" style={{ fontSize: 11, alignSelf: 'center' }}>…and {recommendedAccounts.length - 24} more</span>
+            )}
           </div>
         )}
       </div>

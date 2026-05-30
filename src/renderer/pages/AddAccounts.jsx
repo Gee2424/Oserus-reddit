@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { Banner } from '../components/ui.jsx';
+import ProxiesPanel from '../components/ProxiesPanel.jsx';
 
 const TABS = [
-  { key: 'bulk',   label: 'Bulk Paste',          hint: 'username:password per line' },
-  { key: 'direct', label: 'Direct Input',        hint: 'one account at a time' },
-  { key: 'login',  label: 'Login Authentication', hint: 'sign into Reddit in-app' },
-  { key: 'warmup', label: 'Warm-up Subs',         hint: 'subreddits for karma farming' },
-  { key: 'backup', label: 'Backup Pool',          hint: 'replace banned accounts' },
+  { key: 'bulk',    label: 'Bulk Paste',          hint: 'username:password per line' },
+  { key: 'direct',  label: 'Direct Input',        hint: 'one account at a time' },
+  { key: 'login',   label: 'Login Authentication', hint: 'sign into Reddit in-app' },
+  { key: 'warmup',  label: 'Warm-up Subs',         hint: 'subreddits for karma farming' },
+  { key: 'backup',  label: 'Backup Pool',          hint: 'replace banned accounts' },
+  { key: 'proxies', label: 'Proxies',              hint: 'create/edit proxy pool' },
 ];
 
 const PLATFORMS = [
@@ -242,6 +244,8 @@ export default function AddAccountsPage({ navigate }) {
           {tab === 'warmup' && <WarmupSubsPanel token={token} />}
 
           {tab === 'backup' && <BackupPoolPanel token={token} />}
+
+          {tab === 'proxies' && <ProxiesPanel />}
         </div>
       </div>
     </div>
