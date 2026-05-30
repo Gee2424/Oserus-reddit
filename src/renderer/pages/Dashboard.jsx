@@ -4,6 +4,16 @@ import { Avatar, Tag, StatusPill, StatTile } from '../components/ui.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
 
 function fmt(n) { return n == null ? '—' : n.toLocaleString(); }
+function ageFromIso(s) {
+  if (!s) return '—';
+  try {
+    const t = new Date(s.replace(' ', 'T') + 'Z').getTime();
+    const days = Math.floor((Date.now() - t) / 86400000);
+    if (days < 1) return '<1d';
+    if (days < 365) return `${days}d`;
+    return `${Math.floor(days / 365)}y${days % 365 ? ` ${days % 365}d` : ''}`;
+  } catch { return '—'; }
+}
 
 export default function DashboardPage({ navigate }) {
   const { token, user } = useAuth();
@@ -72,10 +82,11 @@ export default function DashboardPage({ navigate }) {
 
       <div style={actionBar}>
         <button className="ghost" onClick={toggleAll}>{selected.size === filtered.length && filtered.length ? 'Deselect' : 'Select All'}</button>
-        <button className="ghost" onClick={() => navigate('profiles')}>Manage Classes</button>
+        <button className="ghost" onClick={() => navigate('profiles')}>Model Profiles</button>
         <button className="ghost" onClick={() => navigate('add-accounts')}>+ Add Accounts</button>
         <button className="ghost" onClick={load}>Refresh Data</button>
         <button className="ghost" onClick={() => navigate('operations')}>Send to Operations</button>
+        <button className="ghost" onClick={() => navigate('operations')}>Change Proxy</button>
         <button className="ghost" onClick={() => navigate('scheduler-pro')}>Scheduler</button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: 130 }}>
@@ -96,19 +107,22 @@ export default function DashboardPage({ navigate }) {
               <tr style={{ background: 'var(--bg-2)' }}>
                 <th style={{ ...th, width: 36 }}><input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} /></th>
                 <th style={th}>Account</th>
+                <th style={{ ...th, textAlign: 'right' }}>Age</th>
                 <th style={th}>NSFW</th>
                 <th style={{ ...th, textAlign: 'right' }}>Post Karma</th>
                 <th style={{ ...th, textAlign: 'right' }}>Comment Karma</th>
                 <th style={th}>Proxy</th>
                 <th style={th}>Status</th>
+                <th style={th}>Web</th>
                 <th style={th}>Class</th>
+                <th style={th}>Pro Schedule</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>Loading…</td></tr>
+                <tr><td colSpan={11} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>Loading…</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={8} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>No accounts.</td></tr>
+                <tr><td colSpan={11} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>No accounts.</td></tr>
               ) : filtered.map((a) => {
                 const sel = selected.has(a.id);
                 const nsfw = a.status === 'ready';
@@ -121,6 +135,7 @@ export default function DashboardPage({ navigate }) {
                         <div style={{ fontWeight: 500 }}>{a.username}</div>
                       </div>
                     </td>
+                    <td style={{ ...td, textAlign: 'right' }} className="mono dim">{ageFromIso(a.created_at)}</td>
                     <td style={td}>
                       <Tag tone={nsfw ? 'pink' : 'green'}>{nsfw ? 'NSFW' : 'SFW'}</Tag>
                     </td>
@@ -132,7 +147,11 @@ export default function DashboardPage({ navigate }) {
                         : <Tag tone="gold">NO PROXY</Tag>}
                     </td>
                     <td style={td}><StatusPill status={a.status} /></td>
+                    <td style={td}>
+                      <span style={{ display: 'inline-grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', background: '#ff4500', color: '#fff', fontWeight: 700, fontSize: 12 }} title={`u/${a.username}`}>R</span>
+                    </td>
                     <td style={td}><Tag tone="neutral">{a.profile_name || '—'}</Tag></td>
+                    <td style={td}><Tag tone="blue">No Schedule</Tag></td>
                   </tr>
                 );
               })}

@@ -131,14 +131,17 @@ function openPopout(routeKey, opts = {}) {
     existing.focus();
     return { ok: true, focused: true };
   }
+  // hiddenInset is mac-only — using it on Windows hides the close button and
+  // makes the popout look broken. Default chrome on Win/Linux, hidden on mac.
+  const isMac = process.platform === 'darwin';
   const win = new BrowserWindow({
-    width: opts.width || 460,
+    width: opts.width || 1180,
     height: opts.height || 760,
-    minWidth: 360,
+    minWidth: 600,
     minHeight: 480,
     backgroundColor: '#0d0c0a',
     title: opts.title || 'Oserus',
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: isMac ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,

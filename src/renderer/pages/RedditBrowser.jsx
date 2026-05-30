@@ -36,7 +36,7 @@ function isRedditPage(url) {
   }
 }
 
-export default function RedditBrowser() {
+export default function RedditBrowser({ navigate }) {
   const { token } = useAuth();
   const can = useCan();
   const canPlaceOrders = can('infra.upvotes.place_order');
@@ -154,9 +154,19 @@ export default function RedditBrowser() {
       </div>
 
       {!active ? (
-        <div className="empty-state" style={{ margin: 24 }}>
+        <div className="card" style={{ margin: 24, padding: '40px 30px', textAlign: 'center', maxWidth: 640, marginLeft: 'auto', marginRight: 'auto' }}>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>◈</div>
           <h2 style={{ marginBottom: 8 }}>No Reddit account selected</h2>
-          <div>Pick one from the switcher above, or click ▶ on a Reddit account under a model.</div>
+          <div className="muted" style={{ fontSize: 14, lineHeight: 1.6, marginBottom: 22, maxWidth: 460, margin: '0 auto 22px' }}>
+            {redditAccounts && redditAccounts.length
+              ? 'Pick one from the switcher above — each account opens in its own isolated session.'
+              : "You haven't added any Reddit accounts yet. Add accounts to a model and they'll show up here."}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+            {navigate && <button className="primary" onClick={() => navigate('add-accounts')}>+ Add Accounts</button>}
+            {navigate && <button className="ghost" onClick={() => navigate('profiles')}>Model Profiles</button>}
+            {navigate && <button className="ghost" onClick={() => navigate('inbox')}>Inbox Manager</button>}
+          </div>
         </div>
       ) : (
         <>

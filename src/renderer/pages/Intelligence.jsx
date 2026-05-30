@@ -15,6 +15,8 @@ export default function IntelligencePage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [err, setErr] = useState(null);
+  const [fetchKarma, setFetchKarma] = useState(true);
+  const [fetchOther, setFetchOther] = useState(true);
 
   const load = useCallback(async () => {
     const res = await window.api.intel.list({ token });
@@ -83,12 +85,34 @@ export default function IntelligencePage() {
             <textarea
               value={subs}
               onChange={(e) => setSubs(e.target.value)}
-              placeholder={'gonewild\nnsfw\nRealGirls'}
+              placeholder={'tittydrop\ngonewild\nnsfw'}
               style={{ minHeight: 120, fontFamily: 'var(--font-mono)', fontSize: 13 }}
             />
+            <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+              Enter subreddit names (without r/), one per line.
+            </div>
           </div>
         </div>
-        <button className="primary" onClick={run} disabled={busy} style={{ marginTop: 14, width: '100%' }}>
+
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Fetch Options</div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: 13, color: 'var(--text-1)', fontWeight: 400 }}>
+            <input type="checkbox" checked={fetchKarma} onChange={(e) => setFetchKarma(e.target.checked)} style={{ width: 'auto' }} />
+            Fetch Karma Requirements
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: 13, color: 'var(--text-1)', fontWeight: 400 }}>
+            <input type="checkbox" checked={fetchOther} onChange={(e) => setFetchOther(e.target.checked)} style={{ width: 'auto' }} />
+            Fetch other Post Requirements
+          </label>
+        </div>
+
+        <button onClick={run} disabled={busy} style={{
+          marginTop: 18, width: '100%', padding: '14px 18px', borderRadius: 'var(--radius-lg)',
+          border: 'none', cursor: busy ? 'not-allowed' : 'pointer',
+          background: busy ? 'var(--bg-3)' : 'linear-gradient(90deg, #3a6f8c 0%, #6a4fc4 100%)',
+          color: '#fff', fontWeight: 700, fontSize: 14, letterSpacing: '0.02em',
+          boxShadow: busy ? 'none' : '0 4px 18px -6px rgba(106,79,196,0.6)',
+        }}>
           {busy ? 'Fetching…' : 'Start Intelligence Fetch'}
         </button>
       </div>

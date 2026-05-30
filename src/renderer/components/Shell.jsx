@@ -4,25 +4,30 @@ import { useCan, usePermissions } from '../lib/permissions.jsx';
 import logoUrl from '../assets/logo.png';
 
 // Nav items — each gated by a permission key (see src/shared/permissions.js).
+// Nav reorganized so related modules sit together and the layout is
+// ready for X/Instagram/TikTok adapters. Reddit-specific things live
+// under "Reddit"; cross-platform tools sit under "Workspace"; future
+// platforms get their own groups.
 const NAV = [
   { key: 'dashboard', label: 'Dashboard', icon: '⬢', group: 'Overview', perm: 'page.dashboard' },
   { key: 'analytics', label: 'Analytics', icon: '◧', group: 'Overview', perm: 'page.analytics' },
 
-  { key: 'profiles', label: 'Manage Classes', icon: '◇', group: 'Accounts', perm: 'page.profiles' },
+  { key: 'profiles',     label: 'Model Profiles', icon: '◇', group: 'Accounts', perm: 'page.profiles' },
   { key: 'add-accounts', label: '+ Add Accounts', icon: '＋', group: 'Accounts', perm: 'page.reddit-api' },
-  { key: 'reddit-api', label: 'Reddit API', icon: '◈', group: 'Accounts', perm: 'page.reddit-api' },
-  { key: 'redgifs', label: 'RedGIFs', icon: '▮', group: 'Accounts', perm: 'page.redgifs' },
 
-  { key: 'operations', label: 'Operations', icon: '▷', group: 'Ops', perm: 'page.operations' },
-  { key: 'subreddits', label: 'Warmup & Karma Farm', icon: '✦', group: 'Ops', perm: 'page.subreddits' },
-  { key: 'autopilot', label: 'Autopilot', icon: '⟳', group: 'Ops', perm: 'page.autopilot' },
-  { key: 'scheduler-pro', label: 'Scheduler Pro', icon: '◷', group: 'Ops', perm: 'page.scheduler' },
-  { key: 'inbox', label: 'Inbox Manager', icon: '✉', group: 'Ops', perm: 'page.reddit-api' },
-  { key: 'intel', label: 'Reddit Intelligence', icon: '◎', group: 'Ops', perm: 'page.intel' },
+  { key: 'reddit-api', label: 'Reddit',              icon: '◈', group: 'Reddit', perm: 'page.reddit-api' },
+  { key: 'inbox',      label: 'Inbox Manager',       icon: '✉', group: 'Reddit', perm: 'page.reddit-api' },
+  { key: 'intel',      label: 'Reddit Intelligence', icon: '◎', group: 'Reddit', perm: 'page.intel' },
+  { key: 'subreddits', label: 'Warmup & Karma Farm', icon: '✦', group: 'Reddit', perm: 'page.subreddits' },
+  { key: 'redgifs',    label: 'RedGIFs',             icon: '▮', group: 'Reddit', perm: 'page.redgifs' },
 
-  { key: 'users', label: 'Team', icon: '◉', group: 'Team', perm: 'page.team' },
-  { key: 'activity', label: 'Activity', icon: '☷', group: 'Team', perm: 'page.activity' },
-  { key: 'docs', label: 'Documentation', icon: '◫', group: 'Team', perm: 'page.docs' },
+  { key: 'scheduler-pro', label: 'Scheduler Pro', icon: '◷', group: 'Workspace', perm: 'page.scheduler' },
+  { key: 'autopilot',     label: 'Autopilot',     icon: '⟳', group: 'Workspace', perm: 'page.autopilot' },
+  { key: 'operations',    label: 'Operations',    icon: '▷', group: 'Workspace', perm: 'page.operations' },
+
+  { key: 'users',    label: 'Team',          icon: '◉', group: 'Team', perm: 'page.team' },
+  { key: 'activity', label: 'Activity',      icon: '☷', group: 'Team', perm: 'page.activity' },
+  { key: 'docs',     label: 'Documentation', icon: '◫', group: 'Team', perm: 'page.docs' },
 
   { key: 'settings', label: 'Configuration', icon: '⚙', group: 'Configure', perm: 'page.settings' },
 ];

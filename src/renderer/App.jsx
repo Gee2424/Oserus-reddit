@@ -52,7 +52,7 @@ function Inner() {
   const page = (() => {
     switch (route) {
       case 'dashboard': return <DashboardPage navigate={navigate} />;
-      case 'reddit': return <RedditBrowser />;
+      case 'reddit': return <RedditBrowser navigate={navigate} />;
       case 'redgifs': return <RedGifsBrowser />;
       case 'reddit-api': return <RedditApiPage initialTab={routeParams.tab} navigate={navigate} />;
       case 'accounts': return <RedditApiPage initialTab="reddit" navigate={navigate} />;

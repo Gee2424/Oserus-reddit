@@ -33,10 +33,18 @@ function timeLabel(s) {
   } catch { return s; }
 }
 
+const PRO_TABS = [
+  { key: 'configure',    icon: '⚙', title: 'Configure Pro Schedules', desc: 'Create and manage schedule templates' },
+  { key: 'run',          icon: '▷', title: 'Run Pro Schedules',       desc: 'Select accounts and schedules, then start execution' },
+  { key: 'monitor',      icon: '◉', title: 'Monitor Pro Schedules',   desc: 'Watch status and logs of running schedules' },
+  { key: 'replenish',    icon: '⊕', title: 'Realtime Replenishment',  desc: 'Replace banned accounts with backups in realtime' },
+];
+
 export default function SchedulerProPage() {
   const { token } = useAuth();
   const { accounts } = useActiveAccount();
 
+  const [proTab, setProTab] = useState('configure');
   const [posts, setPosts] = useState([]);
   const [filters, setFilters] = useState({ platform: '', profileId: '', accountId: '', status: '' });
   const [msg, setMsg] = useState(null);
@@ -130,6 +138,24 @@ export default function SchedulerProPage() {
         <div style={warnBanner}>⚠ {pendingConflicts} scheduled post{pendingConflicts > 1 ? 's' : ''} conflict with posting protocols.</div>
       )}
 
+      {/* Pro-tab selector cards */}
+      <div style={proTabRow}>
+        {PRO_TABS.map((t) => (
+          <button key={t.key} onClick={() => setProTab(t.key)}
+            style={{ ...proTabCard, ...(proTab === t.key ? proTabCardActive : {}) }}>
+            <span style={{ fontSize: 18, color: 'var(--gold)' }}>{t.icon}</span>
+            <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: 'var(--text-0)' }}>{t.title}</div>
+            <div style={{ marginTop: 2, fontSize: 11, color: 'var(--text-2)', lineHeight: 1.4 }}>{t.desc}</div>
+          </button>
+        ))}
+      </div>
+
+      {proTab === 'run' && <RunProSchedules posts={posts} accounts={accounts} />}
+      {proTab === 'monitor' && <MonitorProSchedules token={token} />}
+      {proTab === 'replenish' && <ReplenishProSchedules accounts={accounts} posts={posts} />}
+
+      {proTab !== 'configure' ? null : <>
+
       {showAI && <AISettings token={token} onMsg={setMsg} onError={setErr} />}
 
       {showCompose && (
@@ -215,9 +241,148 @@ export default function SchedulerProPage() {
           </div>
         ))
       )}
+      </>}
     </div>
   );
 }
+
+/* --------------------- Run / Monitor / Replenishment --------------------- */
+
+function RunProSchedules({ posts, accounts }) {
+  // Group pending posts by account for the "schedule card" grid.
+  const byAcc = new Map();
+  for (const p of posts.filter((x) => x.status === 'pending')) {
+    const k = p.account_id;
+    if (!byAcc.has(k)) byAcc.set(k, { account_id: k, username: p.account_username, profile: p.profile_name, color: p.profile_color, subs: new Set(), count: 0 });
+    const e = byAcc.get(k);
+    e.subs.add(p.subreddit);
+    e.count++;
+  }
+  const cards = [...byAcc.values()];
+
+  return (
+    <div>
+      <SectionHeader title="Run Pro Schedules" desc="Pending schedules grouped by account. Start fires the autopilot pass; Stop pauses all of that account's pending posts." />
+      {cards.length === 0 ? (
+        <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-2)' }}>
+          No pending schedules. Create some under Configure first.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+          {cards.map((c) => (
+            <div key={c.account_id} style={runCard}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: c.color || 'var(--green-bright)', boxShadow: '0 0 6px currentColor' }} />
+                <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-0)' }}>{c.profile || 'Unknown'} · u/{c.username}</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-2)' }}>
+                {c.count} pending post{c.count === 1 ? '' : 's'} · {c.subs.size} subreddit{c.subs.size === 1 ? '' : 's'}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MonitorProSchedules({ token }) {
+  const [events, setEvents] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const r = await window.api.protocols.events({ token, limit: 100 });
+      if (!cancelled && r.ok) setEvents(r.events || []);
+    };
+    load();
+    const id = setInterval(load, 8000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [token]);
+
+  return (
+    <div>
+      <SectionHeader title="Monitor Pro Schedules" desc="Live console of every autopilot / scheduled post the app has handled. Refreshes every ~8s." />
+      <div style={consoleBox}>
+        {events.length === 0 && <div style={{ color: 'var(--text-3)' }}>No events yet.</div>}
+        {events.map((e) => (
+          <div key={e.id} style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+            <span style={{ color: e.status === 'posted' ? '#7fd99a' : e.status === 'failed' ? '#e2a3a3' : 'var(--text-3)' }}>●</span>
+            <span className="mono" style={{ color: 'var(--text-3)' }}>{(e.created_at || '').replace(' ', ' ')}</span>
+            <span className="mono" style={{ color: 'var(--text-2)' }}>{e.source}</span>
+            <span style={{ color: 'var(--gold)' }}>r/{e.subreddit || '—'}</span>
+            <span style={{ color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{e.title || e.error || '—'}</span>
+            <span style={{ color: 'var(--text-3)' }}>u/{e.account_username || e.account_id}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReplenishProSchedules({ accounts, posts }) {
+  const pendingByAccount = new Set(posts.filter((p) => p.status === 'pending').map((p) => p.account_id));
+  const operating = accounts.filter((a) => pendingByAccount.has(a.id) && a.status !== 'banned');
+  const banned = accounts.filter((a) => a.status === 'banned');
+  const backup = accounts.filter((a) => a.status === 'warming' && !pendingByAccount.has(a.id));
+
+  return (
+    <div>
+      <SectionHeader title="Realtime Replenishment" desc="Spot banned accounts in your schedules and swap in warming/backup accounts." />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <ReplenishCol title={`Operating · ${operating.length}`} accounts={operating} statusLabel="LIVE" statusFg="#7fd99a" />
+        <ReplenishCol title={`Banned · ${banned.length}`} accounts={banned} statusLabel="BANNED" statusFg="#e2a3a3" />
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <ReplenishCol title={`Backup pool (warming) · ${backup.length}`} accounts={backup} statusLabel="WARMING" statusFg="var(--gold)" />
+      </div>
+    </div>
+  );
+}
+
+function ReplenishCol({ title, accounts, statusLabel, statusFg }) {
+  return (
+    <div className="card" style={{ padding: 14 }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 10 }}>{title}</div>
+      {accounts.length === 0
+        ? <div style={{ color: 'var(--text-3)', fontSize: 12 }}>None.</div>
+        : accounts.map((a) => (
+          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: '1px solid var(--border)' }}>
+            <span style={{ fontSize: 13 }}>u/{a.username}</span>
+            <span style={{ marginLeft: 'auto', fontSize: 10, color: statusFg, fontWeight: 700, letterSpacing: '0.05em' }}>{statusLabel}</span>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+function SectionHeader({ title, desc }) {
+  return (
+    <div className="card" style={{ padding: '14px 18px', marginBottom: 14, background: 'linear-gradient(135deg, rgba(58,111,140,0.10), transparent)' }}>
+      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-0)' }}>{title}</div>
+      {desc && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{desc}</div>}
+    </div>
+  );
+}
+
+const proTabRow = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 18 };
+const proTabCard = {
+  background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
+  padding: 14, textAlign: 'left', cursor: 'pointer', display: 'flex', flexDirection: 'column',
+};
+const proTabCardActive = {
+  borderColor: 'var(--blue)',
+  background: 'linear-gradient(135deg, rgba(58,111,140,0.16), rgba(212,166,74,0.06))',
+  boxShadow: 'inset 0 0 0 1px var(--blue)',
+};
+const runCard = {
+  background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
+  padding: 12, boxShadow: '0 0 12px -8px var(--green-glow)',
+};
+const consoleBox = {
+  background: '#0a0a0a', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
+  padding: 14, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-1)',
+  maxHeight: '60vh', overflowY: 'auto',
+};
 
 function Toggle({ label, value, onChange }) {
   return (
