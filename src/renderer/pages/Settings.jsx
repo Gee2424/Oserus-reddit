@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
+import { Tag } from '../components/ui.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 
 export default function SettingsPage() {
@@ -78,14 +79,37 @@ export default function SettingsPage() {
     refresh();
   }
 
+  const [cfgTab, setCfgTab] = useState('settings');
+
   return (
     <div>
       <div className="title-block">
         <div>
-          <div className="eyebrow">Settings</div>
-          <h1>Your Account</h1>
+          <div className="eyebrow">Configuration</div>
+          <h1>Configuration</h1>
         </div>
       </div>
+
+      {/* Configuration sub-tabs */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 18, borderBottom: '1px solid var(--border)' }}>
+        {[
+          { k: 'settings',   l: 'Settings & API Keys' },
+          { k: 'scheduling', l: 'Post Scheduling Configuration' },
+        ].map((t) => (
+          <button
+            key={t.k}
+            onClick={() => setCfgTab(t.k)}
+            style={{
+              background: 'transparent', border: 'none', borderBottom: '2px solid ' + (cfgTab === t.k ? 'var(--gold)' : 'transparent'),
+              color: cfgTab === t.k ? 'var(--gold-bright)' : 'var(--text-2)',
+              padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: -1,
+            }}
+          >{t.l}</button>
+        ))}
+      </div>
+
+      {cfgTab === 'scheduling' ? <SchedulingConfig token={token} navigate={null} /> : null}
+      {cfgTab !== 'settings' ? null : <></>
 
       {isAdmin && (
         <div className="card" style={{ marginBottom: 22, borderColor: hasApiKey ? 'var(--ok)' : 'var(--border)' }}>
@@ -185,6 +209,122 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
+      </>}
+    </div>
+  );
+}
+
+/* --- Post Scheduling Configuration tab --- */
+function SchedulingConfig({ token }) {
+  const [profiles, setProfiles] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [openId, setOpenId] = useState(null);
+
+  async function load() {
+    const [p, t, a] = await Promise.all([
+      window.api.profiles.list({ token }),
+      window.api.templates.list({ token }).catch(() => ({ ok: false })),
+      window.api.accounts.listForUser({ token }),
+    ]);
+    if (p.ok) setProfiles(p.profiles || []);
+    if (t.ok) setTemplates(t.templates || []);
+    if (a.ok) setAccounts(a.accounts || []);
+  }
+  useEffect(() => { load(); }, []);
+
+  // Map account.id → profile.id for grouping templates by class.
+  const profileOfAccount = React.useMemo(() => {
+    const m = new Map();
+    for (const a of accounts) m.set(a.id, a.profile_id);
+    return m;
+  }, [accounts]);
+
+  // Group templates by the profile of their first account (templates carry
+  // accountIds, not profile_id directly; this is a sensible roll-up).
+  const byProfile = React.useMemo(() => {
+    const g = new Map();
+    for (const t of templates) {
+      const accId = (t.accountIds || [])[0];
+      const pid = profileOfAccount.get(accId) || 0;
+      if (!g.has(pid)) g.set(pid, []);
+      g.get(pid).push(t);
+    }
+    return g;
+  }, [templates, profileOfAccount]);
+
+  async function del(id) {
+    if (!confirm('Delete this schedule template?')) return;
+    const r = await window.api.templates.delete({ token, id });
+    if (r.ok) load();
+  }
+
+  return (
+    <div>
+      <div className="card" style={{ padding: '14px 18px', marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0, marginBottom: 4 }}>Post Scheduling Configuration</h3>
+        <div className="muted" style={{ fontSize: 12 }}>
+          Schedule templates grouped by class (model). Templates are created and started under <strong>Scheduler Pro → Run</strong>.
+        </div>
+      </div>
+
+      {profiles.length === 0 ? (
+        <div className="empty-state">No model profiles yet.</div>
+      ) : profiles.map((p) => {
+        const tps = byProfile.get(p.id) || [];
+        const open = openId === p.id;
+        return (
+          <div key={p.id} className="card" style={{ marginBottom: 12, padding: 0, overflow: 'hidden' }}>
+            <button
+              onClick={() => setOpenId(open ? null : p.id)}
+              style={{
+                width: '100%', textAlign: 'left', background: 'transparent', border: 'none',
+                padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer',
+              }}
+            >
+              <span style={{ width: 32, height: 32, borderRadius: '50%', display: 'grid', placeItems: 'center', background: p.avatar_color || 'var(--green-bright)', color: '#fff', fontWeight: 700 }}>
+                {(p.name || '?').charAt(0).toUpperCase()}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, color: 'var(--text-0)' }}>{p.name}</div>
+                <div className="muted" style={{ fontSize: 11 }}>{tps.length} schedule{tps.length === 1 ? '' : 's'}</div>
+              </div>
+              <span style={{ color: 'var(--text-3)', fontSize: 18 }}>{open ? '▾' : '▸'}</span>
+            </button>
+            {open && (
+              <div style={{ padding: '0 18px 14px 18px' }}>
+                {tps.length === 0 ? (
+                  <div className="muted" style={{ fontSize: 12, padding: 10 }}>No schedules for this class yet.</div>
+                ) : tps.map((t) => {
+                  const subs = t.subreddits || [];
+                  const shown = subs.slice(0, 3);
+                  const more = subs.length - shown.length;
+                  return (
+                    <div key={t.id} style={{
+                      border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
+                      padding: '10px 12px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10,
+                      background: 'var(--bg-1)',
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontWeight: 600 }}>{t.name}</span>
+                          <span className="muted" style={{ fontSize: 11 }}>({subs.length} subreddit{subs.length === 1 ? '' : 's'})</span>
+                          {t.status === 'running' && <Tag tone="green">● running</Tag>}
+                        </div>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {shown.map((s) => <Tag key={s} tone="blue">r/{s}</Tag>)}
+                          {more > 0 && <Tag tone="neutral">+{more} more</Tag>}
+                        </div>
+                      </div>
+                      <button className="ghost" onClick={() => del(t.id)} style={{ fontSize: 11, padding: '4px 10px' }}>Delete</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

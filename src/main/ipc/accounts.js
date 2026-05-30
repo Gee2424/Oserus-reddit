@@ -21,13 +21,15 @@ function hydrateAccount(a) {
   };
 }
 
-function ensureStarredColumn() {
+function ensureAccountMigrations() {
   const db = getDb();
   const cols = db.prepare('PRAGMA table_info(reddit_accounts)').all();
-  if (!cols.some((c) => c.name === 'starred')) {
-    db.exec('ALTER TABLE reddit_accounts ADD COLUMN starred INTEGER NOT NULL DEFAULT 0');
-  }
+  const have = (n) => cols.some((c) => c.name === n);
+  if (!have('starred'))    db.exec('ALTER TABLE reddit_accounts ADD COLUMN starred INTEGER NOT NULL DEFAULT 0');
+  if (!have('user_agent')) db.exec('ALTER TABLE reddit_accounts ADD COLUMN user_agent TEXT');
 }
+// keep old name for back-compat call sites in this file
+const ensureStarredColumn = ensureAccountMigrations;
 
 function register(ipcMain) {
   ensureStarredColumn();
@@ -94,7 +96,9 @@ function register(ipcMain) {
 
     const accounts = getDb()
       .prepare(
-        `SELECT a.*, p.name AS profile_name, px.label AS proxy_label, px.kind AS proxy_kind
+        `SELECT a.*, p.name AS profile_name,
+                px.label AS proxy_label, px.kind AS proxy_kind,
+                px.last_test_ok AS proxy_test_ok, px.last_test_error AS proxy_test_error
          FROM reddit_accounts a
          JOIN model_profiles p ON p.id = a.profile_id
          LEFT JOIN proxies px ON px.id = a.proxy_id
@@ -107,24 +111,24 @@ function register(ipcMain) {
 
   ipcMain.handle('accounts:create', (_e, args) => {
     try {
-      const { token, profileId, platform, username, password, email, emailPassword, status, proxyId, notes } = args;
+      const { token, profileId, platform, username, password, email, emailPassword, status, proxyId, notes, userAgent } = args;
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       if (!canAccessProfile(user, profileId)) throw new Error('Not authorized');
       const plat = platform || 'reddit';
       if (!['reddit', 'redgifs'].includes(plat)) throw new Error('Invalid platform');
-
+      ensureAccountMigrations();
       const partitionKey = `${plat}-${profileId}-${username.toLowerCase().replace(/[^a-z0-9_-]/g, '')}-${Date.now()}`;
       const info = getDb()
         .prepare(
           `INSERT INTO reddit_accounts
-           (profile_id, platform, username, partition_key, password_encrypted, email, email_password_encrypted, status, proxy_id, notes)
-           VALUES (?,?,?,?,?,?,?,?,?,?)`
+           (profile_id, platform, username, partition_key, password_encrypted, email, email_password_encrypted, status, proxy_id, notes, user_agent)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`
         )
         .run(
           profileId, plat, username, partitionKey,
           encryptSecret(password), email || null, encryptSecret(emailPassword),
-          status || 'warming', proxyId || null, notes || null
+          status || 'warming', proxyId || null, notes || null, userAgent || null
         );
       log(user, 'account.create', 'account', info.lastInsertRowid, `${plat} u/${username}`);
       return { ok: true, id: info.lastInsertRowid, partitionKey };
@@ -205,13 +209,14 @@ function register(ipcMain) {
   //   username:password
   //   username:password:email:emailpassword
   // Blank lines and comments (lines starting with #) are skipped.
-  ipcMain.handle('accounts:bulkCreate', (_e, { token, profileId, platform, proxyId, status, lines }) => {
+  ipcMain.handle('accounts:bulkCreate', (_e, { token, profileId, platform, proxyId, status, lines, userAgent }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       if (!canAccessProfile(user, profileId)) throw new Error('Not authorized for this profile');
       const plat = platform || 'reddit';
       if (!['reddit', 'redgifs'].includes(plat)) throw new Error('Invalid platform');
+      ensureAccountMigrations();
 
       const input = String(lines || '').split(/\r?\n/);
       const created = [];
@@ -219,8 +224,8 @@ function register(ipcMain) {
 
       const insert = getDb().prepare(
         `INSERT INTO reddit_accounts
-         (profile_id, platform, username, partition_key, password_encrypted, email, email_password_encrypted, status, proxy_id)
-         VALUES (?,?,?,?,?,?,?,?,?)`
+         (profile_id, platform, username, partition_key, password_encrypted, email, email_password_encrypted, status, proxy_id, user_agent)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`
       );
 
       const txn = getDb().transaction(() => {
@@ -236,7 +241,7 @@ function register(ipcMain) {
             const info = insert.run(
               profileId, plat, cleanUser, partitionKey,
               encryptSecret(p), e || null, encryptSecret(ep || null),
-              status || 'warming', proxyId || null
+              status || 'warming', proxyId || null, userAgent || null
             );
             created.push({ id: info.lastInsertRowid, username: cleanUser });
           } catch (err) {

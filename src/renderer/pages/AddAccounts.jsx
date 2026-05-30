@@ -66,6 +66,7 @@ export default function AddAccountsPage({ navigate }) {
       platform: form.platform,
       proxyId: form.proxyId ? Number(form.proxyId) : null,
       status: form.status,
+      userAgent: form.userAgent || null,
       lines: form.lines,
     });
     setBusy(false);
@@ -90,6 +91,7 @@ export default function AddAccountsPage({ navigate }) {
       emailPassword: form.emailPw || null,
       proxyId: form.proxyId ? Number(form.proxyId) : null,
       status: form.status,
+      userAgent: form.userAgent || null,
     });
     setBusy(false);
     if (res.ok) {

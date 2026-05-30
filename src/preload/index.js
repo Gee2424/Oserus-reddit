@@ -50,6 +50,8 @@ const api = {
     create: (data) => ipcRenderer.invoke('proxies:create', data),
     update: (data) => ipcRenderer.invoke('proxies:update', data),
     delete: (data) => ipcRenderer.invoke('proxies:delete', data),
+    test: (data) => ipcRenderer.invoke('proxies:test', data),
+    testAll: (data) => ipcRenderer.invoke('proxies:testAll', data),
     getForAccount: (data) => ipcRenderer.invoke('proxies:getForAccount', data),
   },
   webviews: {

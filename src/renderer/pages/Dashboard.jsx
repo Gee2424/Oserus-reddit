@@ -110,6 +110,10 @@ export default function DashboardPage({ navigate }) {
         <button className="ghost" onClick={load}>Refresh Data</button>
         <button className="ghost" onClick={() => navigate('operations')}>Send to Operations</button>
         <button className="ghost" onClick={() => navigate('operations')}>Change Proxy</button>
+        <button className="ghost" onClick={async () => {
+          const r = await window.api.proxies.testAll({ token });
+          if (r.ok) { load(); }
+        }}>Test Proxies</button>
         <button
           onClick={toggleStarred}
           disabled={selected.size === 0}
@@ -186,9 +190,18 @@ export default function DashboardPage({ navigate }) {
                     <td style={{ ...td, textAlign: 'right' }} className="mono">{fmt(a.post_karma)}</td>
                     <td style={{ ...td, textAlign: 'right' }} className="mono">{fmt(a.comment_karma)}</td>
                     <td style={td}>
-                      {a.proxy_label
-                        ? <span className="mono" style={{ fontSize: 12 }}>{a.proxy_label}</span>
-                        : <Tag tone="gold">NO PROXY</Tag>}
+                      {!a.proxy_label
+                        ? <Tag tone="gold">NO PROXY</Tag>
+                        : a.proxy_test_ok === 0
+                          ? <span title={a.proxy_test_error || 'Last test failed'} style={{
+                              display: 'inline-block', fontSize: 10, fontWeight: 700, padding: '3px 9px',
+                              borderRadius: 999, letterSpacing: '0.05em',
+                              color: '#fff',
+                              background: 'linear-gradient(90deg, #3a6f8c, #6a4fc4)',
+                              border: '1px solid rgba(106,79,196,0.5)',
+                              boxShadow: '0 0 10px -4px rgba(106,79,196,0.5)',
+                            }}>PROXY ISSUE</span>
+                          : <span className="mono" style={{ fontSize: 12 }}>{a.proxy_label}</span>}
                     </td>
                     <td style={td}><StatusPill status={a.status} /></td>
                     <td style={td}>

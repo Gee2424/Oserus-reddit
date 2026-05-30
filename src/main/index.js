@@ -82,7 +82,9 @@ async function prepareSessionForAccount(accountId) {
 
   const partition = `persist:${account.partition_key}`;
   const sess = session.fromPartition(partition);
+  // Per-account UA when set on the row; falls back to a recent Windows Chrome.
   sess.setUserAgent(
+    account.user_agent ||
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
   );
 
