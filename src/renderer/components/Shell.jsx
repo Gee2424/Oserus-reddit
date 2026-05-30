@@ -21,7 +21,7 @@ const NAV = [
   { key: 'subreddits', label: 'Warmup & Karma Farm', icon: '✦', group: 'Reddit', perm: 'page.subreddits' },
   { key: 'redgifs',    label: 'RedGIFs',             icon: '▮', group: 'Reddit', perm: 'page.redgifs' },
 
-  { key: 'scheduler-pro', label: 'Scheduler Pro', icon: '◷', group: 'Workspace', perm: 'page.scheduler' },
+  { key: 'scheduler-pro', label: 'Scheduler', icon: '◷', group: 'Workspace', perm: 'page.scheduler' },
   { key: 'autopilot',     label: 'Autopilot',     icon: '⟳', group: 'Workspace', perm: 'page.autopilot' },
   { key: 'operations',    label: 'Operations',    icon: '▷', group: 'Workspace', perm: 'page.operations' },
 

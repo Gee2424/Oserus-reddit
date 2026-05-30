@@ -99,6 +99,8 @@ export function ActiveAccountProvider({ children }) {
         accounts,
         activeReddit, activeRedgifs,
         setActiveForPlatform,
+        // shorter alias used by the Model Hub quick-open buttons
+        setActiveFor: setActiveForPlatform,
         startAccount,
         forPlatform,
         refresh,

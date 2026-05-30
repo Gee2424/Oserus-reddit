@@ -169,6 +169,16 @@ export default function ProfilesPage({ navigate }) {
               <div style={{ padding: 18, position: 'relative' }}>
                 <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', gap: 6, zIndex: 2 }}>
                   <button
+                    title="Open Model Hub"
+                    onClick={(e) => { e.stopPropagation(); navigate && navigate('model-hub', { modelId: p.id }); }}
+                    style={{
+                      width: 38, height: 38, borderRadius: '50%', padding: 0,
+                      display: 'grid', placeItems: 'center', fontSize: 16,
+                      background: 'var(--bg-1)', color: 'var(--gold-bright)',
+                      border: '1px solid var(--gold)', cursor: 'pointer',
+                    }}
+                  >◇</button>
+                  <button
                     title="Start Reddit browser as this model's first account"
                     onClick={(e) => { e.stopPropagation(); playModel(p.id, 'reddit'); }}
                     style={{

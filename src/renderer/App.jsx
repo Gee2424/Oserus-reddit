@@ -22,6 +22,7 @@ import SchedulerProPage from './pages/SchedulerPro.jsx';
 import IntelligencePage from './pages/Intelligence.jsx';
 import AddAccountsPage from './pages/AddAccounts.jsx';
 import RedGifsDashboardPage from './pages/RedGifsDashboard.jsx';
+import ModelHubPage from './pages/ModelHub.jsx';
 import RedditApiPage from './pages/RedditApi.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
@@ -77,6 +78,7 @@ function Inner() {
       case 'autopilot': return <AutopilotPage />;
       case 'scheduler-pro': return <SchedulerProPage initialProTab={routeParams.tab} />;
       case 'intel': return <IntelligencePage />;
+      case 'model-hub': return <ModelHubPage modelId={routeParams.modelId} navigate={navigate} />;
       case 'add-accounts': return <AddAccountsPage navigate={navigate} />;
       default: return <DashboardPage navigate={navigate} />;
     }

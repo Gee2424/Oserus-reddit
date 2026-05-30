@@ -327,7 +327,23 @@ export default function DashboardPage({ navigate }) {
                     <td style={td}>
                       <span style={{ display: 'inline-grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', background: '#ff4500', color: '#fff', fontWeight: 700, fontSize: 12 }} title={`u/${a.username}`}>R</span>
                     </td>
-                    <td style={td}><Tag tone="neutral">{a.profile_name || '—'}</Tag></td>
+                    <td style={td}>
+                      {a.profile_id ? (
+                        <button
+                          onClick={() => navigate('model-hub', { modelId: a.profile_id })}
+                          style={{
+                            background: 'transparent', border: '1px solid var(--border-strong)',
+                            borderRadius: 999, padding: '2px 9px',
+                            fontSize: 10, fontWeight: 600, color: 'var(--gold-bright)',
+                            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                            letterSpacing: '0.03em', textTransform: 'uppercase',
+                          }}
+                          title="Open Model Hub"
+                        >
+                          ◇ {a.profile_name || '—'}
+                        </button>
+                      ) : <Tag tone="neutral">—</Tag>}
+                    </td>
                     <td style={td}>
                       {(() => {
                         const ts = templatesByAccount.get(a.id) || [];
