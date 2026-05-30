@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
+import { Banner } from '../components/ui.jsx';
 
 const FIELDS = [
   { key: 'hoursBetweenMin', label: 'Min hours between posts', type: 'number', step: 0.5 },
@@ -154,8 +155,8 @@ export default function AutopilotPage() {
         </div>
       </div>
 
-      {err && <div className="error-banner" style={{ marginBottom: 14 }}>{err}</div>}
-      {msg && <div style={okBanner}>{msg}</div>}
+      {err && <Banner kind="err">{err}</Banner>}
+      {msg && <Banner kind="ok">{msg}</Banner>}
 
       {/* Master control */}
       <div className="card" style={{ marginBottom: 18, padding: 18, display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
@@ -321,10 +322,6 @@ export default function AutopilotPage() {
   );
 }
 
-const okBanner = {
-  background: 'rgba(122,154,90,0.12)', border: '1px solid var(--ok)', color: '#bdd5a3',
-  padding: '10px 14px', borderRadius: 4, marginBottom: 12,
-};
 const dot = { width: 12, height: 12, borderRadius: '50%', flexShrink: 0 };
 const eventRow = {
   display: 'flex', alignItems: 'flex-start', gap: 10,

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import PopOutButton from '../components/PopOutButton.jsx';
 
 const STATUS_COLORS = { warming: '#d4a55a', ready: '#7a9a5a', paused: '#968b78', banned: '#b3473a' };
 
@@ -48,7 +49,10 @@ export default function AnalyticsPage() {
             Karma growth and post engagement across your Reddit accounts.
           </div>
         </div>
-        <button className="ghost" onClick={load}>Refresh</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <PopOutButton route="analytics" title="Analytics" />
+          <button className="ghost" onClick={load}>Refresh</button>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 22 }}>

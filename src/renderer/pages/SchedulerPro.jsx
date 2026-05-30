@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
+import { Banner } from '../components/ui.jsx';
 
 const PLATFORM_ICON = { reddit: '◈', redgifs: '▮', x: '𝕏', instagram: '◉', tiktok: '♪' };
 const STATUS_COLOR = {
@@ -123,8 +124,8 @@ export default function SchedulerProPage() {
         </div>
       </div>
 
-      {err && <div className="error-banner" style={{ marginBottom: 14 }}>{err}</div>}
-      {msg && <div style={okBanner}>{msg}</div>}
+      {err && <Banner kind="err">{err}</Banner>}
+      {msg && <Banner kind="ok">{msg}</Banner>}
       {pendingConflicts > 0 && (
         <div style={warnBanner}>⚠ {pendingConflicts} scheduled post{pendingConflicts > 1 ? 's' : ''} conflict with posting protocols.</div>
       )}
@@ -521,7 +522,6 @@ function Composer({ token, accounts, onDone, onError }) {
   );
 }
 
-const okBanner = { background: 'rgba(122,154,90,0.12)', border: '1px solid var(--ok)', color: '#bdd5a3', padding: '10px 14px', borderRadius: 4, marginBottom: 12 };
 const warnBanner = { background: 'rgba(201,162,39,0.12)', border: '1px solid var(--gold)', color: 'var(--gold-bright)', padding: '10px 14px', borderRadius: 4, marginBottom: 12, fontSize: 13 };
 const dayHeader = { fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 6, paddingLeft: 4 };
 const row = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--border)' };

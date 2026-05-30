@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { Banner } from '../components/ui.jsx';
 
 const TABS = [
   { key: 'bulk',   label: 'Bulk Paste',          hint: 'username:password per line' },
@@ -99,8 +100,8 @@ export default function AddAccountsPage({ navigate }) {
         </div>
       </div>
 
-      {err && <div className="error-banner" style={{ marginBottom: 14 }}>{err}</div>}
-      {msg && <div style={okBanner}>{msg}</div>}
+      {err && <Banner kind="err">{err}</Banner>}
+      {msg && <Banner kind="ok">{msg}</Banner>}
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {/* Tab bar */}
@@ -219,7 +220,6 @@ export default function AddAccountsPage({ navigate }) {
   );
 }
 
-const okBanner = { background: 'rgba(122,154,90,0.12)', border: '1px solid var(--ok)', color: '#bdd5a3', padding: '10px 14px', borderRadius: 4, marginBottom: 12 };
 const tabBar = { display: 'flex', borderBottom: '1px solid var(--border)', background: 'var(--bg-1)' };
 const tabBtn = { flex: 1, background: 'transparent', border: 'none', color: 'var(--text-2)', padding: '14px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', borderBottom: '2px solid transparent', marginBottom: -1, textAlign: 'left' };
 const tabBtnActive = { color: 'var(--blue-bright)', borderBottomColor: 'var(--blue-bright)' };

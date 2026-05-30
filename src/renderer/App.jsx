@@ -90,6 +90,7 @@ function Inner() {
         case 'autopilot': return <AutopilotPage />;
         case 'analytics': return <AnalyticsPage />;
         case 'intel': return <IntelligencePage />;
+        case 'dashboard': return <DashboardPage navigate={navigate} />;
         default: return <InboxPage embedded standalone />;
       }
     })();

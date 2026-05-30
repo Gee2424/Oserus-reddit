@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
+import { Banner } from '../components/ui.jsx';
+import PopOutButton from '../components/PopOutButton.jsx';
 
 export default function IntelligencePage() {
   const { token } = useAuth();
@@ -54,14 +56,15 @@ export default function IntelligencePage() {
             Scrape subreddit requirements (subscribers, karma/age gates, rules) using a logged-in account.
           </div>
         </div>
+        <div style={{ marginLeft: 'auto' }}><PopOutButton route="intel" title="Reddit Intelligence" /></div>
       </div>
 
       <div style={{ background: 'rgba(60,110,180,0.10)', border: '1px solid #2c4a6e', borderRadius: 'var(--radius-lg)', padding: '10px 14px', marginBottom: 18, fontSize: 13, color: '#9fc0ea' }}>
         ⓘ Beta: karma/age gates depend on what each subreddit exposes — some hide them, so those columns may be blank.
       </div>
 
-      {err && <div className="error-banner" style={{ marginBottom: 14 }}>{err}</div>}
-      {msg && <div style={okBanner}>{msg}</div>}
+      {err && <Banner kind="err">{err}</Banner>}
+      {msg && <Banner kind="ok">{msg}</Banner>}
 
       <div className="card" style={{ marginBottom: 22, padding: 18 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
@@ -130,6 +133,5 @@ export default function IntelligencePage() {
   );
 }
 
-const okBanner = { background: 'rgba(122,154,90,0.12)', border: '1px solid var(--ok)', color: '#bdd5a3', padding: '10px 14px', borderRadius: 4, marginBottom: 12 };
 const th = { textAlign: 'left', padding: '10px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)' };
 const td = { padding: '9px 12px', verticalAlign: 'middle' };

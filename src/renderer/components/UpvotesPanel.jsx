@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
+import { Banner } from './ui.jsx';
 
 // Full upvote.biz workspace — at-a-glance stats, order placement with cost
 // preview, and a polished orders table. Lives on Operations → Upvotes.
@@ -222,8 +223,8 @@ export default function UpvotesPanel() {
         </div>
       </div>
 
-      {err && <div className="error-banner" style={{ marginBottom: 14 }}>{err}</div>}
-      {ok && <div style={okBanner}>{ok}</div>}
+      {err && <Banner kind="err">{err}</Banner>}
+      {ok && <Banner kind="ok">{ok}</Banner>}
 
       {/* Place order */}
       {canPlaceOrders && (
@@ -552,12 +553,4 @@ const progFill = {
   height: '100%',
   background: 'linear-gradient(90deg, var(--gold), var(--green-bright))',
   transition: 'width 0.3s',
-};
-const okBanner = {
-  background: 'rgba(122,154,90,0.12)',
-  border: '1px solid var(--ok)',
-  color: '#bdd5a3',
-  padding: '10px 14px',
-  borderRadius: 4,
-  marginBottom: 12,
 };
