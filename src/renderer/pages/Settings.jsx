@@ -108,8 +108,8 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {cfgTab === 'scheduling' ? <SchedulingConfig token={token} navigate={null} /> : null}
-      {cfgTab !== 'settings' ? null : <></>
+      {cfgTab === 'scheduling' && <SchedulingConfig token={token} />}
+      {cfgTab === 'settings' && <>
 
       {isAdmin && (
         <div className="card" style={{ marginBottom: 22, borderColor: hasApiKey ? 'var(--ok)' : 'var(--border)' }}>
