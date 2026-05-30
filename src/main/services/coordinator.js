@@ -229,10 +229,56 @@ async function runDueScheduled() {
 }
 
 let schedTimer = null;
+let proxyTimer = null;
 
 function tick() {
   if (!isEnabled()) return;
   runOnce().catch(() => {});           // autonomous autopilot only when enabled
+}
+
+// Cheap proxy auto-test pass. Walks every proxy, pings it through a
+// throwaway session, persists ok/error on the row. Runs every 30 minutes
+// while the app is open so the Dashboard's PROXY ISSUE pills stay current
+// without a VA having to click "Test Proxies".
+async function autoTestProxies() {
+  try {
+    const proxiesIpc = require('../ipc/proxies');
+    const db = getDb();
+    const proxies = db.prepare('SELECT * FROM proxies').all();
+    if (!proxies.length) return;
+    // The real test function is private to the IPC module; we replicate the
+    // single-row test via the registered IPC handler-like flow. Keep it
+    // simple: trigger via stored prepared SQL after a fetch through Electron
+    // net. We re-use the exact code path by lazy-requiring electron here.
+    const { net, session } = require('electron');
+    const { decryptSecret } = require('../db');
+    for (const p of proxies) {
+      const partition = `proxy-auto-${p.id}-${Date.now()}`;
+      const sess = session.fromPartition(partition);
+      const scheme = p.kind === 'socks5' ? 'socks5' : (p.kind === 'https' ? 'https' : 'http');
+      await sess.setProxy({ proxyRules: `${scheme}://${p.host}:${p.port}`, proxyBypassRules: '<-loopback>' });
+      if (p.username) {
+        const pw = decryptSecret(p.password_encrypted) || '';
+        sess.removeAllListeners('login');
+        sess.on('login', (_e, _d, _i, cb) => cb(p.username, pw));
+      }
+      const result = await new Promise((resolve) => {
+        const t = setTimeout(() => { try { req.abort(); } catch {} resolve({ ok: false, error: 'Timed out' }); }, 8000);
+        const req = net.request({ method: 'GET', url: 'https://api.ipify.org?format=json', session: sess });
+        req.setHeader('User-Agent', 'Oserus/auto-test');
+        let body = '';
+        req.on('response', (res) => {
+          res.on('data', (c) => { body += c.toString(); });
+          res.on('end', () => { clearTimeout(t); resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, error: res.statusCode >= 400 ? `HTTP ${res.statusCode}` : null }); });
+        });
+        req.on('error', (e) => { clearTimeout(t); resolve({ ok: false, error: e.message }); });
+        req.end();
+      });
+      db.prepare(
+        "UPDATE proxies SET last_test_ok = ?, last_test_at = datetime('now'), last_test_error = ? WHERE id = ?"
+      ).run(result.ok ? 1 : 0, result.ok ? null : (result.error || 'unknown'), p.id);
+    }
+  } catch { /* never let proxy testing crash the coordinator */ }
 }
 
 function start() {
@@ -241,13 +287,17 @@ function start() {
   timer = setInterval(tick, Math.max(5, mins) * 60 * 1000);
   // Scheduled posts fire on their own ~1-min cadence regardless of autopilot.
   schedTimer = setInterval(() => runDueScheduled().catch(() => {}), 60 * 1000);
+  // Proxy health check every 30 min.
+  proxyTimer = setInterval(autoTestProxies, 30 * 60 * 1000);
   setTimeout(() => runDueScheduled().catch(() => {}), 15 * 1000);
+  setTimeout(autoTestProxies, 90 * 1000); // first run a bit after boot
   setTimeout(tick, 60 * 1000);
 }
 
 function stop() {
   if (timer) { clearInterval(timer); timer = null; }
   if (schedTimer) { clearInterval(schedTimer); schedTimer = null; }
+  if (proxyTimer) { clearInterval(proxyTimer); proxyTimer = null; }
 }
 
 function status() {

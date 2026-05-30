@@ -69,13 +69,13 @@ function Inner() {
         return <OperationsPage />;
       case 'subreddits': return <SubredditsPage />;
       case 'webviews': return <WebviewsPage />;
-      case 'settings': return <SettingsPage />;
+      case 'settings': return <SettingsPage navigate={navigate} />;
       case 'docs': return <DocsPage />;
       case 'analytics': return <AnalyticsPage />;
       case 'activity': return <ActivityPage />;
       case 'operations': return <OperationsPage navigate={navigate} />;
       case 'autopilot': return <AutopilotPage />;
-      case 'scheduler-pro': return <SchedulerProPage />;
+      case 'scheduler-pro': return <SchedulerProPage initialProTab={routeParams.tab} />;
       case 'intel': return <IntelligencePage />;
       case 'add-accounts': return <AddAccountsPage navigate={navigate} />;
       default: return <DashboardPage navigate={navigate} />;

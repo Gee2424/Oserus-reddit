@@ -37,6 +37,7 @@ const api = {
     update: (data) => ipcRenderer.invoke('accounts:update', data),
     setStarred: (data) => ipcRenderer.invoke('accounts:setStarred', data),
     bulkSetProxy: (data) => ipcRenderer.invoke('accounts:bulkSetProxy', data),
+    bulkDelete: (data) => ipcRenderer.invoke('accounts:bulkDelete', data),
     getCredentials: (data) => ipcRenderer.invoke('accounts:getCredentials', data),
     delete: (data) => ipcRenderer.invoke('accounts:delete', data),
   },

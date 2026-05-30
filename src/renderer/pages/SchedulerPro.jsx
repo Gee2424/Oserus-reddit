@@ -40,11 +40,11 @@ const PRO_TABS = [
   { key: 'replenish',    icon: '⊕', title: 'Realtime Replenishment',  desc: 'Replace banned accounts with backups in realtime' },
 ];
 
-export default function SchedulerProPage() {
+export default function SchedulerProPage({ initialProTab }) {
   const { token } = useAuth();
   const { accounts } = useActiveAccount();
 
-  const [proTab, setProTab] = useState('configure');
+  const [proTab, setProTab] = useState(initialProTab && PRO_TABS.some((t) => t.key === initialProTab) ? initialProTab : 'configure');
   const [posts, setPosts] = useState([]);
   const [filters, setFilters] = useState({ platform: '', profileId: '', accountId: '', status: '' });
   const [msg, setMsg] = useState(null);

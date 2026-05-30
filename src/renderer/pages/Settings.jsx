@@ -4,7 +4,7 @@ import { useCan } from '../lib/permissions.jsx';
 import { Tag } from '../components/ui.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 
-export default function SettingsPage() {
+export default function SettingsPage({ navigate }) {
   const { token, user } = useAuth();
   const can = useCan();
   const { accounts, refresh } = useActiveAccount();
@@ -108,7 +108,7 @@ export default function SettingsPage() {
         ))}
       </div>
 
-      {cfgTab === 'scheduling' && <SchedulingConfig token={token} />}
+      {cfgTab === 'scheduling' && <SchedulingConfig token={token} navigate={navigate} />}
       {cfgTab === 'settings' && <>
 
       {isAdmin && (
@@ -215,7 +215,7 @@ export default function SettingsPage() {
 }
 
 /* --- Post Scheduling Configuration tab --- */
-function SchedulingConfig({ token }) {
+function SchedulingConfig({ token, navigate }) {
   const [profiles, setProfiles] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -261,11 +261,16 @@ function SchedulingConfig({ token }) {
 
   return (
     <div>
-      <div className="card" style={{ padding: '14px 18px', marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0, marginBottom: 4 }}>Post Scheduling Configuration</h3>
-        <div className="muted" style={{ fontSize: 12 }}>
-          Schedule templates grouped by class (model). Templates are created and started under <strong>Scheduler Pro → Run</strong>.
+      <div className="card" style={{ padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ flex: 1 }}>
+          <h3 style={{ marginTop: 0, marginBottom: 4 }}>Post Scheduling Configuration</h3>
+          <div className="muted" style={{ fontSize: 12 }}>
+            Schedule templates grouped by class (model). Click a class to expand its schedules.
+          </div>
         </div>
+        {navigate && (
+          <button className="primary" onClick={() => navigate('scheduler-pro', { tab: 'run' })}>+ Create New Schedule</button>
+        )}
       </div>
 
       {profiles.length === 0 ? (

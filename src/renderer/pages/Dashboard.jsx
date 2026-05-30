@@ -21,6 +21,7 @@ export default function DashboardPage({ navigate }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [classFilter, setClassFilter] = useState('all');
   const [selected, setSelected] = useState(() => new Set());
 
   const [templates, setTemplates] = useState([]);
@@ -77,13 +78,27 @@ export default function DashboardPage({ navigate }) {
     banned: reddit.filter((a) => a.status === 'banned').length,
   }), [reddit]);
 
+  const classes = useMemo(() => {
+    const m = new Map();
+    for (const a of reddit) if (a.profile_id) m.set(a.profile_id, a.profile_name || `Class ${a.profile_id}`);
+    return [...m.entries()].map(([id, name]) => ({ id, name }));
+  }, [reddit]);
+
   const filtered = useMemo(() => {
     let r = reddit;
     if (statusFilter !== 'all') r = r.filter((a) => a.status === statusFilter);
+    if (classFilter !== 'all') r = r.filter((a) => String(a.profile_id) === String(classFilter));
     const q = search.trim().toLowerCase();
     if (q) r = r.filter((a) => `${a.username} ${a.profile_name} ${a.proxy_label || ''}`.toLowerCase().includes(q));
     return r;
-  }, [reddit, statusFilter, search]);
+  }, [reddit, statusFilter, classFilter, search]);
+
+  async function bulkDelete() {
+    if (selected.size === 0) return;
+    if (!confirm(`Delete ${selected.size} account${selected.size === 1 ? '' : 's'}? This cannot be undone — sessions and scheduled posts will also be removed.`)) return;
+    const res = await window.api.accounts.bulkDelete({ token, accountIds: [...selected] });
+    if (res.ok) { setSelected(new Set()); load(); }
+  }
 
   function toggle(id) {
     setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -139,7 +154,22 @@ export default function DashboardPage({ navigate }) {
           }}
         >★ Star User</button>
         <button className="ghost" onClick={() => navigate('scheduler-pro')}>Scheduler</button>
+        <button
+          onClick={bulkDelete}
+          disabled={selected.size === 0}
+          style={{
+            background: selected.size > 0 ? 'rgba(180,90,90,0.15)' : 'transparent',
+            color: selected.size > 0 ? '#e2a3a3' : 'var(--text-3)',
+            border: '1px solid ' + (selected.size > 0 ? 'var(--danger)' : 'var(--border-strong)'),
+            borderRadius: 'var(--radius)', padding: '8px 14px', fontSize: 13, fontWeight: 600,
+            cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
+          }}
+        >Delete Accounts{selected.size > 0 ? ` · ${selected.size}` : ''}</button>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)} style={{ width: 150 }}>
+            <option value="all">All classes</option>
+            {classes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ width: 130 }}>
             <option value="all">All status</option>
             <option value="ready">Live</option>

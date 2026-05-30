@@ -34,6 +34,34 @@ const ensureStarredColumn = ensureAccountMigrations;
 function register(ipcMain) {
   ensureStarredColumn();
 
+  ipcMain.handle('accounts:bulkDelete', (_e, { token, accountIds }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      const ids = (Array.isArray(accountIds) ? accountIds : [accountIds]).map(Number).filter(Boolean);
+      if (!ids.length) throw new Error('No accounts selected');
+      // Authorise per-account: admins/managers via permission; everyone else
+      // only on accounts under their assigned profiles.
+      const stmt = getDb().prepare('DELETE FROM reddit_accounts WHERE id = ?');
+      const checkProfile = getDb().prepare('SELECT profile_id FROM reddit_accounts WHERE id = ?');
+      let deleted = 0;
+      const tx = getDb().transaction(() => {
+        for (const id of ids) {
+          const row = checkProfile.get(id);
+          if (!row) continue;
+          if (!canAccessProfile(user, row.profile_id)) continue;
+          stmt.run(id);
+          deleted++;
+        }
+      });
+      tx();
+      log(user, 'account.bulkDelete', 'account', null, `n=${deleted}`);
+      return { ok: true, deleted };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('accounts:bulkSetProxy', (_e, { token, accountIds, proxyId }) => {
     try {
       const user = userFromToken(token);
