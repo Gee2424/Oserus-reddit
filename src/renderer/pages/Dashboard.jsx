@@ -93,6 +93,13 @@ export default function DashboardPage({ navigate }) {
     return r;
   }, [reddit, statusFilter, classFilter, search]);
 
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  async function bulkSetStatus(status) {
+    if (selected.size === 0) return;
+    setStatusMenuOpen(false);
+    const res = await window.api.accounts.bulkSetStatus({ token, accountIds: [...selected], status });
+    if (res.ok) load();
+  }
   async function bulkDelete() {
     if (selected.size === 0) return;
     if (!confirm(`Delete ${selected.size} account${selected.size === 1 ? '' : 's'}? This cannot be undone — sessions and scheduled posts will also be removed.`)) return;
@@ -154,6 +161,46 @@ export default function DashboardPage({ navigate }) {
           }}
         >★ Star User</button>
         <button className="ghost" onClick={() => navigate('scheduler-pro')}>Scheduler</button>
+        <div style={{ position: 'relative' }}>
+          <button
+            className="ghost"
+            disabled={selected.size === 0}
+            onClick={() => setStatusMenuOpen((v) => !v)}
+            title={selected.size === 0 ? 'Select accounts first' : `Mark ${selected.size} selected as…`}
+          >Set Status{selected.size > 0 ? ` · ${selected.size}` : ''} ▾</button>
+          {statusMenuOpen && (
+            <div
+              onMouseLeave={() => setStatusMenuOpen(false)}
+              style={{
+                position: 'absolute', top: 'calc(100% + 4px)', left: 0,
+                background: 'var(--bg-elev)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)', minWidth: 160, zIndex: 50,
+                boxShadow: '0 8px 24px rgba(0,0,0,0.6)', padding: 4,
+              }}
+            >
+              {[
+                { v: 'ready',   l: 'Mark as Live',   fg: '#7fd99a' },
+                { v: 'warming', l: 'Mark as Warming', fg: 'var(--gold)' },
+                { v: 'paused',  l: 'Mark as Paused', fg: 'var(--text-2)' },
+                { v: 'banned',  l: 'Mark as Banned', fg: '#e2a3a3' },
+              ].map((s) => (
+                <button
+                  key={s.v}
+                  onClick={() => bulkSetStatus(s.v)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                    background: 'transparent', border: 'none', padding: '8px 12px',
+                    color: s.fg, fontSize: 13, cursor: 'pointer', textAlign: 'left',
+                    borderRadius: 4,
+                  }}
+                >
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.fg }} />
+                  {s.l}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           onClick={bulkDelete}
           disabled={selected.size === 0}

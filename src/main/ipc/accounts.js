@@ -34,6 +34,23 @@ const ensureStarredColumn = ensureAccountMigrations;
 function register(ipcMain) {
   ensureStarredColumn();
 
+  ipcMain.handle('accounts:bulkSetStatus', (_e, { token, accountIds, status }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      if (!['warming', 'ready', 'paused', 'banned'].includes(status)) throw new Error('Invalid status');
+      const ids = (Array.isArray(accountIds) ? accountIds : [accountIds]).map(Number).filter(Boolean);
+      if (!ids.length) throw new Error('No accounts selected');
+      const stmt = getDb().prepare('UPDATE reddit_accounts SET status = ? WHERE id = ?');
+      const tx = getDb().transaction(() => { for (const id of ids) stmt.run(status, id); });
+      tx();
+      log(user, 'account.bulkSetStatus', 'account', null, `n=${ids.length} status=${status}`);
+      return { ok: true, updated: ids.length };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('accounts:bulkDelete', (_e, { token, accountIds }) => {
     try {
       const user = userFromToken(token);

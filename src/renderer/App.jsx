@@ -94,6 +94,8 @@ function Inner() {
         case 'intel': return <IntelligencePage />;
         case 'dashboard': return <DashboardPage navigate={navigate} />;
         case 'redgifs-dashboard': return <RedGifsDashboardPage navigate={navigate} />;
+        case 'activity': return <ActivityPage />;
+        case 'subreddits': return <SubredditsPage />;
         default: return <InboxPage embedded standalone />;
       }
     })();

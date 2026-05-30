@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import PopOutButton from '../components/PopOutButton.jsx';
+import { Tag, EmptyState } from '../components/ui.jsx';
 
 const ACTION_STYLE = {
   'account.create':      { bg: 'rgba(122,154,90,0.12)', fg: '#bdd5a3', label: 'created' },
@@ -41,7 +43,10 @@ export default function ActivityPage() {
             Who did what and when — accounts created/deleted, vote orders placed, bulk imports.
           </div>
         </div>
-        <button className="ghost" onClick={load}>{loading ? 'Loading…' : 'Refresh'}</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <PopOutButton route="activity" title="Activity" />
+          <button className="ghost" onClick={load}>{loading ? 'Loading…' : 'Refresh'}</button>
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: 14, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -65,7 +70,7 @@ export default function ActivityPage() {
       </div>
 
       {entries.length === 0 ? (
-        <div className="empty-state" style={{ padding: 40 }}>No activity matching that filter.</div>
+        <EmptyState icon="☷" title="No activity matching that filter." hint="Adjust or clear the filters above to see more rows." />
       ) : (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>

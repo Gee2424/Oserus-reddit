@@ -27,6 +27,29 @@ function ensureTable() {
   `);
 }
 
+// Normalize a Reddit listing into compact rows for the scraper tables/export.
+function normalizePost(c) {
+  const d = c.data || {};
+  return {
+    id: d.id,
+    fullname: d.name,
+    subreddit: d.subreddit,
+    author: d.author,
+    title: d.title,
+    score: d.score,
+    upvote_ratio: d.upvote_ratio,
+    num_comments: d.num_comments,
+    created: d.created_utc,
+    over_18: d.over_18 ? 1 : 0,
+    is_video: d.is_video ? 1 : 0,
+    domain: d.domain,
+    url: d.url,
+    permalink: d.permalink ? `https://www.reddit.com${d.permalink}` : null,
+    link_flair_text: d.link_flair_text,
+    selftext_snip: (d.selftext || '').slice(0, 200),
+  };
+}
+
 // Reddit exposes karma/age gates inconsistently; pull what's available from
 // about.json + about/rules.json and the post-requirements endpoint.
 async function fetchOne(partition, name) {
@@ -121,6 +144,154 @@ function register(ipcMain) {
       ensureTable();
       getDb().prepare('DELETE FROM subreddit_intel WHERE name = ?').run(name);
       return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // -------- Scraper --------
+  // Subreddit listing (Hot/Top/Rising/New). Uses the chosen account's
+  // logged-in session so private subs we follow still work; otherwise it's
+  // public data. limit: 25 default, max 100.
+  ipcMain.handle('intel:scrapePosts', async (_e, { token, accountId, subreddit, sort, t, limit }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      const acct = partitionFor(accountId);
+      if (!acct) throw new Error('Pick a scraper account');
+      const sub = String(subreddit || '').replace(/^\/?r\//i, '').trim();
+      if (!sub) throw new Error('Subreddit required');
+      const sortKey = ['hot', 'top', 'rising', 'new'].includes(sort) ? sort : 'hot';
+      const lim = Math.min(Math.max(Number(limit) || 25, 1), 100);
+      const tWindow = ['hour', 'day', 'week', 'month', 'year', 'all'].includes(t) ? t : 'day';
+      const url = sortKey === 'top'
+        ? `https://www.reddit.com/r/${sub}/top.json?raw_json=1&limit=${lim}&t=${tWindow}`
+        : `https://www.reddit.com/r/${sub}/${sortKey}.json?raw_json=1&limit=${lim}`;
+      const data = await request(acct.partition, url);
+      const posts = (data?.data?.children || []).map(normalizePost);
+      return { ok: true, posts };
+    } catch (err) {
+      if (err.message === 'NOT_LOGGED_IN') return { ok: false, error: 'Scraper account is not logged in.' };
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // User profile + recent submissions.
+  ipcMain.handle('intel:scrapeUser', async (_e, { token, accountId, username }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      const acct = partitionFor(accountId);
+      if (!acct) throw new Error('Pick a scraper account');
+      const u = String(username || '').replace(/^u\//i, '').replace(/^@/, '').trim();
+      if (!u) throw new Error('Username required');
+      const [about, posts] = await Promise.all([
+        request(acct.partition, `https://www.reddit.com/user/${u}/about.json?raw_json=1`),
+        request(acct.partition, `https://www.reddit.com/user/${u}/submitted.json?raw_json=1&limit=25`),
+      ]);
+      const d = about?.data || {};
+      return {
+        ok: true,
+        user: {
+          username: d.name,
+          icon_url: (d.icon_img || '').split('?')[0],
+          created: d.created_utc,
+          link_karma: d.link_karma,
+          comment_karma: d.comment_karma,
+          total_karma: d.total_karma,
+          is_gold: d.is_gold ? 1 : 0,
+          verified: d.verified ? 1 : 0,
+          has_verified_email: d.has_verified_email ? 1 : 0,
+          subreddit_description: d?.subreddit?.public_description || null,
+        },
+        recentPosts: (posts?.data?.children || []).map(normalizePost),
+      };
+    } catch (err) {
+      if (err.message === 'NOT_LOGGED_IN') return { ok: false, error: 'Scraper account is not logged in.' };
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // Moderator list for a subreddit.
+  ipcMain.handle('intel:scrapeMods', async (_e, { token, accountId, subreddit }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      const acct = partitionFor(accountId);
+      if (!acct) throw new Error('Pick a scraper account');
+      const sub = String(subreddit || '').replace(/^\/?r\//i, '').trim();
+      if (!sub) throw new Error('Subreddit required');
+      const data = await request(acct.partition, `https://www.reddit.com/r/${sub}/about/moderators.json?raw_json=1`);
+      const mods = (data?.data?.children || []).map((c) => ({
+        name: c.name,
+        added: c.date,
+        permissions: c.mod_permissions || [],
+      }));
+      return { ok: true, mods };
+    } catch (err) {
+      if (err.message === 'NOT_LOGGED_IN') return { ok: false, error: 'Scraper account is not logged in.' };
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // Link flairs offered by a subreddit (best-effort; some require mod auth).
+  ipcMain.handle('intel:scrapeFlairs', async (_e, { token, accountId, subreddit }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      const acct = partitionFor(accountId);
+      if (!acct) throw new Error('Pick a scraper account');
+      const sub = String(subreddit || '').replace(/^\/?r\//i, '').trim();
+      if (!sub) throw new Error('Subreddit required');
+      const data = await request(acct.partition, `https://www.reddit.com/r/${sub}/api/link_flair_v2.json?raw_json=1`);
+      const flairs = Array.isArray(data) ? data.map((f) => ({
+        id: f.id, text: f.text, type: f.type, mod_only: f.mod_only,
+        text_editable: f.text_editable, background_color: f.background_color, text_color: f.text_color,
+      })) : [];
+      return { ok: true, flairs };
+    } catch (err) {
+      if (err.message === 'NOT_LOGGED_IN') return { ok: false, error: 'Scraper account is not logged in.' };
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // Aggregate research insights from a posts sample: top words in titles,
+  // best-performing posting hour, averages. Pure analysis, no extra fetch.
+  ipcMain.handle('intel:analyze', (_e, { token, posts }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      if (!Array.isArray(posts) || !posts.length) throw new Error('No posts to analyze');
+      const STOP = new Set(['the','a','an','of','to','for','in','and','or','but','on','at','with','is','are','was','were','be','my','your','his','her','their','this','that','it','its','as','if','by','from','about','i','you','we','they','am','me','us','what','when','how','why','who','do','does','did','no','not','so','than','then','just','really','some','more','any','can','could','would','should','will','have','has','had']);
+      const counts = new Map();
+      const hours = new Array(24).fill(0);
+      const hoursN = new Array(24).fill(0);
+      let totalScore = 0, totalComments = 0;
+      for (const p of posts) {
+        const words = String(p.title || '').toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, ' ').split(/\s+/);
+        for (const w of words) if (w.length >= 3 && !STOP.has(w)) counts.set(w, (counts.get(w) || 0) + 1);
+        if (p.created) {
+          const h = new Date(p.created * 1000).getUTCHours();
+          hours[h] += Number(p.score) || 0;
+          hoursN[h]++;
+        }
+        totalScore += Number(p.score) || 0;
+        totalComments += Number(p.num_comments) || 0;
+      }
+      const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25)
+        .map(([word, n]) => ({ word, n }));
+      const avgScore = posts.length ? Math.round(totalScore / posts.length) : 0;
+      const avgComments = posts.length ? Math.round(totalComments / posts.length) : 0;
+      const hourAvg = hours.map((s, i) => ({ hour: i, avg: hoursN[i] ? Math.round(s / hoursN[i]) : 0 }));
+      const bestHourUTC = hourAvg.reduce((b, x) => (x.avg > b.avg ? x : b), { hour: 0, avg: 0 });
+      return {
+        ok: true,
+        sample: posts.length,
+        avgScore, avgComments,
+        topWords: top,
+        bestHourUTC,
+        hourly: hourAvg,
+      };
     } catch (err) {
       return { ok: false, error: err.message };
     }

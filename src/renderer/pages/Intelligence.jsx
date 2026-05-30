@@ -1,8 +1,40 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
-import { Banner } from '../components/ui.jsx';
+import { Banner, Tag } from '../components/ui.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
+
+const INNER_TABS = [
+  { k: 'requirements', l: 'Requirements',  d: 'Karma/age gates & rules' },
+  { k: 'scraper',      l: 'Scraper',       d: 'Hot · Top · Rising · New · Users · Mods · Flairs' },
+  { k: 'research',     l: 'Research',      d: 'Trending words & best posting times' },
+];
+
+function fmt(n) { return n == null ? '—' : n.toLocaleString(); }
+function ago(unixSec) {
+  if (!unixSec) return '';
+  const s = Math.floor(Date.now() / 1000 - unixSec);
+  if (s < 3600) return `${Math.floor(s/60)}m`;
+  if (s < 86400) return `${Math.floor(s/3600)}h`;
+  return `${Math.floor(s/86400)}d`;
+}
+function downloadFile(name, data, mime) {
+  const blob = new Blob([data], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function toCSV(rows) {
+  if (!rows.length) return '';
+  const keys = Object.keys(rows[0]);
+  const esc = (v) => {
+    if (v == null) return '';
+    const s = String(v).replace(/"/g, '""');
+    return /[",\n]/.test(s) ? `"${s}"` : s;
+  };
+  return [keys.join(','), ...rows.map((r) => keys.map((k) => esc(r[k])).join(','))].join('\n');
+}
 
 export default function IntelligencePage() {
   const { token } = useAuth();
@@ -17,6 +49,7 @@ export default function IntelligencePage() {
   const [err, setErr] = useState(null);
   const [fetchKarma, setFetchKarma] = useState(true);
   const [fetchOther, setFetchOther] = useState(true);
+  const [tab, setTab] = useState('requirements');
 
   const load = useCallback(async () => {
     const res = await window.api.intel.list({ token });
@@ -68,6 +101,32 @@ export default function IntelligencePage() {
       {err && <Banner kind="err">{err}</Banner>}
       {msg && <Banner kind="ok">{msg}</Banner>}
 
+      {/* Inner tabs: Requirements (existing) · Scraper (new) · Research (new) */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
+        {INNER_TABS.map((t) => (
+          <button
+            key={t.k}
+            onClick={() => setTab(t.k)}
+            title={t.d}
+            style={{
+              background: 'transparent', border: 'none',
+              borderBottom: '2px solid ' + (tab === t.k ? 'var(--gold)' : 'transparent'),
+              color: tab === t.k ? 'var(--gold-bright)' : 'var(--text-2)',
+              padding: '10px 16px', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', marginBottom: -1,
+            }}
+          >{t.l}</button>
+        ))}
+      </div>
+
+      {tab === 'scraper' && (
+        <ScraperPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
+      )}
+      {tab === 'research' && (
+        <ResearchPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
+      )}
+
+      {tab === 'requirements' && (<>
       <div className="card" style={{ marginBottom: 22, padding: 18 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
           <div>
@@ -153,6 +212,362 @@ export default function IntelligencePage() {
           </div>
         </div>
       )}
+      </>)}
+    </div>
+  );
+}
+
+/* ----------------------- SCRAPER (inside Intelligence) ------------------- */
+function AccountSelect({ accounts, accountId, onAccount }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label>Scraper account</label>
+      <select value={accountId} onChange={(e) => onAccount(e.target.value)}>
+        <option value="">— select an account —</option>
+        {accounts.map((a) => <option key={a.id} value={a.id}>u/{a.username} · {a.profile_name}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function ScraperPanel({ token, accountId, accounts, onAccount, onMsg, onError }) {
+  const [mode, setMode] = useState('posts'); // posts | user | mods | flairs
+  const [subreddit, setSubreddit] = useState('');
+  const [username, setUsername] = useState('');
+  const [sort, setSort] = useState('hot');
+  const [tWin, setTWin] = useState('day');
+  const [limit, setLimit] = useState(25);
+  const [posts, setPosts] = useState([]);
+  const [userData, setUserData] = useState(null);
+  const [mods, setMods] = useState([]);
+  const [flairs, setFlairs] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  const requireAccount = () => {
+    if (!accountId) { onError('Pick a scraper account first.'); return false; }
+    return true;
+  };
+
+  async function runPosts() {
+    if (!requireAccount() || !subreddit.trim()) { onError('Enter a subreddit.'); return; }
+    setBusy(true);
+    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
+    const r = await window.api.intel.scrapePosts({ token, accountId: Number(accountId), subreddit, sort, t: tWin, limit: Number(limit) });
+    setBusy(false);
+    if (r.ok) { setPosts(r.posts); onMsg(`Fetched ${r.posts.length} posts.`); } else onError(r.error);
+  }
+  async function runUser() {
+    if (!requireAccount() || !username.trim()) { onError('Enter a username.'); return; }
+    setBusy(true);
+    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
+    const r = await window.api.intel.scrapeUser({ token, accountId: Number(accountId), username });
+    setBusy(false);
+    if (r.ok) { setUserData(r); onMsg(`Loaded u/${r.user.username}.`); } else onError(r.error);
+  }
+  async function runMods() {
+    if (!requireAccount() || !subreddit.trim()) { onError('Enter a subreddit.'); return; }
+    setBusy(true);
+    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
+    const r = await window.api.intel.scrapeMods({ token, accountId: Number(accountId), subreddit });
+    setBusy(false);
+    if (r.ok) { setMods(r.mods); onMsg(`Fetched ${r.mods.length} moderators.`); } else onError(r.error);
+  }
+  async function runFlairs() {
+    if (!requireAccount() || !subreddit.trim()) { onError('Enter a subreddit.'); return; }
+    setBusy(true);
+    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
+    const r = await window.api.intel.scrapeFlairs({ token, accountId: Number(accountId), subreddit });
+    setBusy(false);
+    if (r.ok) { setFlairs(r.flairs); onMsg(`Fetched ${r.flairs.length} flairs.`); } else onError(r.error);
+  }
+
+  return (
+    <div>
+      <div className="card" style={{ padding: 18, marginBottom: 16 }}>
+        <AccountSelect accounts={accounts} accountId={accountId} onAccount={onAccount} />
+
+        <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
+          {[
+            { k: 'posts',  l: '🔥 Posts' },
+            { k: 'user',   l: '👤 User' },
+            { k: 'mods',   l: '🛡 Mods' },
+            { k: 'flairs', l: '🏷 Flairs' },
+          ].map((m) => (
+            <button key={m.k} onClick={() => setMode(m.k)}
+              className={mode === m.k ? 'primary' : 'ghost'}
+              style={{ fontSize: 12, padding: '6px 12px' }}>{m.l}</button>
+          ))}
+        </div>
+
+        {mode === 'posts' && (
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 10 }}>
+              <div>
+                <label>Subreddit</label>
+                <input value={subreddit} onChange={(e) => setSubreddit(e.target.value)} placeholder="e.g. gonewild" />
+              </div>
+              <div>
+                <label>Sort</label>
+                <select value={sort} onChange={(e) => setSort(e.target.value)}>
+                  <option value="hot">Hot</option>
+                  <option value="top">Top</option>
+                  <option value="rising">Rising</option>
+                  <option value="new">New</option>
+                </select>
+              </div>
+              {sort === 'top' ? (
+                <div>
+                  <label>Window</label>
+                  <select value={tWin} onChange={(e) => setTWin(e.target.value)}>
+                    {['hour','day','week','month','year','all'].map((x) => <option key={x} value={x}>{x}</option>)}
+                  </select>
+                </div>
+              ) : <div />}
+              <div>
+                <label>Limit</label>
+                <input type="number" min={1} max={100} value={limit} onChange={(e) => setLimit(e.target.value)} />
+              </div>
+            </div>
+            <button onClick={runPosts} disabled={busy} className="primary" style={{ marginTop: 12 }}>
+              {busy ? 'Fetching…' : 'Fetch posts'}
+            </button>
+          </div>
+        )}
+
+        {mode === 'user' && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+            <div style={{ flex: 1 }}>
+              <label>Username</label>
+              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. spez" />
+            </div>
+            <button onClick={runUser} disabled={busy} className="primary">{busy ? 'Loading…' : 'Load profile'}</button>
+          </div>
+        )}
+
+        {(mode === 'mods' || mode === 'flairs') && (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+            <div style={{ flex: 1 }}>
+              <label>Subreddit</label>
+              <input value={subreddit} onChange={(e) => setSubreddit(e.target.value)} placeholder="e.g. nsfw" />
+            </div>
+            <button onClick={mode === 'mods' ? runMods : runFlairs} disabled={busy} className="primary">
+              {busy ? 'Fetching…' : (mode === 'mods' ? 'List moderators' : 'List flairs')}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {mode === 'posts' && posts.length > 0 && <PostsResult posts={posts} subreddit={subreddit} />}
+      {mode === 'user' && userData && <UserResult data={userData} />}
+      {mode === 'mods' && mods.length > 0 && <ModsResult mods={mods} subreddit={subreddit} />}
+      {mode === 'flairs' && flairs.length > 0 && <FlairsResult flairs={flairs} subreddit={subreddit} />}
+    </div>
+  );
+}
+
+function ExportRow({ name, rows }) {
+  if (!rows || !rows.length) return null;
+  return (
+    <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+      <button className="ghost" onClick={() => navigator.clipboard.writeText(JSON.stringify(rows, null, 2))}>📋 Copy JSON</button>
+      <button className="ghost" onClick={() => downloadFile(`${name}.json`, JSON.stringify(rows, null, 2), 'application/json')}>⬇ JSON</button>
+      <button className="ghost" onClick={() => downloadFile(`${name}.csv`, toCSV(rows), 'text/csv')}>⬇ CSV</button>
+    </div>
+  );
+}
+
+function PostsResult({ posts, subreddit }) {
+  return (
+    <div className="card" style={{ padding: 14 }}>
+      <ExportRow name={`r-${subreddit || 'posts'}`} rows={posts} />
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead><tr style={{ background: 'var(--bg-2)' }}>
+            <th style={th}>Title</th>
+            <th style={th}>Author</th>
+            <th style={{ ...th, textAlign: 'right' }}>Score</th>
+            <th style={{ ...th, textAlign: 'right' }}>Comments</th>
+            <th style={th}>Flair</th>
+            <th style={th}>Age</th>
+            <th style={th}></th>
+          </tr></thead>
+          <tbody>{posts.map((p) => (
+            <tr key={p.id} style={{ borderTop: '1px solid var(--border)' }}>
+              <td style={td}>{p.title}{p.over_18 ? <Tag tone="pink" style={{ marginLeft: 6 }}>NSFW</Tag> : null}</td>
+              <td style={td} className="mono dim">u/{p.author}</td>
+              <td style={{ ...td, textAlign: 'right' }} className="mono">{fmt(p.score)}</td>
+              <td style={{ ...td, textAlign: 'right' }} className="mono">{fmt(p.num_comments)}</td>
+              <td style={td}>{p.link_flair_text ? <Tag tone="blue">{p.link_flair_text}</Tag> : <span className="dim">—</span>}</td>
+              <td style={td} className="mono dim">{ago(p.created)}</td>
+              <td style={td}><a href={p.permalink} target="_blank" rel="noreferrer">↗</a></td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function UserResult({ data }) {
+  const u = data.user || {};
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <ExportRow name={`u-${u.username || 'profile'}`} rows={[u]} />
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 14 }}>
+        {u.icon_url
+          ? <img src={u.icon_url} alt={u.username} style={{ width: 56, height: 56, borderRadius: '50%' }} />
+          : <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--bg-3)' }} />}
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>u/{u.username}</div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            Total karma {fmt(u.total_karma)} · Posts {fmt(u.link_karma)} · Comments {fmt(u.comment_karma)} · Created {ago(u.created)} ago
+            {u.is_gold ? ' · ★ Gold' : ''}{u.verified ? ' · ✓ Verified' : ''}
+          </div>
+        </div>
+      </div>
+      {data.recentPosts && data.recentPosts.length > 0 && (
+        <>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Recent posts ({data.recentPosts.length})</div>
+          <PostsResult posts={data.recentPosts} subreddit={`u-${u.username}`} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function ModsResult({ mods, subreddit }) {
+  return (
+    <div className="card" style={{ padding: 14 }}>
+      <ExportRow name={`mods-${subreddit}`} rows={mods} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {mods.map((m) => (
+          <div key={m.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 999 }}>
+            <span style={{ fontWeight: 600 }}>u/{m.name}</span>
+            {(m.permissions || []).map((p) => <Tag key={p} tone="blue" style={{ marginLeft: 2 }}>{p}</Tag>)}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FlairsResult({ flairs, subreddit }) {
+  return (
+    <div className="card" style={{ padding: 14 }}>
+      <ExportRow name={`flairs-${subreddit}`} rows={flairs} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {flairs.map((f) => (
+          <span key={f.id} style={{
+            padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600,
+            background: f.background_color || 'var(--bg-2)', color: f.text_color === 'light' ? '#fff' : '#1a1a14',
+            border: '1px solid var(--border-strong)',
+          }}>{f.text || '(unnamed)'}{f.mod_only ? ' 🛡' : ''}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ----------------------- RESEARCH (analysis of scraped) ----------------- */
+function ResearchPanel({ token, accountId, accounts, onAccount, onMsg, onError }) {
+  const [subreddit, setSubreddit] = useState('');
+  const [sort, setSort] = useState('top');
+  const [tWin, setTWin] = useState('week');
+  const [busy, setBusy] = useState(false);
+  const [insight, setInsight] = useState(null);
+
+  async function go() {
+    if (!accountId) { onError('Pick a scraper account first.'); return; }
+    if (!subreddit.trim()) { onError('Enter a subreddit.'); return; }
+    setBusy(true);
+    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
+    const r = await window.api.intel.scrapePosts({ token, accountId: Number(accountId), subreddit, sort, t: tWin, limit: 100 });
+    if (!r.ok) { setBusy(false); onError(r.error); return; }
+    const a = await window.api.intel.analyze({ token, posts: r.posts });
+    setBusy(false);
+    if (a.ok) { setInsight({ ...a, subreddit }); onMsg(`Analyzed ${a.sample} posts.`); } else onError(a.error);
+  }
+
+  return (
+    <div>
+      <div className="card" style={{ padding: 18, marginBottom: 16 }}>
+        <AccountSelect accounts={accounts} accountId={accountId} onAccount={onAccount} />
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 10, alignItems: 'end' }}>
+          <div>
+            <label>Subreddit</label>
+            <input value={subreddit} onChange={(e) => setSubreddit(e.target.value)} placeholder="e.g. nsfw" />
+          </div>
+          <div>
+            <label>Sort</label>
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option value="hot">Hot</option>
+              <option value="top">Top</option>
+              <option value="rising">Rising</option>
+              <option value="new">New</option>
+            </select>
+          </div>
+          <div>
+            <label>Window</label>
+            <select value={tWin} onChange={(e) => setTWin(e.target.value)}>
+              {['day','week','month','year','all'].map((x) => <option key={x} value={x}>{x}</option>)}
+            </select>
+          </div>
+          <button onClick={go} disabled={busy} className="primary">{busy ? 'Analyzing…' : 'Analyze 100 posts'}</button>
+        </div>
+      </div>
+
+      {insight && (
+        <div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 14 }}>
+            <StatCard label="Sample" value={insight.sample} />
+            <StatCard label="Avg score" value={insight.avgScore} accent="green" />
+            <StatCard label="Avg comments" value={insight.avgComments} accent="blue" />
+            <StatCard label="Best hour (UTC)" value={`${insight.bestHourUTC?.hour ?? '—'}:00`} accent="gold" />
+          </div>
+          <div className="card" style={{ padding: 14, marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Top words in titles</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {insight.topWords.map((w) => (
+                <span key={w.word} style={{
+                  padding: '4px 10px', borderRadius: 999, fontSize: 12,
+                  background: 'var(--bg-1)', border: '1px solid var(--border)',
+                }}>{w.word} <span style={{ color: 'var(--gold)', fontWeight: 700 }}>{w.n}</span></span>
+              ))}
+            </div>
+          </div>
+          <div className="card" style={{ padding: 14 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Avg score by hour (UTC)</div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 80 }}>
+              {insight.hourly.map((h) => {
+                const max = Math.max(1, ...insight.hourly.map((x) => x.avg));
+                const pct = (h.avg / max) * 100;
+                return (
+                  <div key={h.hour} title={`${h.hour}:00 UTC · avg ${h.avg}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <div style={{ width: '100%', height: `${pct}%`, background: 'linear-gradient(0deg, var(--blue), var(--gold))', borderRadius: 3 }} />
+                    <div style={{ fontSize: 9, color: 'var(--text-3)', marginTop: 4 }}>{h.hour}</div>
+                  </div>
+                );
+              })}
+            </div>
+            <ExportRow name={`research-${insight.subreddit}`} rows={insight.hourly} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ label, value, accent = 'neutral' }) {
+  const fg = ({
+    blue: '#7fa8e0', green: 'var(--green-bright)', gold: 'var(--gold-bright)', neutral: 'var(--text-0)',
+  })[accent];
+  return (
+    <div style={{
+      flex: 1, border: '1px solid var(--border)', background: 'var(--bg-elev)',
+      borderRadius: 'var(--radius-lg)', padding: '14px 16px',
+    }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--text-3)' }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 600, color: fg, marginTop: 4 }}>{value}</div>
     </div>
   );
 }
