@@ -1,20 +1,23 @@
 :root {
-  /* Oserus palette - forest green / olive / gold on near-black */
-  --bg-0: #0a0e0a;
-  --bg-1: #10160f;
-  --bg-2: #161e15;
-  --bg-3: #1f291d;
-  --bg-elev: #131a12;
-  --border: #20291e;
-  --border-strong: #2e3b2a;
-  --border-glow: #3d6b4f;
+  /* Oserus palette — calm night: near-black canvas with green depth,
+     a muted slate-blue everyday accent, and gold for the highlight/
+     selected state. Matches the logo's green→olive→gold without going
+     warm-only. */
+  --bg-0: #07090a;
+  --bg-1: #0c100f;
+  --bg-2: #121815;
+  --bg-3: #1a221d;
+  --bg-elev: #0e1311;
+  --border: #1c241f;
+  --border-strong: #2a342b;
+  --border-glow: #4a7d8a;
 
-  --text-0: #e8e4d0;
-  --text-1: #c4bfa6;
-  --text-2: #8a8770;
-  --text-3: #5a594a;
+  --text-0: #e6e3d2;
+  --text-1: #bdbaa6;
+  --text-2: #8a8a7d;
+  --text-3: #5a5b54;
 
-  /* Brand */
+  /* Brand colors */
   --green: #3d6b4f;
   --green-bright: #4f8a64;
   --green-glow: rgba(79, 138, 100, 0.4);
@@ -24,16 +27,23 @@
   --green-soft: rgba(61, 107, 79, 0.15);
   --gold-soft: rgba(212, 166, 74, 0.12);
 
-  /* Brand gradient — left-to-right green→olive→gold, matches the new logo */
-  --gradient-brand: linear-gradient(135deg, #2d5a3f 0%, #4f8a64 35%, #a8a14e 70%, #d4a64a 100%);
-  --gradient-brand-soft: linear-gradient(135deg, rgba(45,90,63,0.25) 0%, rgba(79,138,100,0.18) 40%, rgba(212,166,74,0.15) 100%);
-  --gradient-brand-line: linear-gradient(90deg, transparent, var(--green-bright) 20%, var(--gold) 80%, transparent);
-  --gradient-sidebar: linear-gradient(180deg, #0c130c 0%, #0a0e0a 50%, #0e120d 100%);
-  --gradient-card-hover: linear-gradient(135deg, rgba(79,138,100,0.08), rgba(212,166,74,0.05));
+  /* Calm slate-blue — the everyday accent (focus / links / buttons) */
+  --blue: #3a6f8c;
+  --blue-bright: #6aa6c4;
+  --blue-soft: rgba(58, 111, 140, 0.16);
 
-  --accent: var(--green-bright);
-  --accent-hover: var(--green);
-  --accent-soft: var(--green-soft);
+  /* Brand gradient — green → olive → gold (logo), with a hint of blue
+     so it doesn't read warm-only */
+  --gradient-brand: linear-gradient(135deg, #2d5a3f 0%, #4f8a64 30%, #6f8a78 55%, #a8a14e 78%, #d4a64a 100%);
+  --gradient-brand-soft: linear-gradient(135deg, rgba(45,90,63,0.22) 0%, rgba(79,138,100,0.16) 40%, rgba(212,166,74,0.14) 100%);
+  --gradient-brand-line: linear-gradient(90deg, transparent, var(--blue-bright) 18%, var(--green-bright) 50%, var(--gold) 82%, transparent);
+  --gradient-sidebar: linear-gradient(180deg, #0a0e0d 0%, #07090a 55%, #0b100e 100%);
+  --gradient-card-hover: linear-gradient(135deg, rgba(79,138,100,0.07), rgba(58,111,140,0.06), rgba(212,166,74,0.05));
+
+  /* Calm everyday accent = blue. Gold reserved for selected/highlight. */
+  --accent: var(--blue-bright);
+  --accent-hover: var(--blue);
+  --accent-soft: var(--blue-soft);
 
   --warn: var(--gold);
   --danger: #b3473a;
@@ -63,9 +73,10 @@ html, body, #root {
 body {
   font-family: var(--font-body);
   background:
-    radial-gradient(ellipse 60% 40% at 15% 0%, rgba(79,138,100,0.10), transparent 60%),
-    radial-gradient(ellipse 50% 40% at 95% 20%, rgba(212,166,74,0.07), transparent 65%),
-    radial-gradient(ellipse 80% 60% at 50% 110%, rgba(45,90,63,0.08), transparent 60%),
+    radial-gradient(ellipse 55% 38% at 18% 0%, rgba(79,138,100,0.08), transparent 60%),
+    radial-gradient(ellipse 45% 35% at 80% 12%, rgba(58,111,140,0.07), transparent 65%),
+    radial-gradient(ellipse 50% 40% at 95% 90%, rgba(212,166,74,0.05), transparent 65%),
+    radial-gradient(ellipse 80% 60% at 40% 110%, rgba(45,90,63,0.06), transparent 60%),
     var(--bg-0);
   color: var(--text-0);
   font-size: 14px;
@@ -104,7 +115,7 @@ button {
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, transform 0.05s, box-shadow 0.12s;
 }
-button:hover { background: var(--bg-3); border-color: var(--green); }
+button:hover { background: var(--bg-3); border-color: var(--blue); }
 button:active { transform: translateY(1px); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
@@ -159,9 +170,9 @@ input, textarea, select {
   transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
 }
 input:focus, textarea:focus, select:focus {
-  border-color: var(--green-bright);
+  border-color: var(--blue-bright);
   background: var(--bg-2);
-  box-shadow: 0 0 0 3px var(--green-soft);
+  box-shadow: 0 0 0 3px var(--blue-soft);
 }
 
 label {
@@ -174,7 +185,7 @@ label {
   margin-bottom: 6px;
 }
 
-a { color: var(--green-bright); text-decoration: none; }
+a { color: var(--blue-bright); text-decoration: none; }
 a:hover { color: var(--gold); }
 
 .card {
