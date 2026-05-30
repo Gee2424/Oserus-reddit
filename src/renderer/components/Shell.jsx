@@ -161,11 +161,11 @@ const styles = {
     transition: 'background 0.12s, color 0.12s, border-color 0.12s',
   },
   navItemActive: {
-    background: 'linear-gradient(90deg, rgba(212,166,74,0.20) 0%, rgba(212,166,74,0.05) 100%)',
+    background: 'linear-gradient(90deg, rgba(79,138,100,0.22) 0%, rgba(212,166,74,0.10) 100%)',
     color: 'var(--gold-bright)',
     borderColor: 'transparent',
-    fontWeight: 600,
-    boxShadow: 'inset 3px 0 0 var(--gold)',
+    fontWeight: 500,
+    boxShadow: 'inset 2px 0 0 var(--gold), 0 0 18px rgba(79,138,100,0.18)',
   },
   navIcon: {
     width: 22,
@@ -177,7 +177,7 @@ const styles = {
     fontFamily: 'var(--font-mono)',
     flexShrink: 0,
   },
-  navIconActive: { color: 'var(--gold-bright)' },
+  navIconActive: { color: 'var(--gold)' },
   userBlock: {
     margin: 12,
     padding: 10,

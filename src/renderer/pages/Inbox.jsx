@@ -1,17 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
-import AccountSwitcher from '../components/AccountSwitcher.jsx';
 
 const FOLDERS = [
-  { key: 'all', label: 'All' },
-  { key: 'unread', label: 'Unread' },
-  { key: 'messages', label: 'Messages' },
-  { key: 'mentions', label: 'Mentions' },
-  { key: 'sent', label: 'Sent' },
+  { key: 'all', label: 'Inbox', icon: '✉' },
+  { key: 'unread', label: 'Requests', icon: '✦' },
+  { key: 'sent', label: 'Hidden', icon: '◐' },
 ];
-
-const ORANGE = '#ff4500';
 
 function timeAgo(unixSec) {
   if (!unixSec) return '';
@@ -20,20 +15,20 @@ function timeAgo(unixSec) {
   const m = Math.floor(s / 60); if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60); if (h < 24) return `${h}h`;
   const d = Math.floor(h / 24); if (d < 30) return `${d}d`;
-  const mo = Math.floor(d / 30); if (mo < 12) return `${mo}mo`;
-  return `${Math.floor(mo / 12)}y`;
+  return `${Math.floor(d / 30)}mo`;
 }
-function fullTime(unixSec) {
+function fullStamp(unixSec) {
   if (!unixSec) return '';
-  try { return new Date(unixSec * 1000).toLocaleString(); } catch { return ''; }
+  try {
+    const d = new Date(unixSec * 1000);
+    return d.toLocaleString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  } catch { return ''; }
 }
-function initial(name) {
-  return (name || '?').replace(/^u\//, '').charAt(0).toUpperCase();
-}
-function avatarColor(name) {
+function initial(name) { return (name || '?').replace(/^u\//, '').charAt(0).toUpperCase(); }
+function hueOf(name) {
   let h = 0;
   for (let i = 0; i < (name || '').length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-  return `hsl(${h}, 45%, 42%)`;
+  return h;
 }
 
 export default function InboxPage({ embedded, standalone, navigate }) {
@@ -49,7 +44,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   const [selectedId, setSelectedId] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
-  const [search, setSearch] = useState('');
+  const [unreadByAccount, setUnreadByAccount] = useState({}); // { [accountId]: count }
 
   useEffect(() => {
     if (!active && redditAccounts && redditAccounts.length > 0) setActive(redditAccounts[0].id);
@@ -61,8 +56,11 @@ export default function InboxPage({ embedded, standalone, navigate }) {
     await window.api.session.prepareForAccount({ accountId: active.id });
     const res = await window.api.inbox.fetch({ token, accountId: active.id, folder });
     setLoading(false);
-    if (res.ok) setMessages(res.messages || []);
-    else if (res.notLoggedIn) { setNotLoggedIn(true); setMessages([]); }
+    if (res.ok) {
+      setMessages(res.messages || []);
+      const u = (res.messages || []).filter((m) => m.isNew).length;
+      setUnreadByAccount((prev) => ({ ...prev, [active.id]: u }));
+    } else if (res.notLoggedIn) { setNotLoggedIn(true); setMessages([]); }
     else setErr(res.error);
   }, [active?.id, folder, token]);
 
@@ -73,10 +71,23 @@ export default function InboxPage({ embedded, standalone, navigate }) {
     return () => clearInterval(id);
   }, [load, active]);
 
-  const unreadCount = messages.filter((m) => m.isNew).length;
-  const filtered = search.trim()
-    ? messages.filter((m) => `${m.subject} ${m.body} ${m.author} ${m.subreddit}`.toLowerCase().includes(search.toLowerCase()))
-    : messages;
+  // Background-fetch unread counts for the OTHER accounts so the left rail
+  // can show badges like Infloww. Light cadence to avoid hammering Reddit.
+  useEffect(() => {
+    if (!redditAccounts || redditAccounts.length <= 1) return;
+    let cancelled = false;
+    (async () => {
+      for (const a of redditAccounts) {
+        if (cancelled || a.id === active?.id) continue;
+        await window.api.session.prepareForAccount({ accountId: a.id });
+        const r = await window.api.inbox.fetch({ token, accountId: a.id, folder: 'unread' });
+        if (cancelled) return;
+        if (r.ok) setUnreadByAccount((prev) => ({ ...prev, [a.id]: (r.messages || []).length }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [redditAccounts, active?.id, token]);
+
   const selected = messages.find((m) => m.id === selectedId) || null;
 
   async function openMessage(m) {
@@ -85,6 +96,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
     if (m.isNew) {
       await window.api.inbox.markRead({ token, accountId: active.id, fullname: m.name });
       setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, isNew: false } : x)));
+      setUnreadByAccount((prev) => ({ ...prev, [active.id]: Math.max(0, (prev[active.id] || 1) - 1) }));
     }
   }
 
@@ -96,208 +108,221 @@ export default function InboxPage({ embedded, standalone, navigate }) {
     if (res.ok) { setReplyText(''); load(); }
     else setErr(res.error);
   }
-
   async function popOut() {
-    await window.api.windows.openPopout({ route: 'inbox', title: 'Inbox — Oserus', width: 900, height: 720 });
+    await window.api.windows.openPopout({ route: 'inbox', title: 'Inbox Manager', width: 1180, height: 760 });
   }
 
-  // ---- list pane ----
-  const listPane = (
-    <div style={{ ...listCol, ...(standalone && selected ? { display: 'none' } : {}) }}>
-      <div style={searchWrap}>
-        <input
-          placeholder="Search messages…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={searchInput}
-        />
-      </div>
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        {!active ? (
-          <Empty text="No Reddit account selected." />
-        ) : notLoggedIn ? (
-          <div style={{ padding: 26, textAlign: 'center' }}>
-            <div style={{ color: '#818384', fontSize: 13, lineHeight: 1.6 }}>
-              u/{active.username} isn't logged into Reddit yet.
-            </div>
-            {navigate && (
-              <button onClick={() => { setActive(active.id); navigate('reddit'); }} style={{ ...primaryBtn, marginTop: 14 }}>
-                Sign in via Browser ↗
-              </button>
-            )}
-          </div>
-        ) : loading && messages.length === 0 ? (
-          <Empty text="Loading…" />
-        ) : filtered.length === 0 ? (
-          <Empty text={folder === 'unread' ? 'Inbox zero ✓' : 'No messages.'} />
-        ) : (
-          filtered.map((m) => {
-            const who = folder === 'sent' ? m.dest : m.author || m.dest;
-            const isSel = m.id === selectedId;
-            return (
-              <button key={m.id} onClick={() => openMessage(m)} style={{ ...listItem, ...(isSel ? listItemActive : {}) }}>
-                <div style={{ ...avatar, background: avatarColor(who) }}>{initial(who)}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                    <span style={{ fontWeight: m.isNew ? 700 : 500, fontSize: 13, color: '#d7dadc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {who ? `u/${who}` : '(reddit)'}
-                    </span>
-                    <span style={{ marginLeft: 'auto', fontSize: 11, color: '#818384', flexShrink: 0 }}>{timeAgo(m.created)}</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: m.isNew ? '#d7dadc' : '#b8babd', fontWeight: m.isNew ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
-                    {m.subject || '(no subject)'}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#818384', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
-                    {(m.body || '').replace(/\s+/g, ' ').slice(0, 80)}
-                  </div>
-                </div>
-                {m.isNew && <span style={unreadDot} />}
-              </button>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-
-  // ---- thread / detail pane ----
-  const detailPane = (
-    <div style={{ ...detailCol, ...(standalone && !selected ? { display: 'none' } : {}) }}>
-      {!selected ? (
-        <div style={{ flex: 1, display: 'grid', placeItems: 'center' }}>
-          <div style={{ textAlign: 'center', color: '#5c5e60' }}>
-            <div style={{ fontSize: 40, marginBottom: 8 }}>✉</div>
-            <div style={{ fontSize: 13 }}>Select a message to read</div>
-          </div>
-        </div>
-      ) : (
-        <>
-          <div style={threadHeader}>
-            {standalone && (
-              <button onClick={() => setSelectedId(null)} style={backBtn}>←</button>
-            )}
-            <div style={{ ...avatar, background: avatarColor(selected.author || selected.dest), width: 36, height: 36 }}>
-              {initial(selected.author || selected.dest)}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, color: '#d7dadc' }}>
-                {folder === 'sent' ? `to u/${selected.dest}` : `u/${selected.author || selected.dest || 'reddit'}`}
-              </div>
-              <div style={{ fontSize: 11, color: '#818384' }}>
-                {selected.subreddit ? `r/${selected.subreddit} · ` : ''}{fullTime(selected.created)}
-              </div>
-            </div>
-          </div>
-
-          <div style={threadBody}>
-            <div style={subjectLine}>{selected.subject || '(no subject)'}</div>
-            <div style={msgBubble}>{selected.body}</div>
-            {selected.linkTitle && (
-              <div style={{ fontSize: 11, color: '#818384', marginTop: 10 }}>
-                {selected.wasComment ? 'Comment reply on:' : 'Re:'} {selected.linkTitle}
-              </div>
-            )}
-          </div>
-
-          {folder !== 'sent' && (
-            <div style={composer}>
-              <textarea
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                placeholder={`Reply as u/${active.username}…`}
-                style={composerInput}
-                onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendReply(); }}
-              />
-              <button onClick={sendReply} disabled={sending || !replyText.trim()} style={sendBtn}>
-                {sending ? '…' : '➤'}
-              </button>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
+  // Build a synthetic conversation grouping: by counterparty username so the
+  // middle column reads like a messenger thread list, not a flat mail list.
+  const groups = (() => {
+    const byOther = new Map();
+    for (const m of messages) {
+      const other = folder === 'sent' ? m.dest : (m.author || m.dest || 'reddit');
+      const k = other || '_';
+      const cur = byOther.get(k) || { other: k, items: [], unread: 0, lastTs: 0, last: m };
+      cur.items.push(m);
+      if (m.isNew) cur.unread++;
+      if ((m.created || 0) > cur.lastTs) { cur.lastTs = m.created; cur.last = m; }
+      byOther.set(k, cur);
+    }
+    return [...byOther.values()].sort((a, b) => b.lastTs - a.lastTs);
+  })();
 
   return (
-    <div style={embedded ? {} : undefined}>
-      {!embedded && (
-        <div className="title-block">
-          <div>
-            <div className="eyebrow">Messages</div>
-            <h1>Inbox</h1>
-          </div>
-        </div>
-      )}
+    <div>
+      {!embedded && <div className="title-block"><div><div className="eyebrow">Messages</div><h1>Inbox Manager</h1></div></div>}
 
       <div style={shell}>
-        {/* header */}
-        <div style={header}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-            <span style={snoo}>✉</span>
-            <span style={{ fontWeight: 700, color: '#fff', fontSize: 14 }}>Inbox</span>
-            {active && <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>u/{active.username}</span>}
+        {/* Top action bar */}
+        <div style={topBar}>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Inbox Manager</h2>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button className="ghost" onClick={load} disabled={loading}>↻ Refresh Account</button>
+            <button className="ghost" onClick={async () => {
+              for (const a of redditAccounts) {
+                await window.api.session.prepareForAccount({ accountId: a.id });
+                const r = await window.api.inbox.fetch({ token, accountId: a.id, folder: 'unread' });
+                if (r.ok) setUnreadByAccount((p) => ({ ...p, [a.id]: (r.messages || []).length }));
+              }
+            }}>↻ Refresh All Accounts</button>
+            {!standalone && <button className="ghost" onClick={popOut}>⧉ Pop out</button>}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AccountSwitcher platform="reddit" />
-            <button onClick={load} disabled={loading} style={iconBtn} title="Refresh">{loading ? '…' : '↻'}</button>
-            {!standalone && (
-              <button onClick={popOut} style={iconBtn} title="Pop out into its own window">⧉</button>
+        </div>
+
+        {/* Three columns */}
+        <div style={threeCol}>
+          {/* Column 1: accounts */}
+          <div style={accountsCol}>
+            {redditAccounts && redditAccounts.length ? redditAccounts.map((a) => {
+              const isActive = a.id === active?.id;
+              const unread = unreadByAccount[a.id] || 0;
+              return (
+                <button key={a.id} onClick={() => setActive(a.id)} style={{ ...accountRow, ...(isActive ? accountRowActive : {}) }}>
+                  <div style={{ ...avatarLg, background: `hsl(${hueOf(a.username)},45%,40%)` }}>{initial(a.username)}</div>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 500, color: '#d7dadc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {a.username}
+                  </div>
+                  {unread > 0 && <span style={badgeRed}>{unread > 999 ? '999+' : unread}</span>}
+                </button>
+              );
+            }) : <Empty text="No Reddit accounts." />}
+          </div>
+
+          {/* Column 2: conversation list + folder tabs */}
+          <div style={listCol}>
+            <div style={{ padding: '12px 12px 0 12px' }}>
+              <div style={{ background: '#0f0f10', border: '1px solid #2a2a2c', borderRadius: 10, padding: 10, marginBottom: 10 }}>
+                <div style={{ fontSize: 12, color: '#818384', marginBottom: 6 }}>Account: <span style={{ color: '#d7dadc', fontWeight: 600 }}>{active ? `u/${active.username}` : '—'}</span></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: loading ? 'var(--gold)' : '#818384' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: loading ? 'var(--gold)' : '#7fd99a' }} />
+                  {loading ? 'Refreshing…' : 'Connected'}
+                </div>
+              </div>
+
+              <div style={folderTabs}>
+                {FOLDERS.map((f) => {
+                  const isActive = folder === f.key;
+                  const count = f.key === 'unread' ? (unreadByAccount[active?.id] || 0) : null;
+                  return (
+                    <button key={f.key} onClick={() => { setFolder(f.key); setSelectedId(null); }} style={{ ...folderTab, ...(isActive ? folderTabActive : {}) }}>
+                      <span>{f.icon}</span> {f.label}
+                      {count > 0 && <span style={miniBadge}>{count}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 10px 8px' }}>
+              {!active ? <Empty text="No Reddit account selected." /> :
+                notLoggedIn ? (
+                  <div style={{ padding: 18, textAlign: 'center' }}>
+                    <div style={{ color: '#818384', fontSize: 13, lineHeight: 1.6 }}>u/{active.username} isn't logged into Reddit yet.</div>
+                    {navigate && <button onClick={() => { setActive(active.id); navigate('reddit'); }} style={{ ...primaryBtn, marginTop: 12 }}>Sign in via Browser ↗</button>}
+                  </div>
+                ) :
+                loading && messages.length === 0 ? <Empty text="Loading…" /> :
+                groups.length === 0 ? <Empty text="No messages." /> :
+                groups.map((g) => {
+                  const m = g.last;
+                  const isSel = m.id === selectedId;
+                  return (
+                    <button key={g.other + m.id} onClick={() => openMessage(m)} style={{ ...convoRow, ...(isSel ? convoRowActive : {}) }}>
+                      <div style={{ ...avatarMd, background: `hsl(${hueOf(g.other)},45%,40%)` }}>{initial(g.other)}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                          <span style={{ fontWeight: 600, color: '#d7dadc', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.other}</span>
+                          <span style={{ marginLeft: 'auto', fontSize: 11, color: '#818384', flexShrink: 0 }}>{fullStamp(m.created).slice(0, 16)}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: '#9a9b9d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
+                          {(m.body || m.subject || '').replace(/\s+/g, ' ').slice(0, 80)}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#5d5e60', marginTop: 2 }}>{g.items.length} message{g.items.length > 1 ? 's' : ''}</div>
+                      </div>
+                      {g.unread > 0 && <span style={badgeRedSm}>{g.unread}</span>}
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+
+          {/* Column 3: thread / chat view */}
+          <div style={threadCol}>
+            {!selected ? (
+              <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: '#5c5e60' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 40, marginBottom: 8 }}>✉</div>
+                  <div style={{ fontSize: 13 }}>Select a conversation</div>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={threadHeader}>
+                  <div style={{ ...avatarMd, background: `hsl(${hueOf(selected.author || selected.dest)},45%,40%)` }}>{initial(selected.author || selected.dest)}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: '#d7dadc' }}>{folder === 'sent' ? selected.dest : selected.author}</div>
+                    <div style={{ fontSize: 11, color: '#818384' }}>{messages.filter((m) => (m.author || m.dest) === (selected.author || selected.dest)).length} messages</div>
+                  </div>
+                </div>
+
+                <div style={threadBody}>
+                  {messages
+                    .filter((m) => (folder === 'sent' ? m.dest : (m.author || m.dest)) === (folder === 'sent' ? selected.dest : (selected.author || selected.dest)))
+                    .sort((a, b) => (a.created || 0) - (b.created || 0))
+                    .map((m) => {
+                      const fromMe = folder === 'sent' || (m.dest && m.dest === active?.username);
+                      return (
+                        <div key={m.id} style={{ display: 'flex', flexDirection: 'column', alignItems: fromMe ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
+                          <div style={{ fontSize: 11, color: '#818384', marginBottom: 4 }}>
+                            <span className="mono">{fullStamp(m.created)}</span>
+                            {fromMe && <span style={{ marginLeft: 6, color: '#d7dadc', fontWeight: 600 }}>You</span>}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexDirection: fromMe ? 'row-reverse' : 'row', maxWidth: '80%' }}>
+                            <div style={{ ...avatarSm, background: `hsl(${hueOf(fromMe ? active?.username : (m.author || m.dest))},45%,40%)` }}>
+                              {initial(fromMe ? active?.username : (m.author || m.dest))}
+                            </div>
+                            <div style={fromMe ? bubbleMe : bubbleThem}>{m.body}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+
+                {folder !== 'sent' && (
+                  <div style={composer}>
+                    <textarea
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      placeholder={`Reply as u/${active.username}…`}
+                      style={composerInput}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendReply(); }}
+                    />
+                    <button onClick={sendReply} disabled={sending || !replyText.trim()} style={sendBtn}>{sending ? '…' : '➤'}</button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
 
-        {/* folders */}
-        <div style={folderBar}>
-          {FOLDERS.map((f) => {
-            const isActive = folder === f.key;
-            return (
-              <button key={f.key} onClick={() => { setFolder(f.key); setSelectedId(null); }} style={{ ...folderTab, ...(isActive ? folderTabActive : {}) }}>
-                {f.label}
-                {f.key === 'unread' && unreadCount > 0 && <span style={badge}>{unreadCount}</span>}
-              </button>
-            );
-          })}
-        </div>
-
-        {err && <div style={{ background: 'rgba(180,90,90,0.15)', color: '#e2a3a3', padding: '8px 14px', fontSize: 12 }}>{err}</div>}
-
-        {/* two-pane body */}
-        <div style={{ ...body, height: standalone ? 'calc(100vh - 180px)' : body.height }}>
-          {listPane}
-          {detailPane}
-        </div>
+        {err && <div style={{ padding: 12, color: '#e2a3a3', fontSize: 12, borderTop: '1px solid #272729' }}>{err}</div>}
       </div>
     </div>
   );
 }
 
-function Empty({ text }) {
-  return <div style={{ padding: 40, textAlign: 'center', color: '#818384', fontSize: 13 }}>{text}</div>;
-}
+function Empty({ text }) { return <div style={{ padding: 30, textAlign: 'center', color: '#818384', fontSize: 12 }}>{text}</div>; }
 
-const shell = { border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', background: '#1a1a1b', display: 'flex', flexDirection: 'column' };
-const header = { background: ORANGE, padding: '9px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 };
-const snoo = { width: 22, height: 22, borderRadius: '50%', background: 'rgba(255,255,255,0.25)', display: 'inline-grid', placeItems: 'center', fontSize: 12, color: '#fff' };
-const iconBtn = { background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff', width: 28, height: 28, borderRadius: 6, cursor: 'pointer', fontSize: 14, flexShrink: 0 };
-const folderBar = { display: 'flex', gap: 2, padding: '0 8px', background: '#272729', borderBottom: '1px solid #343536' };
-const folderTab = { background: 'transparent', border: 'none', color: '#818384', padding: '10px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', borderBottom: '3px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 };
-const folderTabActive = { color: '#d7dadc', borderBottomColor: ORANGE };
-const badge = { background: ORANGE, color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 999, padding: '1px 6px', minWidth: 16, textAlign: 'center' };
-const body = { display: 'flex', height: '60vh', minHeight: 420 };
-const listCol = { width: 300, flexShrink: 0, borderRight: '1px solid #272729', display: 'flex', flexDirection: 'column', background: '#161617' };
-const detailCol = { flex: 1, display: 'flex', flexDirection: 'column', background: '#1a1a1b', minWidth: 0 };
-const searchWrap = { padding: 8, borderBottom: '1px solid #272729' };
-const searchInput = { width: '100%', background: '#0f0f10', border: '1px solid #343536', borderRadius: 8, color: '#d7dadc', padding: '7px 11px', fontSize: 12.5 };
-const listItem = { display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderBottom: '1px solid #222223', cursor: 'pointer' };
-const listItemActive = { background: 'rgba(255,69,0,0.10)' };
-const avatar = { width: 32, height: 32, borderRadius: '50%', display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: 13, flexShrink: 0 };
-const unreadDot = { width: 9, height: 9, borderRadius: '50%', background: ORANGE, flexShrink: 0, alignSelf: 'center' };
-const threadHeader = { display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderBottom: '1px solid #272729' };
-const backBtn = { background: '#272729', border: 'none', color: '#d7dadc', width: 30, height: 30, borderRadius: 8, cursor: 'pointer', fontSize: 16, flexShrink: 0 };
-const threadBody = { flex: 1, overflowY: 'auto', padding: '16px 18px' };
-const subjectLine = { fontSize: 15, fontWeight: 700, color: '#d7dadc', marginBottom: 12 };
-const msgBubble = { background: '#222223', borderRadius: 12, padding: '12px 14px', color: '#d7dadc', fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-wrap' };
-const composer = { display: 'flex', gap: 8, padding: 12, borderTop: '1px solid #272729', alignItems: 'flex-end' };
-const composerInput = { flex: 1, minHeight: 42, maxHeight: 140, background: '#0f0f10', border: '1px solid #343536', borderRadius: 20, color: '#d7dadc', padding: '11px 16px', fontSize: 13, resize: 'none', fontFamily: 'inherit' };
-const sendBtn = { background: ORANGE, border: 'none', color: '#fff', width: 42, height: 42, borderRadius: '50%', cursor: 'pointer', fontSize: 16, flexShrink: 0 };
-const primaryBtn = { background: ORANGE, border: 'none', color: '#fff', fontWeight: 700, fontSize: 13, padding: '8px 18px', borderRadius: 999, cursor: 'pointer' };
+const shell = { background: '#0f0f10', border: '1px solid #272729', borderRadius: 14, overflow: 'hidden', boxShadow: '0 8px 30px -10px rgba(0,0,0,0.6)' };
+const topBar = { display: 'flex', alignItems: 'center', padding: '16px 18px', borderBottom: '1px solid #272729', background: '#131314' };
+const threeCol = { display: 'grid', gridTemplateColumns: '220px 340px 1fr', height: '70vh', minHeight: 520 };
+const accountsCol = { background: '#0c0c0d', borderRight: '1px solid #1f1f21', padding: '12px 10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 };
+const listCol = { display: 'flex', flexDirection: 'column', background: '#0f0f10', borderRight: '1px solid #1f1f21' };
+const threadCol = { display: 'flex', flexDirection: 'column', background: '#0a0a0b', minWidth: 0 };
+
+const accountRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: '#15151700', border: '1px solid transparent', textAlign: 'left', cursor: 'pointer', width: '100%' };
+const accountRowActive = { background: '#1c2a45', border: '1px solid #2a4170' };
+const avatarLg = { width: 34, height: 34, borderRadius: '50%', display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: 14, flexShrink: 0 };
+const avatarMd = { width: 30, height: 30, borderRadius: '50%', display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: 13, flexShrink: 0 };
+const avatarSm = { width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', color: '#fff', fontWeight: 700, fontSize: 11, flexShrink: 0 };
+const badgeRed = { background: '#e85d3a', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999 };
+const badgeRedSm = { background: '#e85d3a', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 999, alignSelf: 'center' };
+
+const folderTabs = { display: 'flex', gap: 6, marginBottom: 10 };
+const folderTab = { flex: 1, background: '#171718', border: '1px solid #2a2a2c', color: '#9a9b9d', padding: '7px 10px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 };
+const folderTabActive = { background: '#1a3a6a', color: '#d7dadc', borderColor: '#2a4170' };
+const miniBadge = { background: '#e85d3a', color: '#fff', fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 999, marginLeft: 2 };
+
+const convoRow = { display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 10px', width: '100%', textAlign: 'left', background: 'transparent', border: '1px solid transparent', borderRadius: 10, cursor: 'pointer', marginBottom: 4 };
+const convoRowActive = { background: '#1c2a45', border: '1px solid #2a4170' };
+
+const threadHeader = { display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid #1f1f21' };
+const threadBody = { flex: 1, overflowY: 'auto', padding: '20px 22px', background: 'radial-gradient(ellipse at top, rgba(255,255,255,0.02), transparent 60%)' };
+
+const bubbleThem = { background: '#1f1f22', color: '#d7dadc', padding: '9px 14px', borderRadius: '14px 14px 14px 4px', fontSize: 13.5, lineHeight: 1.5, whiteSpace: 'pre-wrap' };
+const bubbleMe = { background: '#2563c9', color: '#fff', padding: '9px 14px', borderRadius: '14px 14px 4px 14px', fontSize: 13.5, lineHeight: 1.5, whiteSpace: 'pre-wrap' };
+
+const composer = { display: 'flex', gap: 8, padding: 14, borderTop: '1px solid #1f1f21', alignItems: 'flex-end' };
+const composerInput = { flex: 1, minHeight: 42, maxHeight: 140, background: '#0f0f10', border: '1px solid #2a2a2c', borderRadius: 18, color: '#d7dadc', padding: '11px 16px', fontSize: 13, resize: 'none', fontFamily: 'inherit' };
+const sendBtn = { background: '#2563c9', border: 'none', color: '#fff', width: 42, height: 42, borderRadius: '50%', cursor: 'pointer', fontSize: 16, flexShrink: 0 };
+const primaryBtn = { background: '#2563c9', border: 'none', color: '#fff', fontWeight: 700, fontSize: 13, padding: '8px 18px', borderRadius: 999, cursor: 'pointer' };
