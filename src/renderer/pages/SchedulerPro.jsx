@@ -49,6 +49,7 @@ export default function SchedulerProPage() {
   const [filters, setFilters] = useState({ platform: '', profileId: '', accountId: '', status: '' });
   const [msg, setMsg] = useState(null);
   const [err, setErr] = useState(null);
+  const [dragOverDay, setDragOverDay] = useState(null); // YYYY-MM-DD highlighted as drop target
   const [showCompose, setShowCompose] = useState(false);
   const [showAI, setShowAI] = useState(false);
 
@@ -101,6 +102,13 @@ export default function SchedulerProPage() {
   async function reschedule(id, dtLocal) {
     const res = await window.api.scheduled.reschedule({ token, id, scheduledFor: toStored(dtLocal) });
     if (res.ok) { setMsg('Rescheduled.'); load(); } else setErr(res.error);
+  }
+  async function rescheduleToDay(id, dayIso, originalStored) {
+    // Keep the original HH:MM:SS, change the date to dayIso (YYYY-MM-DD).
+    const hms = (originalStored || '').slice(11, 19) || '12:00:00';
+    const next = `${dayIso} ${hms}`;
+    const res = await window.api.scheduled.reschedule({ token, id, scheduledFor: next });
+    if (res.ok) { setMsg(`Moved to ${dayIso}.`); load(); } else setErr(res.error);
   }
   async function cancel(id) {
     const res = await window.api.scheduled.cancel({ token, id });
@@ -193,11 +201,45 @@ export default function SchedulerProPage() {
         <div className="empty-state" style={{ padding: 40 }}>No scheduled posts match these filters.</div>
       ) : (
         grouped.map(([day, items]) => (
-          <div key={day} style={{ marginBottom: 18 }}>
-            <div style={dayHeader}>{dayLabel(day + ' 00:00')}<span className="dim" style={{ marginLeft: 8 }}>{items.length}</span></div>
-            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-              {items.map((p) => (
-                <div key={p.id} style={row}>
+          <div
+            key={day}
+            style={{ marginBottom: 18 }}
+            onDragOver={(e) => { e.preventDefault(); setDragOverDay(day); }}
+            onDragLeave={() => setDragOverDay((cur) => (cur === day ? null : cur))}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOverDay(null);
+              const id = Number(e.dataTransfer.getData('post-id'));
+              const orig = e.dataTransfer.getData('post-original');
+              if (!id) return;
+              if (orig.slice(0, 10) === day) return; // dropped on same day, no-op
+              rescheduleToDay(id, day, orig);
+            }}
+          >
+            <div style={{ ...dayHeader, ...(dragOverDay === day ? { color: 'var(--gold-bright)' } : {}) }}>
+              {dayLabel(day + ' 00:00')}<span className="dim" style={{ marginLeft: 8 }}>{items.length}</span>
+              {dragOverDay === day && <span style={{ marginLeft: 10, color: 'var(--gold)', fontSize: 11 }}>↓ drop to move here</span>}
+            </div>
+            <div className="card" style={{
+              padding: 0, overflow: 'hidden',
+              transition: 'box-shadow 0.15s, border-color 0.15s',
+              ...(dragOverDay === day ? { borderColor: 'var(--gold)', boxShadow: '0 0 0 1px var(--gold) inset, 0 0 16px -4px var(--gold-soft)' } : {}),
+            }}>
+              {items.map((p) => {
+                const draggable = p.status === 'pending';
+                return (
+                <div
+                  key={p.id}
+                  draggable={draggable}
+                  onDragStart={(e) => {
+                    if (!draggable) return;
+                    e.dataTransfer.setData('post-id', String(p.id));
+                    e.dataTransfer.setData('post-original', p.scheduled_for || '');
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  style={{ ...row, ...(draggable ? { cursor: 'grab' } : {}) }}
+                  title={draggable ? 'Drag onto another day to reschedule' : undefined}
+                >
                   <div style={{ width: 70, flexShrink: 0, fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-2)' }}>
                     {timeLabel(p.scheduled_for)}
                   </div>
@@ -236,7 +278,8 @@ export default function SchedulerProPage() {
                   )}
                   <button className="ghost" onClick={() => del(p.id)} style={tiny} title="Delete">✕</button>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))
@@ -251,6 +294,7 @@ export default function SchedulerProPage() {
 function RunProSchedules({ token, accounts, onMsg, onError }) {
   const [templates, setTemplates] = useState([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState(null); // template object or null
   const [selected, setSelected] = useState(() => new Set());
   const [search, setSearch] = useState('');
   const [progress, setProgress] = useState(null); // { done, total, label }
@@ -378,6 +422,11 @@ function RunProSchedules({ token, accounts, onMsg, onError }) {
           onDone={() => { setShowCreate(false); onMsg('Template saved.'); load(); }}
           onError={onError} />
       )}
+      {editing && (
+        <TemplateForm token={token} accounts={accounts} initial={editing}
+          onDone={() => { setEditing(null); onMsg('Template updated.'); load(); }}
+          onError={onError} />
+      )}
       {filtered.length === 0 ? (
         <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-2)' }}>
           {search ? `No templates match "${search}".` : 'No templates yet. Create one above to bundle accounts × subreddits × cadence.'}
@@ -399,6 +448,7 @@ function RunProSchedules({ token, accounts, onMsg, onError }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                   <span style={{ width: 10, height: 10, borderRadius: '50%', background: isRunning ? 'var(--green-bright)' : 'var(--text-3)', boxShadow: isRunning ? '0 0 8px var(--green-bright)' : 'none' }} />
                   <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-0)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
+                  <button onClick={(e) => { e.stopPropagation(); setEditing(t); }} className="ghost" title="Edit template" style={{ fontSize: 11, padding: '3px 8px' }}>✎</button>
                   <button onClick={(e) => { e.stopPropagation(); del(t.id); }} className="ghost" title="Delete template" style={{ fontSize: 11, padding: '3px 8px' }}>✕</button>
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.6 }}>
@@ -420,33 +470,37 @@ function RunProSchedules({ token, accounts, onMsg, onError }) {
   );
 }
 
-function TemplateForm({ token, accounts, onDone, onError }) {
-  const [name, setName] = useState('');
-  const [subs, setSubs] = useState('');
-  const [accIds, setAccIds] = useState([]);
-  const [minH, setMinH] = useState(4);
-  const [maxH, setMaxH] = useState(8);
-  const [perAccount, setPerAccount] = useState(3);
+function TemplateForm({ token, accounts, onDone, onError, initial }) {
+  const [name, setName] = useState(initial?.name || '');
+  const [subs, setSubs] = useState((initial?.subreddits || []).join('\n'));
+  const [accIds, setAccIds] = useState(initial?.accountIds || []);
+  const [minH, setMinH] = useState(initial?.cadenceMinH ?? 4);
+  const [maxH, setMaxH] = useState(initial?.cadenceMaxH ?? 8);
+  const [perAccount, setPerAccount] = useState(initial?.postsPerAccount ?? 3);
   const [busy, setBusy] = useState(false);
+  const isEdit = !!initial;
 
   function toggleAcc(id) {
     setAccIds((cur) => cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]);
   }
   async function save() {
     setBusy(true);
-    const r = await window.api.templates.create({
-      token, name, accountIds: accIds,
+    const payload = {
+      name, accountIds: accIds,
       subreddits: subs.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
       cadenceMinH: Number(minH), cadenceMaxH: Number(maxH),
       postsPerAccount: Number(perAccount),
-    });
+    };
+    const r = isEdit
+      ? await window.api.templates.update({ token, id: initial.id, updates: payload })
+      : await window.api.templates.create({ token, ...payload });
     setBusy(false);
     if (r.ok) onDone(); else onError(r.error);
   }
 
   return (
     <div className="card bordered-glow" style={{ padding: 18, marginBottom: 16 }}>
-      <h3 style={{ marginTop: 0, marginBottom: 14 }}>New Template</h3>
+      <h3 style={{ marginTop: 0, marginBottom: 14 }}>{isEdit ? `Edit Template — ${initial.name}` : 'New Template'}</h3>
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
         <div>
           <label>Name</label>
@@ -484,9 +538,12 @@ function TemplateForm({ token, accounts, onDone, onError }) {
           })}
         </div>
       </div>
-      <button className="primary" onClick={save} disabled={busy || !name.trim()} style={{ marginTop: 14 }}>
-        {busy ? 'Saving…' : 'Save Template'}
-      </button>
+      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+        <button className="primary" onClick={save} disabled={busy || !name.trim()}>
+          {busy ? 'Saving…' : isEdit ? 'Save changes' : 'Save Template'}
+        </button>
+        {isEdit && <button className="ghost" onClick={() => onDone()} disabled={busy}>Cancel</button>}
+      </div>
     </div>
   );
 }

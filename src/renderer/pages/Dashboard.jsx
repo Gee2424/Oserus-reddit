@@ -24,20 +24,29 @@ export default function DashboardPage({ navigate }) {
   const [selected, setSelected] = useState(() => new Set());
 
   const [templates, setTemplates] = useState([]);
+  const [proxies, setProxies] = useState([]);
+  const [showProxyModal, setShowProxyModal] = useState(false);
 
   async function load() {
     setLoading(true);
-    const [a, sum, tpl] = await Promise.all([
+    const [a, sum, tpl, px] = await Promise.all([
       window.api.accounts.listForUser({ token }),
       window.api.analytics.summary({ token }).catch(() => ({ ok: false })),
       window.api.templates.list({ token }).catch(() => ({ ok: false })),
+      window.api.proxies.list({ token }).catch(() => ({ ok: false })),
     ]);
     const base = a.ok ? a.accounts : [];
     const karma = {};
     if (sum.ok && sum.accounts) for (const s of sum.accounts) karma[s.id] = s;
     setAccounts(base.map((x) => ({ ...x, ...(karma[x.id] || {}) })));
     setTemplates(tpl.ok ? (tpl.templates || []) : []);
+    setProxies(px.ok ? (px.proxies || []) : []);
     setLoading(false);
+  }
+
+  async function applyProxy(proxyId) {
+    const res = await window.api.accounts.bulkSetProxy({ token, accountIds: [...selected], proxyId });
+    if (res.ok) { setShowProxyModal(false); load(); }
   }
 
   // Account → list of templates that include it (for the Pro Schedule column).
@@ -109,7 +118,11 @@ export default function DashboardPage({ navigate }) {
         <button className="ghost" onClick={() => navigate('add-accounts')}>+ Add Accounts</button>
         <button className="ghost" onClick={load}>Refresh Data</button>
         <button className="ghost" onClick={() => navigate('operations')}>Send to Operations</button>
-        <button className="ghost" onClick={() => navigate('operations')}>Change Proxy</button>
+        <button
+          className="ghost"
+          onClick={() => selected.size > 0 ? setShowProxyModal(true) : navigate('operations')}
+          title={selected.size > 0 ? `Change proxy on ${selected.size} selected` : 'Manage proxies'}
+        >Change Proxy{selected.size > 0 ? ` · ${selected.size}` : ''}</button>
         <button className="ghost" onClick={async () => {
           const r = await window.api.proxies.testAll({ token });
           if (r.ok) { load(); }
@@ -137,6 +150,36 @@ export default function DashboardPage({ navigate }) {
           <input placeholder="Search by name or class…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 220 }} />
         </div>
       </div>
+
+      {showProxyModal && (
+        <Modal onClose={() => setShowProxyModal(false)} title={`Change proxy on ${selected.size} account${selected.size === 1 ? '' : 's'}`}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button
+              onClick={() => applyProxy(null)}
+              style={{ textAlign: 'left', padding: '10px 14px', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', color: 'var(--gold)' }}
+            >
+              ✕ Remove proxy (set to NO PROXY)
+            </button>
+            {proxies.length === 0 && (
+              <div className="muted" style={{ fontSize: 12, padding: '10px 0' }}>No proxies configured. Add some under Operations → Proxies.</div>
+            )}
+            {proxies.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => applyProxy(p.id)}
+                style={{ textAlign: 'left', padding: '10px 14px', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}
+              >
+                <span style={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: p.last_test_ok === 1 ? '#7fd99a' : p.last_test_ok === 0 ? '#e2a3a3' : 'var(--text-3)',
+                }} />
+                <span style={{ flex: 1 }}>{p.label}</span>
+                <span className="mono dim" style={{ fontSize: 11 }}>{p.kind} · {p.host}:{p.port}</span>
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ overflowX: 'auto' }}>
@@ -224,6 +267,30 @@ export default function DashboardPage({ navigate }) {
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function Modal({ title, children, onClose }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)',
+        display: 'grid', placeItems: 'center', zIndex: 200,
+      }}
+    >
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: 460, maxWidth: '90vw', maxHeight: '80vh', overflow: 'auto',
+        background: 'var(--bg-elev)', border: '1px solid var(--border)',
+        borderRadius: 'var(--radius-lg)', padding: 18, boxShadow: '0 24px 60px -10px rgba(0,0,0,0.7)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
+          <h3 style={{ margin: 0, flex: 1 }}>{title}</h3>
+          <button className="ghost" onClick={onClose} style={{ fontSize: 12, padding: '4px 10px' }}>✕</button>
+        </div>
+        {children}
       </div>
     </div>
   );

@@ -34,6 +34,23 @@ const ensureStarredColumn = ensureAccountMigrations;
 function register(ipcMain) {
   ensureStarredColumn();
 
+  ipcMain.handle('accounts:bulkSetProxy', (_e, { token, accountIds, proxyId }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      const ids = (Array.isArray(accountIds) ? accountIds : [accountIds]).map(Number).filter(Boolean);
+      if (!ids.length) throw new Error('No accounts selected');
+      const next = proxyId == null || proxyId === '' ? null : Number(proxyId);
+      const stmt = getDb().prepare('UPDATE reddit_accounts SET proxy_id = ? WHERE id = ?');
+      const tx = getDb().transaction(() => { for (const id of ids) stmt.run(next, id); });
+      tx();
+      log(user, 'account.bulkSetProxy', 'account', null, `n=${ids.length} proxy=${next || 'none'}`);
+      return { ok: true, updated: ids.length };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('accounts:setStarred', (_e, { token, accountIds, starred }) => {
     try {
       const user = userFromToken(token);
