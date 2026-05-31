@@ -385,6 +385,14 @@ export default function ModelDetailPage({ modelId, navigate }) {
         const isAddingThis = showAddPlatform === plat.v && !editing;
         const isEditingThis = editing && editing.platform === plat.v;
 
+        // Empty X / IG / TikTok sections never render — the + Add pill row
+        // above is the only way in, and the add form pops up as a modal.
+        // Reddit + RedGIFs keep their empty header so the toggle stays
+        // discoverable.
+        if (!platAccounts.length && !isEditingThis) {
+          if (plat.v !== 'reddit' && plat.v !== 'redgifs') return null;
+        }
+
         return (
           <div key={plat.v} style={{ marginBottom: 28 }}>
             <div style={styles.platformHeader}>
@@ -400,10 +408,23 @@ export default function ModelDetailPage({ modelId, navigate }) {
             </div>
 
             {(isAddingThis || isEditingThis) && (
-              <form onSubmit={submit} className="card" style={{ marginBottom: 14 }}>
-                <h3 style={{ marginBottom: 14 }}>
-                  {editing ? `Edit ${plat.label} account` : `Link new ${plat.label} account`}
-                </h3>
+              <div onClick={cancel} style={{
+                position: 'fixed', inset: 0, zIndex: 1000,
+                background: 'rgba(0,0,0,0.6)',
+                display: 'grid', placeItems: 'center', padding: 20,
+              }}>
+              <form onSubmit={submit} onClick={(e) => e.stopPropagation()} className="card" style={{
+                marginBottom: 0, width: 560, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto',
+                boxShadow: '0 24px 60px -10px rgba(0,0,0,0.7)',
+                borderTop: `3px solid ${plat.color}`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: plat.color, marginRight: 8 }} />
+                  <h3 style={{ margin: 0, flex: 1 }}>
+                    {editing ? `Edit ${plat.label} account` : `Link new ${plat.label} account`}
+                  </h3>
+                  <button type="button" className="ghost" onClick={cancel} style={{ fontSize: 12, padding: '4px 10px' }}>✕</button>
+                </div>
                 {error && <div className="error-banner">{error}</div>}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                   <div>
@@ -450,6 +471,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
                   <button type="button" className="ghost" onClick={cancel}>Cancel</button>
                 </div>
               </form>
+              </div>
             )}
 
             {platAccounts.length === 0 ? (
