@@ -388,8 +388,10 @@ export default function ModelDetailPage({ modelId, navigate }) {
         // Empty X / IG / TikTok sections never render — the + Add pill row
         // above is the only way in, and the add form pops up as a modal.
         // Reddit + RedGIFs keep their empty header so the toggle stays
-        // discoverable.
-        if (!platAccounts.length && !isEditingThis) {
+        // discoverable. We still render an empty section when the user has
+        // started adding to it, otherwise the modal form has nothing to
+        // mount inside.
+        if (!platAccounts.length && !isEditingThis && !isAddingThis) {
           if (plat.v !== 'reddit' && plat.v !== 'redgifs') return null;
         }
 

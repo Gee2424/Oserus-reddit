@@ -69,7 +69,7 @@ function Inner() {
       case 'proxies':
         return <AddAccountsPage navigate={navigate} initialTab="proxies" />;
       case 'votes':
-        return <SchedulerProPage initialProTab="configure" />;
+        return <SchedulerProPage initialProTab="configure" navigate={navigate} />;
       case 'subreddits': return <SubredditsPage />;
       case 'webviews': return <WebviewsPage />;
       case 'settings': return <SettingsPage navigate={navigate} />;
@@ -77,7 +77,7 @@ function Inner() {
       case 'analytics': return <AnalyticsPage />;
       case 'activity': return <ActivityPage />;
       case 'autopilot': return <AutopilotPage />;
-      case 'scheduler-pro': return <SchedulerProPage initialProTab={routeParams.tab} />;
+      case 'scheduler-pro': return <SchedulerProPage initialProTab={routeParams.tab} navigate={navigate} />;
       case 'intel': return <IntelligencePage />;
       case 'model-hub': return <ModelHubPage modelId={routeParams.modelId} navigate={navigate} />;
       case 'add-accounts': return <AddAccountsPage navigate={navigate} initialTab={routeParams.tab} />;

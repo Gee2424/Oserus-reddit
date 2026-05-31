@@ -40,7 +40,7 @@ const PRO_TABS = [
   { key: 'replenish',    icon: '⊕', title: 'Realtime Replenishment',  desc: 'Replace banned accounts with backups in realtime' },
 ];
 
-export default function SchedulerProPage({ initialProTab }) {
+export default function SchedulerProPage({ initialProTab, navigate }) {
   const { token } = useAuth();
   const { accounts } = useActiveAccount();
 
@@ -143,7 +143,17 @@ export default function SchedulerProPage({ initialProTab }) {
             {['basic', 'advanced'].map((m) => (
               <button
                 key={m}
-                onClick={() => setMode(m)}
+                onClick={() => {
+                  // Advanced mode lives in Account Manager Pro now — bounce
+                  // the user there with the posting tab pre-selected and
+                  // remember the choice so they don't have to flip it again.
+                  if (m === 'advanced' && navigate) {
+                    localStorage.setItem('scheduler_mode', 'advanced');
+                    navigate('inbox', { tab: 'posting' });
+                    return;
+                  }
+                  setMode(m);
+                }}
                 style={{
                   padding: '5px 12px', borderRadius: 999, border: 'none', cursor: 'pointer',
                   fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
