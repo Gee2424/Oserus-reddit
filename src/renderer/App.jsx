@@ -78,7 +78,8 @@ function Inner() {
       case 'activity': return <ActivityPage />;
       case 'autopilot': return <AutopilotPage />;
       case 'scheduler-pro': return <SchedulerProPage initialProTab={routeParams.tab} navigate={navigate} />;
-      case 'intel': return <IntelligencePage />;
+      case 'intel': return <IntelligencePage initialTab={routeParams.tab} />;
+      case 'scraper': return <IntelligencePage initialTab="scraper" />;
       case 'model-hub': return <ModelHubPage modelId={routeParams.modelId} navigate={navigate} />;
       case 'add-accounts': return <AddAccountsPage navigate={navigate} initialTab={routeParams.tab} />;
       default: return <DashboardPage navigate={navigate} />;

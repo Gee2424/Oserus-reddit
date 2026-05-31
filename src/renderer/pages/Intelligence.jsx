@@ -37,7 +37,7 @@ function toCSV(rows) {
   return [keys.join(','), ...rows.map((r) => keys.map((k) => esc(r[k])).join(','))].join('\n');
 }
 
-export default function IntelligencePage() {
+export default function IntelligencePage({ initialTab }) {
   const { token } = useAuth();
   const { forPlatform } = useActiveAccount();
   const { accounts } = forPlatform('reddit');
@@ -50,7 +50,7 @@ export default function IntelligencePage() {
   const [err, setErr] = useState(null);
   const [fetchKarma, setFetchKarma] = useState(true);
   const [fetchOther, setFetchOther] = useState(true);
-  const [tab, setTab] = useState('requirements');
+  const [tab, setTab] = useState(initialTab && INNER_TABS.some((t) => t.k === initialTab) ? initialTab : 'requirements');
 
   const load = useCallback(async () => {
     const res = await window.api.intel.list({ token });

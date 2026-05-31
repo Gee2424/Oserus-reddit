@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import SchedulerPage from './Scheduler.jsx';
+import SchedulerProPage from './SchedulerPro.jsx';
 import InboxPage from './Inbox.jsx';
 
 const TABS = [
@@ -87,7 +87,7 @@ export default function RedditApiPage({ initialTab, navigate }) {
       </div>
 
       {tab === 'inbox'   && <InboxPage embedded navigate={navigate} />}
-      {tab === 'posting' && <SchedulerPage embedded />}
+      {tab === 'posting' && <SchedulerProPage navigate={navigate} />}
     </div>
   );
 }
