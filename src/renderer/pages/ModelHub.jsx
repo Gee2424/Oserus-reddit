@@ -12,13 +12,15 @@ import { useActiveAccount } from '../lib/activeAccount.jsx';
 import { Banner, Avatar, Tag, StatusPill } from '../components/ui.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
 
-const PLATFORMS = [
-  { key: 'reddit',    label: 'Reddit',    icon: 'R', color: '#ff4500', supported: true },
-  { key: 'redgifs',   label: 'RedGIFs',   icon: 'G', color: '#d63d3d', supported: true },
-  { key: 'x',         label: 'X',         icon: '𝕏', color: '#fff',    supported: false },
-  { key: 'instagram', label: 'Instagram', icon: '◉', color: '#e2497d', supported: false },
-  { key: 'tiktok',    label: 'TikTok',    icon: '♪', color: '#69c9d0', supported: false },
-];
+import { PLATFORMS as SHARED_PLATFORMS } from '../lib/platforms.js';
+
+// Each platform card carries its shared brand color + label plus a hub-local
+// `supported` flag (currently Reddit + RedGIFs are wired end-to-end; X / IG /
+// TikTok land in the browser launcher but lack scheduler/inbox adapters).
+const PLATFORMS = SHARED_PLATFORMS.map((p) => ({
+  key: p.v, label: p.label, icon: p.short, color: p.color,
+  supported: p.v === 'reddit' || p.v === 'redgifs',
+}));
 
 function ageFromIso(s) {
   if (!s) return '—';

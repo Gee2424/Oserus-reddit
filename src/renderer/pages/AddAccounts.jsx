@@ -12,13 +12,7 @@ const TABS = [
   { key: 'proxies', label: 'Proxies',              hint: 'create/edit proxy pool' },
 ];
 
-const PLATFORMS = [
-  { v: 'reddit',    label: 'Reddit',    url: 'https://www.reddit.com/login' },
-  { v: 'redgifs',   label: 'RedGIFs',   url: 'https://www.redgifs.com/signin' },
-  { v: 'x',         label: 'X (Twitter)', url: 'https://x.com/login' },
-  { v: 'instagram', label: 'Instagram', url: 'https://www.instagram.com/accounts/login/' },
-  { v: 'tiktok',    label: 'TikTok',    url: 'https://www.tiktok.com/login' },
-];
+import { PLATFORMS } from '../lib/platforms.js';
 
 const USER_AGENTS = [
   { v: '',                                                                                                       label: '— default (Windows / Chrome 127) —' },

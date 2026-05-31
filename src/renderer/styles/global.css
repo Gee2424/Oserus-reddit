@@ -169,6 +169,20 @@ input, textarea, select {
   width: 100%;
   transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
 }
+/* Subtle fade-in for newly mounted cards / modals — smooths route changes
+   and popup mounts without animating every reflow. */
+.card, .modal-backdrop {
+  animation: oserus-fade-in 0.15s ease-out;
+}
+@keyframes oserus-fade-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* All buttons get a light press feedback even when not styled by the global
+   `button` rule (e.g. inline-styled platform pills). */
+button { transition: background 0.12s, border-color 0.12s, transform 0.08s, box-shadow 0.12s, filter 0.12s; }
+button:hover:not(:disabled) { filter: brightness(1.08); }
+
 input:focus, textarea:focus, select:focus {
   border-color: var(--blue-bright);
   background: var(--bg-2);

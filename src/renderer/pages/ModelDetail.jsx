@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
+import { PLATFORMS as SHARED_PLATFORMS } from '../lib/platforms.js';
 
 const STATUS_OPTIONS = [
   { v: 'warming', label: 'Warming up' },
@@ -12,13 +13,11 @@ const STATUS_OPTIONS = [
 
 const STATUS_COLORS = { warming: '#d4a55a', ready: '#7a9a5a', paused: '#968b78', banned: '#b3473a' };
 
-const PLATFORMS = [
-  { v: 'reddit',    label: 'Reddit',    icon: '🔴', color: '#ff4500', usernamePrefix: 'u/' },
-  { v: 'redgifs',   label: 'RedGIFs',   icon: '🟠', color: '#ff2e74', usernamePrefix: '@' },
-  { v: 'x',         label: 'X',         icon: '🔵', color: '#1d9bf0', usernamePrefix: '@' },
-  { v: 'instagram', label: 'Instagram', icon: '🟣', color: '#e1306c', usernamePrefix: '@' },
-  { v: 'tiktok',    label: 'TikTok',    icon: '⚫', color: '#25f4ee', usernamePrefix: '@' },
-];
+// Add an emoji icon on top of the shared platform metadata for the section
+// headers — everything else (color, label, login URL) comes from the single
+// source of truth in lib/platforms.js.
+const PLAT_ICONS = { reddit: '🔴', redgifs: '🟠', x: '🔵', instagram: '🟣', tiktok: '⚫' };
+const PLATFORMS = SHARED_PLATFORMS.map((p) => ({ ...p, icon: PLAT_ICONS[p.v] || '◈' }));
 
 export default function ModelDetailPage({ modelId, navigate }) {
   const { token, user } = useAuth();

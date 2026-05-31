@@ -5,8 +5,6 @@ import { ActiveAccountProvider } from './lib/activeAccount.jsx';
 import LoginPage from './pages/Login.jsx';
 import Shell from './components/Shell.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
-import RedditBrowser from './pages/RedditBrowser.jsx';
-import RedGifsBrowser from './pages/RedGifsBrowser.jsx';
 import UnifiedBrowser from './pages/UnifiedBrowser.jsx';
 import ProfilesPage from './pages/Profiles.jsx';
 import ModelDetailPage from './pages/ModelDetail.jsx';

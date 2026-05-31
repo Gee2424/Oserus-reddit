@@ -1,18 +1,11 @@
 import React, { useState } from 'react';
 import SchedulerProPage from './SchedulerPro.jsx';
 import InboxPage from './Inbox.jsx';
+import { PLATFORMS as PLATFORM_PILLS } from '../lib/platforms.js';
 
 const TABS = [
   { key: 'inbox',   label: 'Inbox',   icon: '✉', hint: 'DMs & modmail' },
   { key: 'posting', label: 'Posting', icon: '◷', hint: 'Scheduled posts' },
-];
-
-const PLATFORM_PILLS = [
-  { v: 'reddit',    label: 'Reddit',    color: '#ff4500' },
-  { v: 'redgifs',   label: 'RedGIFs',   color: '#ff2e74' },
-  { v: 'x',         label: 'X',         color: '#1d9bf0' },
-  { v: 'instagram', label: 'Instagram', color: '#e1306c' },
-  { v: 'tiktok',    label: 'TikTok',    color: '#25f4ee' },
 ];
 
 export default function RedditApiPage({ initialTab, navigate }) {

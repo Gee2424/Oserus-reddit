@@ -2,6 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { Avatar, Tag, StatusPill, StatTile } from '../components/ui.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
+import { platformColor, platformShort } from '../lib/platforms.js';
 
 function fmt(n) { return n == null ? '—' : n.toLocaleString(); }
 function ageFromIso(s) {
@@ -221,7 +222,7 @@ export default function DashboardPage({ navigate }) {
                       title={`${list.length} ${p} account${list.length === 1 ? '' : 's'}`}
                       style={{ ...platformLogoPill, background: platformColor(p) }}
                     >
-                      <span style={{ fontWeight: 800, fontSize: 11, color: '#fff' }}>{platformInitial(p)}</span>
+                      <span style={{ fontWeight: 800, fontSize: 11, color: '#fff' }}>{platformShort(p)}</span>
                       {list.length > 1 && <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', opacity: 0.9 }}>×{list.length}</span>}
                     </button>
                   ));
@@ -557,21 +558,8 @@ const platformLogoPill = {
   width: 30, height: 22, justifyContent: 'center',
   borderRadius: 6, border: 'none', cursor: 'pointer',
   padding: '0 6px',
+  transition: 'transform 0.12s ease, filter 0.12s ease',
 };
-function platformColor(p) {
-  return p === 'redgifs' ? '#ff2e74'
-    : p === 'x' ? '#1d9bf0'
-    : p === 'instagram' ? '#e1306c'
-    : p === 'tiktok' ? '#25f4ee'
-    : '#ff4500';
-}
-function platformInitial(p) {
-  return p === 'redgifs' ? 'G'
-    : p === 'x' ? '𝕏'
-    : p === 'instagram' ? 'IG'
-    : p === 'tiktok' ? 'TT'
-    : 'R';
-}
 const actionBar = { display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' };
 const th = { textAlign: 'left', padding: '11px 14px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)' };
 const td = { padding: '10px 14px', verticalAlign: 'middle' };
