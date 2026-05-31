@@ -7,6 +7,7 @@ import Shell from './components/Shell.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
 import RedditBrowser from './pages/RedditBrowser.jsx';
 import RedGifsBrowser from './pages/RedGifsBrowser.jsx';
+import UnifiedBrowser from './pages/UnifiedBrowser.jsx';
 import ProfilesPage from './pages/Profiles.jsx';
 import ModelDetailPage from './pages/ModelDetail.jsx';
 import TeamPage from './pages/Team.jsx';
@@ -53,9 +54,10 @@ function Inner() {
   const page = (() => {
     switch (route) {
       case 'dashboard': return <DashboardPage navigate={navigate} />;
-      case 'reddit': return <RedditBrowser navigate={navigate} />;
+      case 'browser': return <UnifiedBrowser navigate={navigate} defaultPlatform={routeParams.platform} />;
+      case 'reddit': return <UnifiedBrowser navigate={navigate} defaultPlatform="reddit" />;
       case 'redgifs': return <RedGifsDashboardPage navigate={navigate} />;
-      case 'redgifs-browse': return <RedGifsBrowser />;
+      case 'redgifs-browse': return <UnifiedBrowser navigate={navigate} defaultPlatform="redgifs" />;
       case 'reddit-api': return <RedditApiPage initialTab={routeParams.tab} navigate={navigate} />;
       case 'accounts': return <RedditApiPage initialTab="reddit" navigate={navigate} />;
       case 'scheduler': return <RedditApiPage initialTab="posting" navigate={navigate} />;
