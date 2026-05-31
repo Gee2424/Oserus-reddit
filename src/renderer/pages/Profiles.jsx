@@ -292,6 +292,18 @@ export default function ProfilesPage({ navigate }) {
                       ))}
                     </div>
                   )}
+                  <label style={{ marginTop: 10 }}>Main email <span className="dim" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>(primary recovery email shown on the Dashboard)</span></label>
+                  <input
+                    type="email"
+                    defaultValue={p.main_email || ''}
+                    placeholder="primary@example.com"
+                    onBlur={async (e) => {
+                      const v = e.target.value.trim() || null;
+                      if (v === (p.main_email || null)) return;
+                      await window.api.profiles.update({ token, profileId: p.id, updates: { main_email: v } });
+                      load();
+                    }}
+                  />
                   <label style={{ marginTop: 10 }}>Model proxy <span className="dim" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>(inherited by accounts without their own)</span></label>
                   <select
                     value={p.proxy_id || ''}

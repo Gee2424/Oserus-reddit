@@ -158,7 +158,7 @@ function register(ipcMain) {
 
     const accounts = getDb()
       .prepare(
-        `SELECT a.*, p.name AS profile_name,
+        `SELECT a.*, p.name AS profile_name, p.main_email AS profile_main_email,
                 px.label AS proxy_label, px.kind AS proxy_kind,
                 px.last_test_ok AS proxy_test_ok, px.last_test_error AS proxy_test_error
          FROM reddit_accounts a

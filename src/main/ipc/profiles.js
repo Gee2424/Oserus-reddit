@@ -12,6 +12,9 @@ function ensureProfileMigrations() {
     if (!cols.some((c) => c.name === 'proxy_id')) {
       getDb().exec('ALTER TABLE model_profiles ADD COLUMN proxy_id INTEGER REFERENCES proxies(id) ON DELETE SET NULL');
     }
+    if (!cols.some((c) => c.name === 'main_email')) {
+      getDb().exec('ALTER TABLE model_profiles ADD COLUMN main_email TEXT');
+    }
   } catch {}
   try {
     getDb().exec(`
@@ -124,7 +127,7 @@ function register(ipcMain) {
   ipcMain.handle('profiles:update', (_e, { token, profileId, updates }) => {
     try {
       requireManagerOrAdmin(token);
-      const allowed = ['name', 'assigned_user_id', 'niche', 'brand_voice', 'notes', 'avatar_color', 'proxy_id'];
+      const allowed = ['name', 'assigned_user_id', 'niche', 'brand_voice', 'notes', 'avatar_color', 'proxy_id', 'main_email'];
       const sets = [], params = [];
       for (const k of allowed) {
         if (updates[k] !== undefined) {

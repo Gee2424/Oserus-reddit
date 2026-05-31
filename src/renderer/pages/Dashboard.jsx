@@ -108,21 +108,35 @@ export default function DashboardPage({ navigate }) {
     return [...m.entries()].map(([id, name]) => ({ id, name }));
   }, [reddit]);
 
-  // Models row — one card per profile_id with live/banned/proxy-issue counts.
+  // Models row — one row per profile_id. Holds counts AND the underlying
+  // account list so the ▶ play button can open every account at once and the
+  // row can show the username chips inline.
   const models = useMemo(() => {
     const m = new Map();
     for (const a of accounts) {
       const pid = a.profile_id;
       if (!pid) continue;
-      if (!m.has(pid)) m.set(pid, { id: pid, name: a.profile_name || `Model ${pid}`, total: 0, live: 0, banned: 0, proxyBad: 0 });
+      if (!m.has(pid)) m.set(pid, {
+        id: pid, name: a.profile_name || `Model ${pid}`,
+        total: 0, live: 0, banned: 0, proxyBad: 0,
+        mainEmail: a.profile_main_email || null,
+        accountsList: [],
+      });
       const row = m.get(pid);
       row.total += 1;
+      row.accountsList.push(a);
       if (a.status === 'ready') row.live += 1;
       if (a.status === 'banned') row.banned += 1;
       if (a.proxy_test_ok === 0) row.proxyBad += 1;
     }
     return [...m.values()].sort((a, b) => b.total - a.total);
   }, [accounts]);
+
+  async function openAllForModel(model) {
+    for (const a of model.accountsList) {
+      await window.api.windows.openAccountBrowser({ accountId: a.id });
+    }
+  }
 
   const filtered = useMemo(() => {
     let r = reddit;
@@ -169,24 +183,45 @@ export default function DashboardPage({ navigate }) {
       </div>
 
       {models.length > 0 && (
-        <div style={modelRow}>
+        <div style={modelList}>
           {models.map((m) => (
-            <div
-              key={m.id}
-              onClick={() => navigate('model-hub', { modelId: m.id })}
-              style={modelCard}
-              title={`Open ${m.name} hub`}
-            >
-              <Avatar name={m.name} size={32} />
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
-                <div style={{ fontSize: 11, color: '#9aa0a6', marginTop: 2 }}>
+            <div key={m.id} style={modelRowCard}>
+              <button
+                onClick={(e) => { e.stopPropagation(); openAllForModel(m); }}
+                title={`Open all ${m.total} account${m.total === 1 ? '' : 's'} in pre-logged-in browsers`}
+                style={playBtn}
+              >▶</button>
+              <Avatar name={m.name} size={36} />
+              <div
+                onClick={() => navigate('model-hub', { modelId: m.id })}
+                style={{ cursor: 'pointer', minWidth: 140 }}
+                title={`Open ${m.name} hub`}
+              >
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</div>
+                <div style={{ fontSize: 10, color: '#9aa0a6', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>
                   <span style={{ color: '#7fd99a' }}>{m.live} live</span>
-                  <span style={{ margin: '0 6px', opacity: 0.4 }}>·</span>
+                  <span style={{ margin: '0 5px', opacity: 0.4 }}>·</span>
                   <span>{m.total} acct{m.total === 1 ? '' : 's'}</span>
-                  {m.banned > 0 && (<><span style={{ margin: '0 6px', opacity: 0.4 }}>·</span><span style={{ color: '#e2a3a3' }}>{m.banned} banned</span></>)}
-                  {m.proxyBad > 0 && (<><span style={{ margin: '0 6px', opacity: 0.4 }}>·</span><span style={{ color: '#7aa2f7' }}>{m.proxyBad} proxy</span></>)}
+                  {m.banned > 0 && (<><span style={{ margin: '0 5px', opacity: 0.4 }}>·</span><span style={{ color: '#e2a3a3' }}>{m.banned} banned</span></>)}
                 </div>
+              </div>
+              <span style={{ color: 'var(--text-3)', fontSize: 14 }}>→</span>
+              <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 4, minWidth: 0 }}>
+                {m.accountsList.map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={(e) => { e.stopPropagation(); window.api.windows.openAccountBrowser({ accountId: a.id }); }}
+                    title={`Open ${a.platform || 'reddit'} · ${a.username}`}
+                    style={acctChip}
+                  >
+                    <span style={{ ...platformDot, background: platformColor(a.platform) }} />
+                    {a.username}
+                  </button>
+                ))}
+              </div>
+              <span style={{ color: 'var(--text-3)', fontSize: 14 }}>→</span>
+              <div style={{ minWidth: 180, fontSize: 12, color: m.mainEmail ? 'var(--text-2)' : 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+                {m.mainEmail || <span className="dim" style={{ fontStyle: 'italic' }}>set main email on Model Profile</span>}
               </div>
             </div>
           ))}
@@ -481,13 +516,36 @@ function Modal({ title, children, onClose }) {
 }
 
 const statRow = { display: 'flex', gap: 14, marginBottom: 18 };
-const modelRow = { display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' };
-const modelCard = {
-  display: 'flex', alignItems: 'center', gap: 10,
-  padding: '8px 12px', minWidth: 200, flex: '0 1 240px',
+const modelList = { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 };
+const modelRowCard = {
+  display: 'flex', alignItems: 'center', gap: 12,
+  padding: '10px 14px',
   background: 'var(--bg-elev)', border: '1px solid var(--border)',
-  borderRadius: 'var(--radius-lg)', cursor: 'pointer',
+  borderRadius: 'var(--radius-lg)',
 };
+const playBtn = {
+  width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+  background: 'linear-gradient(135deg, var(--green), var(--gold))',
+  color: '#1a1a14', border: '1px solid var(--gold)',
+  fontSize: 13, fontWeight: 700, cursor: 'pointer',
+  display: 'grid', placeItems: 'center',
+  boxShadow: '0 2px 8px rgba(127,217,154,0.3)',
+};
+const acctChip = {
+  display: 'inline-flex', alignItems: 'center', gap: 5,
+  background: 'var(--bg-1)', border: '1px solid var(--border)',
+  borderRadius: 999, padding: '3px 9px',
+  fontSize: 11, color: 'var(--text-2)', cursor: 'pointer',
+  fontFamily: 'var(--font-mono)',
+};
+const platformDot = { width: 6, height: 6, borderRadius: '50%' };
+function platformColor(p) {
+  return p === 'redgifs' ? '#ff2e74'
+    : p === 'x' ? '#1d9bf0'
+    : p === 'instagram' ? '#e1306c'
+    : p === 'tiktok' ? '#25f4ee'
+    : '#ff4500';
+}
 const actionBar = { display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' };
 const th = { textAlign: 'left', padding: '11px 14px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)' };
 const td = { padding: '10px 14px', verticalAlign: 'middle' };
