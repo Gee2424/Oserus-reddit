@@ -15,6 +15,30 @@ function ageFromIso(s) {
   } catch { return '—'; }
 }
 
+// Composite account-health score 0-100. Inputs: status, proxy test result,
+// karma totals, account age. Returned tier drives the colored pill in the row.
+function accountHealth(a) {
+  if (a.status === 'banned') return { score: 0, tier: 'bad', label: 'Banned', reasons: ['Account banned'] };
+  let score = 100;
+  const reasons = [];
+  if (a.proxy_test_ok === 0) { score -= 35; reasons.push('Proxy failing'); }
+  else if (!a.proxy_label) { score -= 10; reasons.push('No proxy'); }
+  if (a.status === 'warming') { score -= 10; reasons.push('Warming'); }
+  const totalK = (a.post_karma || 0) + (a.comment_karma || 0);
+  if (totalK < 50) { score -= 20; reasons.push('Low karma'); }
+  else if (totalK < 250) { score -= 8; reasons.push('Building karma'); }
+  if (a.created_at) {
+    try {
+      const days = Math.floor((Date.now() - new Date(a.created_at.replace(' ', 'T') + 'Z').getTime()) / 86400000);
+      if (days < 30) { score -= 12; reasons.push('New account'); }
+    } catch {}
+  }
+  score = Math.max(0, Math.min(100, score));
+  const tier = score >= 75 ? 'good' : score >= 45 ? 'warn' : 'bad';
+  const label = tier === 'good' ? 'Healthy' : tier === 'warn' ? 'At Risk' : 'Critical';
+  return { score, tier, label, reasons };
+}
+
 export default function DashboardPage({ navigate }) {
   const { token, user } = useAuth();
   const [accounts, setAccounts] = useState([]);
@@ -312,6 +336,7 @@ export default function DashboardPage({ navigate }) {
                 <th style={{ ...th, textAlign: 'right' }}>Comment Karma</th>
                 <th style={th}>Proxy</th>
                 <th style={th}>Status</th>
+                <th style={th}>Health</th>
                 <th style={th}>Web</th>
                 <th style={th}>Class</th>
                 <th style={th}>Pro Schedule</th>
@@ -319,9 +344,9 @@ export default function DashboardPage({ navigate }) {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={11} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>Loading…</td></tr>
+                <tr><td colSpan={12} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>Loading…</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={11} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>No accounts.</td></tr>
+                <tr><td colSpan={12} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>No accounts.</td></tr>
               ) : filtered.map((a) => {
                 const sel = selected.has(a.id);
                 const nsfw = a.status === 'ready';
@@ -365,6 +390,27 @@ export default function DashboardPage({ navigate }) {
                           : <span className="mono" style={{ fontSize: 12 }}>{a.proxy_label}</span>}
                     </td>
                     <td style={td}><StatusPill status={a.status} /></td>
+                    <td style={td}>
+                      {(() => {
+                        const h = accountHealth(a);
+                        const colors = h.tier === 'good'
+                          ? { bg: 'rgba(127,217,154,0.14)', bd: 'rgba(127,217,154,0.45)', fg: '#7fd99a' }
+                          : h.tier === 'warn'
+                          ? { bg: 'rgba(212,166,74,0.14)', bd: 'rgba(212,166,74,0.45)', fg: '#d4a64a' }
+                          : { bg: 'rgba(226,163,163,0.14)', bd: 'rgba(226,163,163,0.45)', fg: '#e2a3a3' };
+                        return (
+                          <span title={h.reasons.length ? h.reasons.join(' · ') : `Score ${h.score}`} style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            fontSize: 10, fontWeight: 700, padding: '3px 9px',
+                            borderRadius: 999, letterSpacing: '0.05em', textTransform: 'uppercase',
+                            background: colors.bg, border: `1px solid ${colors.bd}`, color: colors.fg,
+                          }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: colors.fg }} />
+                            {h.label} {h.score}
+                          </span>
+                        );
+                      })()}
+                    </td>
                     <td style={td}>
                       <span style={{ display: 'inline-grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', background: '#ff4500', color: '#fff', fontWeight: 700, fontSize: 12 }} title={`u/${a.username}`}>R</span>
                     </td>

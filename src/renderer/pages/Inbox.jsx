@@ -157,6 +157,26 @@ export default function InboxPage({ embedded, standalone, navigate }) {
           </div>
         </div>
 
+        {/* Messaging Analytics strip */}
+        {(() => {
+          const totalUnread = Object.values(unreadByAccount).reduce((s, n) => s + (n || 0), 0);
+          const accountsWithUnread = Object.values(unreadByAccount).filter((n) => n > 0).length;
+          const dayAgo = Math.floor(Date.now() / 1000) - 86400;
+          const last24 = messages.filter((m) => (m.createdUtc || 0) >= dayAgo).length;
+          const sent24 = messages.filter((m) => (m.createdUtc || 0) >= dayAgo && m.author === active?.username).length;
+          const received24 = Math.max(0, last24 - sent24);
+          const responseRate = received24 > 0 ? Math.round((sent24 / received24) * 100) : null;
+          return (
+            <div style={analyticsStrip}>
+              <AnalyticsTile label="Total Unread" value={totalUnread} tone="red" />
+              <AnalyticsTile label="Accounts w/ Unread" value={accountsWithUnread} tone="gold" />
+              <AnalyticsTile label="Received 24h" value={received24} tone="blue" />
+              <AnalyticsTile label="Sent 24h" value={sent24} tone="green" />
+              <AnalyticsTile label="Response Rate" value={responseRate == null ? '—' : `${responseRate}%`} tone="purple" />
+            </div>
+          );
+        })()}
+
         {/* Three columns */}
         <div style={threeCol}>
           {/* Column 1: accounts */}
@@ -338,8 +358,26 @@ export default function InboxPage({ embedded, standalone, navigate }) {
 
 function Empty({ text }) { return <div style={{ padding: 30, textAlign: 'center', color: '#818384', fontSize: 12 }}>{text}</div>; }
 
+function AnalyticsTile({ label, value, tone }) {
+  const colors = {
+    red: '#e2a3a3', gold: '#d4a64a', blue: '#7aa2f7', green: '#7fd99a', purple: '#b89aff',
+  };
+  const fg = colors[tone] || '#d7dadc';
+  return (
+    <div style={{
+      flex: 1, minWidth: 110,
+      background: '#0c0c0d', border: '1px solid #1f1f21',
+      borderRadius: 10, padding: '10px 14px',
+    }}>
+      <div style={{ fontSize: 10, color: '#818384', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: fg, marginTop: 4 }}>{value}</div>
+    </div>
+  );
+}
+
 const shell = { background: '#0f0f10', border: '1px solid #272729', borderRadius: 14, overflow: 'hidden', boxShadow: '0 8px 30px -10px rgba(0,0,0,0.6)' };
 const topBar = { display: 'flex', alignItems: 'center', padding: '16px 18px', borderBottom: '1px solid #272729', background: '#131314' };
+const analyticsStrip = { display: 'flex', gap: 10, padding: '14px 18px', borderBottom: '1px solid #272729', background: '#101011' };
 const threeCol = { display: 'grid', gridTemplateColumns: '220px 340px 1fr', height: '70vh', minHeight: 520 };
 const accountsCol = { background: '#0c0c0d', borderRight: '1px solid #1f1f21', padding: '12px 10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 };
 const listCol = { display: 'flex', flexDirection: 'column', background: '#0f0f10', borderRight: '1px solid #1f1f21' };
