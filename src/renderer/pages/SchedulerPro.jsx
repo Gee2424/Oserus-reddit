@@ -49,6 +49,8 @@ export default function SchedulerProPage({ initialProTab }) {
   const [proTab, setProTab] = useState(initialProTab && PRO_TABS.some((t) => t.key === initialProTab) ? initialProTab : 'configure');
   const [posts, setPosts] = useState([]);
   const [filters, setFilters] = useState({ platform: '', profileId: '', accountId: '', status: '' });
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('sched.viewMode') || 'timeline');
+  useEffect(() => { localStorage.setItem('sched.viewMode', viewMode); }, [viewMode]);
   const [msg, setMsg] = useState(null);
   const [err, setErr] = useState(null);
   const [dragOverDay, setDragOverDay] = useState(null); // YYYY-MM-DD highlighted as drop target
@@ -213,10 +215,23 @@ export default function SchedulerProPage({ initialProTab }) {
           <option value="">Any status</option>
           {['pending', 'posted', 'failed', 'cancelled'].map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <button className="ghost" onClick={load} style={{ marginLeft: 'auto' }}>Refresh</button>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 999, padding: 2 }}>
+            {[{ k: 'timeline', l: 'Timeline' }, { k: 'columns', l: 'Columns' }].map((v) => (
+              <button key={v.k} onClick={() => setViewMode(v.k)} style={{
+                padding: '5px 12px', fontSize: 11, fontWeight: 600, borderRadius: 999, border: 'none', cursor: 'pointer',
+                background: viewMode === v.k ? 'var(--gold)' : 'transparent',
+                color: viewMode === v.k ? '#1a1a14' : 'var(--text-2)',
+              }}>{v.l}</button>
+            ))}
+          </div>
+          <button className="ghost" onClick={load}>Refresh</button>
+        </div>
       </div>
 
-      {grouped.length === 0 ? (
+      {viewMode === 'columns' ? (
+        <StatusColumns posts={posts} onCancel={cancel} onDelete={del} />
+      ) : grouped.length === 0 ? (
         <div className="empty-state" style={{ padding: 40 }}>No scheduled posts match these filters.</div>
       ) : (
         grouped.map(([day, items]) => (
@@ -304,6 +319,75 @@ export default function SchedulerProPage({ initialProTab }) {
         ))
       )}
       </> : null}
+    </div>
+  );
+}
+
+/* --------------------- Status Columns (kanban) --------------------- */
+
+const STATUS_COLUMNS = [
+  { key: 'pending',   label: 'Scheduled' },
+  { key: 'running',   label: 'Running'   },
+  { key: 'posted',    label: 'Completed' },
+  { key: 'failed',    label: 'Failed'    },
+  { key: 'cancelled', label: 'Paused'    },
+];
+
+function StatusColumns({ posts, onCancel, onDelete }) {
+  const buckets = useMemo(() => {
+    const m = {};
+    for (const c of STATUS_COLUMNS) m[c.key] = [];
+    for (const p of posts) {
+      const k = m[p.status] ? p.status : 'pending';
+      m[k].push(p);
+    }
+    for (const k of Object.keys(m)) m[k].sort((a, b) => (a.scheduled_for || '').localeCompare(b.scheduled_for || ''));
+    return m;
+  }, [posts]);
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${STATUS_COLUMNS.length}, minmax(220px, 1fr))`, gap: 10, alignItems: 'start' }}>
+      {STATUS_COLUMNS.map((c) => {
+        const items = buckets[c.key] || [];
+        const sc = STATUS_COLOR[c.key] || {};
+        return (
+          <div key={c.key} style={{ background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{
+              padding: '10px 12px', borderBottom: '1px solid var(--border)',
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: sc.bg || 'var(--bg-2)', color: sc.fg || 'var(--text-2)',
+              fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+            }}>
+              <span>{c.label}</span>
+              <span style={{ marginLeft: 'auto', opacity: 0.8 }}>{items.length}</span>
+            </div>
+            <div style={{ padding: 8, maxHeight: '60vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {items.length === 0 ? (
+                <div className="muted" style={{ fontSize: 11, padding: 14, textAlign: 'center' }}>None</div>
+              ) : items.map((p) => (
+                <div key={p.id} style={{
+                  background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8,
+                  padding: '8px 10px', fontSize: 12,
+                }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)' }}>
+                    {(PLATFORM_ICON[p.platform] || '◈')} {timeLabel(p.scheduled_for)} · {(p.scheduled_for || '').slice(5, 10)}
+                  </div>
+                  <div style={{ marginTop: 3, color: 'var(--gold)', fontSize: 11 }}>r/{p.subreddit}</div>
+                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>{p.title}</div>
+                  <div className="muted" style={{ fontSize: 10, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {p.profile_color && <span style={{ width: 6, height: 6, borderRadius: 999, background: p.profile_color }} />}
+                    {p.profile_name || '—'} · u/{p.account_username}
+                    <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+                      {p.status === 'pending' && <button className="ghost" onClick={() => onCancel(p.id)} style={tiny}>Pause</button>}
+                      <button className="ghost" onClick={() => onDelete(p.id)} style={tiny} title="Delete">✕</button>
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1053,6 +1137,40 @@ function Composer({ token, accounts, onDone, onError }) {
 
       <div style={{ marginTop: 14 }}>
         <label>Accounts {targets.length > 0 && <span className="dim">({targets.length} selected)</span>}</label>
+        {(() => {
+          const modelMap = new Map();
+          for (const a of accounts) if (a.profile_id) {
+            const key = a.profile_id;
+            if (!modelMap.has(key)) modelMap.set(key, { id: key, name: a.profile_name || `Model ${key}`, accountIds: [] });
+            modelMap.get(key).accountIds.push(a.id);
+          }
+          const models = [...modelMap.values()];
+          if (!models.length) return null;
+          return (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, marginBottom: 6 }}>
+              <span className="dim" style={{ fontSize: 11, alignSelf: 'center', marginRight: 4 }}>Models:</span>
+              {models.map((m) => {
+                const allOn = m.accountIds.every((id) => targets.includes(id));
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => setTargets((t) => {
+                      const s = new Set(t);
+                      if (allOn) { for (const id of m.accountIds) s.delete(id); }
+                      else { for (const id of m.accountIds) s.add(id); }
+                      return [...s];
+                    })}
+                    className={allOn ? 'primary' : 'ghost'}
+                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999 }}
+                    title={`Schedule to all ${m.accountIds.length} accounts under ${m.name}`}
+                  >
+                    ◇ {m.name} <span style={{ opacity: 0.7 }}>({m.accountIds.length})</span>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, maxHeight: 130, overflowY: 'auto' }}>
           {accounts.map((a) => {
             const on = targets.includes(a.id);

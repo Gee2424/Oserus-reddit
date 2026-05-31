@@ -2,7 +2,19 @@ const { getDb } = require('../db');
 const { userFromToken, requireManagerOrAdmin } = require('./auth');
 const { hasPermission } = require('../permissions');
 
+// Add proxy_id to model_profiles so a single proxy can be inherited by every
+// account under a model. Account-level proxy_id still wins when set.
+function ensureProfileMigrations() {
+  try {
+    const cols = getDb().prepare("PRAGMA table_info(model_profiles)").all();
+    if (!cols.some((c) => c.name === 'proxy_id')) {
+      getDb().exec('ALTER TABLE model_profiles ADD COLUMN proxy_id INTEGER REFERENCES proxies(id) ON DELETE SET NULL');
+    }
+  } catch {}
+}
+
 function register(ipcMain) {
+  ensureProfileMigrations();
   ipcMain.handle('profiles:list', (_e, { token }) => {
     const user = userFromToken(token);
     if (!user) return { ok: false, error: 'Not authenticated' };
@@ -51,7 +63,7 @@ function register(ipcMain) {
   ipcMain.handle('profiles:update', (_e, { token, profileId, updates }) => {
     try {
       requireManagerOrAdmin(token);
-      const allowed = ['name', 'assigned_user_id', 'niche', 'brand_voice', 'notes', 'avatar_color'];
+      const allowed = ['name', 'assigned_user_id', 'niche', 'brand_voice', 'notes', 'avatar_color', 'proxy_id'];
       const sets = [], params = [];
       for (const k of allowed) {
         if (updates[k] !== undefined) {

@@ -22,6 +22,7 @@ export default function ProfilesPage({ navigate }) {
   }
 
   const [users, setUsers] = useState([]);
+  const [proxies, setProxies] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blank());
   const [error, setError] = useState(null);
@@ -41,6 +42,13 @@ export default function ProfilesPage({ navigate }) {
       const u = await window.api.auth.listUsers({ token });
       if (u.ok) setUsers(u.users);
     }
+    const px = await window.api.proxies.list({ token }).catch(() => ({ ok: false }));
+    if (px.ok) setProxies(px.proxies || []);
+  }
+
+  async function setModelProxy(profileId, proxyId) {
+    await window.api.profiles.update({ token, profileId, updates: { proxy_id: proxyId ? Number(proxyId) : null } });
+    load();
   }
   useEffect(() => { load(); }, []);
 
@@ -217,6 +225,16 @@ export default function ProfilesPage({ navigate }) {
                     <option value="">— unassigned —</option>
                     {users.map((u) => (
                       <option key={u.id} value={u.id}>{u.display_name} ({u.username})</option>
+                    ))}
+                  </select>
+                  <label style={{ marginTop: 10 }}>Model proxy <span className="dim" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>(inherited by accounts without their own)</span></label>
+                  <select
+                    value={p.proxy_id || ''}
+                    onChange={(e) => setModelProxy(p.id, e.target.value)}
+                  >
+                    <option value="">— none —</option>
+                    {proxies.map((px) => (
+                      <option key={px.id} value={px.id}>{px.label} · {px.kind} {px.host}:{px.port}</option>
                     ))}
                   </select>
                   <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', gap: 6 }}>

@@ -72,11 +72,16 @@ function createWindow() {
 async function prepareSessionForAccount(accountId) {
   if (!accountId) return { ok: false, error: 'No accountId' };
   const db = getDb();
+  // Model-level proxy inheritance: when the account itself has no proxy_id,
+  // fall back to the model's proxy_id. Account-level override always wins.
   const account = db.prepare(
-    `SELECT a.*, px.kind AS proxy_kind, px.host AS proxy_host, px.port AS proxy_port,
+    `SELECT a.*,
+            COALESCE(a.proxy_id, mp.proxy_id) AS effective_proxy_id,
+            px.kind AS proxy_kind, px.host AS proxy_host, px.port AS proxy_port,
             px.username AS proxy_username, px.password_encrypted AS proxy_pw_enc
      FROM reddit_accounts a
-     LEFT JOIN proxies px ON px.id = a.proxy_id
+     LEFT JOIN model_profiles mp ON mp.id = a.profile_id
+     LEFT JOIN proxies px ON px.id = COALESCE(a.proxy_id, mp.proxy_id)
      WHERE a.id = ?`
   ).get(accountId);
   if (!account) return { ok: false, error: 'Account not found' };
