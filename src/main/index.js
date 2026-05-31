@@ -1,10 +1,42 @@
-const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
+const elog = require('electron-log');
 const { initDatabase, getDb, decryptSecret } = require('./db');
 const { initAutoUpdater, quitAndInstall, stopAutoUpdater, checkNow } = require('./updater');
 const { createTray, destroyTray, markQuitting, isAppQuitting, setUpdateReady } = require('./tray');
+
+// Network-layer errors (ERR_TUNNEL_CONNECTION_FAILED from dead proxies, the
+// updater hitting an unreachable host, etc.) bubble up as uncaught exceptions
+// in the main process when nothing awaits them. Without this they pop a
+// modal "A JavaScript error occurred in the main process" dialog. Swallow
+// known-transient network errors, log everything, and only re-show the
+// dialog for real programming errors.
+const BENIGN_NET_PATTERNS = [
+  /ERR_TUNNEL_CONNECTION_FAILED/,
+  /ERR_PROXY_CONNECTION_FAILED/,
+  /ERR_CONNECTION_REFUSED/,
+  /ERR_CONNECTION_RESET/,
+  /ERR_CONNECTION_TIMED_OUT/,
+  /ERR_NETWORK_CHANGED/,
+  /ERR_INTERNET_DISCONNECTED/,
+  /ERR_NAME_NOT_RESOLVED/,
+  /ERR_CERT_/,
+  /ERR_ABORTED/,
+];
+function isBenignNet(err) {
+  const msg = (err && (err.message || String(err))) || '';
+  return BENIGN_NET_PATTERNS.some((re) => re.test(msg));
+}
+process.on('unhandledRejection', (reason) => {
+  if (isBenignNet(reason)) { elog.warn('[net] unhandled rejection:', reason && reason.message); return; }
+  elog.error('[main] unhandled rejection:', reason);
+});
+process.on('uncaughtException', (err) => {
+  if (isBenignNet(err)) { elog.warn('[net] uncaught:', err && err.message); return; }
+  elog.error('[main] uncaught exception:', err);
+});
 
 const registerAuthHandlers = require('./ipc/auth');
 const registerProfileHandlers = require('./ipc/profiles');
@@ -303,7 +335,24 @@ ipcMain.handle('window:openAccountBrowser', async (_e, { accountId, url }) => {
     });
   }
 
-  win.loadURL(target);
+  // Defensive: surface a friendly in-window page when the proxy or DNS
+  // chokes instead of leaving the user with a blank Chromium error.
+  win.webContents.on('did-fail-load', (_e, code, desc, url) => {
+    if (code === -3 /* ABORTED, expected on nav cancels */) return;
+    elog.warn('[browser] load failed', code, desc, url);
+    const safe = String(desc || '').replace(/</g, '&lt;');
+    win.webContents.loadURL(
+      'data:text/html;charset=utf-8,' + encodeURIComponent(
+        `<body style="font-family:sans-serif;background:#0d0c0a;color:#d7dadc;padding:40px;line-height:1.6">
+           <h2>Couldn't reach ${url}</h2>
+           <p>${safe}</p>
+           <p style="opacity:0.7;font-size:13px">Likely the assigned proxy is down or unreachable. Reassign or remove it from this account, or check your network.</p>
+         </body>`
+      )
+    );
+  });
+
+  win.loadURL(target).catch((e) => elog.warn('[browser] loadURL rejected', e && e.message));
   return { ok: true };
 });
 
