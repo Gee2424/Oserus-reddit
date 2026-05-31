@@ -12,6 +12,21 @@ const INNER_TABS = [
 ];
 
 function fmt(n) { return n == null ? '—' : n.toLocaleString(); }
+
+// Best-effort gender filter — Reddit doesn't expose this, but a huge chunk of
+// NSFW/dating subs encode it as flair text or title brackets ([F], (M), F22,
+// etc). We scan flair_text + title + link_flair_text + author_flair_text and
+// fall back to whole-word female/male/woman/man matches.
+function filterByGender(posts, gender) {
+  if (gender === 'all' || !gender) return posts;
+  const female = /\b(?:\[?F\]?|\(F\)|female|woman|girl|gal|girls?|gw|wife|her)\b|\bF\d{2}/i;
+  const male   = /\b(?:\[?M\]?|\(M\)|male|man|guy|dude|boyfriend|husband|him)\b|\bM\d{2}/i;
+  const re = gender === 'female' ? female : male;
+  return posts.filter((p) => {
+    const hay = `${p.title || ''} ${p.flair_text || ''} ${p.link_flair_text || ''} ${p.author_flair_text || ''}`;
+    return re.test(hay);
+  });
+}
 function ago(unixSec) {
   if (!unixSec) return '';
   const s = Math.floor(Date.now() / 1000 - unixSec);
@@ -386,6 +401,11 @@ function ScraperPanel({ token, accountId, accounts, onAccount, onMsg, onError })
   const [sort, setSort] = useState('hot');
   const [tWin, setTWin] = useState('day');
   const [limit, setLimit] = useState(25);
+  // Search input doubles as keyword, hashtag, song title, or dance term.
+  const [query, setQuery] = useState('');
+  // Client-side filter applied AFTER fetch. Looks at flair text + title for
+  // [F]/[M]/(F)/(M)/female/male markers since Reddit doesn't expose gender.
+  const [gender, setGender] = useState('all'); // all | female | male
   const [posts, setPosts] = useState([]);
   const [userData, setUserData] = useState(null);
   const [mods, setMods] = useState([]);
@@ -401,7 +421,15 @@ function ScraperPanel({ token, accountId, accounts, onAccount, onMsg, onError })
     if (!requireAccount() || !subreddit.trim()) { onError('Enter a subreddit.'); return; }
     setBusy(true);
     await window.api.session.prepareForAccount({ accountId: Number(accountId) });
-    const r = await window.api.intel.scrapePosts({ token, accountId: Number(accountId), subreddit, sort, t: tWin, limit: Number(limit) });
+    // "Trending" is a UX shortcut for top/day with a wider net.
+    const effSort = sort === 'trending' ? 'top' : sort;
+    const effTWin = sort === 'trending' ? 'day'  : tWin;
+    const effLim  = sort === 'trending' ? Math.max(Number(limit) || 25, 50) : Number(limit);
+    const r = await window.api.intel.scrapePosts({
+      token, accountId: Number(accountId),
+      subreddit, sort: effSort, t: effTWin, limit: effLim,
+      query: query.trim() || undefined,
+    });
     setBusy(false);
     if (r.ok) { setPosts(r.posts); onMsg(`Fetched ${r.posts.length} posts.`); } else onError(r.error);
   }
@@ -450,24 +478,29 @@ function ScraperPanel({ token, accountId, accounts, onAccount, onMsg, onError })
 
         {mode === 'posts' && (
           <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr 1fr 1fr', gap: 10 }}>
               <div>
                 <label>Subreddit</label>
                 <input value={subreddit} onChange={(e) => setSubreddit(e.target.value)} placeholder="e.g. gonewild" />
               </div>
               <div>
+                <label>Search · keyword / #hashtag / song / dance</label>
+                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder='e.g. "espresso" or #fyp or twerk' />
+              </div>
+              <div>
                 <label>Sort</label>
                 <select value={sort} onChange={(e) => setSort(e.target.value)}>
+                  <option value="trending">Trending</option>
                   <option value="hot">Hot</option>
                   <option value="top">Top</option>
                   <option value="rising">Rising</option>
                   <option value="new">New</option>
                 </select>
               </div>
-              {sort === 'top' ? (
+              {(sort === 'top' || sort === 'trending') ? (
                 <div>
                   <label>Window</label>
-                  <select value={tWin} onChange={(e) => setTWin(e.target.value)}>
+                  <select value={tWin} onChange={(e) => setTWin(e.target.value)} disabled={sort === 'trending'} title={sort === 'trending' ? 'Trending fixes window to day' : ''}>
                     {['hour','day','week','month','year','all'].map((x) => <option key={x} value={x}>{x}</option>)}
                   </select>
                 </div>
@@ -477,9 +510,30 @@ function ScraperPanel({ token, accountId, accounts, onAccount, onMsg, onError })
                 <input type="number" min={1} max={100} value={limit} onChange={(e) => setLimit(e.target.value)} />
               </div>
             </div>
-            <button onClick={runPosts} disabled={busy} className="primary" style={{ marginTop: 12 }}>
-              {busy ? 'Fetching…' : 'Fetch posts'}
-            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <span className="dim" style={{ fontSize: 11, marginRight: 4 }}>Filter:</span>
+              {[
+                { v: 'all',    l: 'All',    c: 'var(--text-2)' },
+                { v: 'female', l: 'Female', c: '#e1306c' },
+                { v: 'male',   l: 'Male',   c: '#1d9bf0' },
+              ].map((g) => {
+                const active = gender === g.v;
+                return (
+                  <button key={g.v} onClick={() => setGender(g.v)} style={{
+                    padding: '4px 12px', borderRadius: 999, border: `1px solid ${active ? g.c : 'var(--border)'}`,
+                    background: active ? g.c : 'var(--bg-1)', color: active ? '#fff' : 'var(--text-1)',
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  }}>{g.l}</button>
+                );
+              })}
+              <span className="dim" style={{ fontSize: 10, marginLeft: 4 }}>
+                Filters fetched posts by flair/title (looks for [F], [M], female, male, woman, man).
+              </span>
+              <button onClick={runPosts} disabled={busy} className="primary" style={{ marginLeft: 'auto' }}>
+                {busy ? 'Fetching…' : 'Fetch posts'}
+              </button>
+            </div>
           </div>
         )}
 
@@ -506,7 +560,9 @@ function ScraperPanel({ token, accountId, accounts, onAccount, onMsg, onError })
         )}
       </div>
 
-      {mode === 'posts' && posts.length > 0 && <PostsResult posts={posts} subreddit={subreddit} />}
+      {mode === 'posts' && posts.length > 0 && (
+        <PostsResult posts={filterByGender(posts, gender)} subreddit={subreddit} />
+      )}
       {mode === 'user' && userData && <UserResult data={userData} />}
       {mode === 'mods' && mods.length > 0 && <ModsResult mods={mods} subreddit={subreddit} />}
       {mode === 'flairs' && flairs.length > 0 && <FlairsResult flairs={flairs} subreddit={subreddit} />}

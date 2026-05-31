@@ -177,7 +177,11 @@ export default function ProfilesPage({ navigate }) {
           {profiles.map((p) => (
             <div key={p.id} className="card" style={{ borderLeft: `3px solid ${p.avatar_color || 'var(--accent)'}`, padding: 0, overflow: 'hidden' }}>
               <div style={{ padding: 18, position: 'relative' }}>
-                <div style={{ paddingRight: 0 }}>
+                <div
+                  onClick={() => navigate && navigate('model', { modelId: p.id })}
+                  style={{ cursor: 'pointer' }}
+                  title={`Open ${p.name} profile`}
+                >
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
                   <h3>{p.name}</h3>
                   {p.niche && <span className="pill">{p.niche}</span>}

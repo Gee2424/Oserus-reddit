@@ -153,7 +153,7 @@ function register(ipcMain) {
   // Subreddit listing (Hot/Top/Rising/New). Uses the chosen account's
   // logged-in session so private subs we follow still work; otherwise it's
   // public data. limit: 25 default, max 100.
-  ipcMain.handle('intel:scrapePosts', async (_e, { token, accountId, subreddit, sort, t, limit }) => {
+  ipcMain.handle('intel:scrapePosts', async (_e, { token, accountId, subreddit, sort, t, limit, query }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
@@ -164,9 +164,19 @@ function register(ipcMain) {
       const sortKey = ['hot', 'top', 'rising', 'new'].includes(sort) ? sort : 'hot';
       const lim = Math.min(Math.max(Number(limit) || 25, 1), 100);
       const tWindow = ['hour', 'day', 'week', 'month', 'year', 'all'].includes(t) ? t : 'day';
-      const url = sortKey === 'top'
-        ? `https://www.reddit.com/r/${sub}/top.json?raw_json=1&limit=${lim}&t=${tWindow}`
-        : `https://www.reddit.com/r/${sub}/${sortKey}.json?raw_json=1&limit=${lim}`;
+      const q = String(query || '').trim();
+      let url;
+      if (q) {
+        // Reddit's per-sub search — works for keywords, hashtags (#tag), song
+        // titles, dance terms etc. restrict_sr keeps results in this sub.
+        const searchSort = sortKey === 'hot' ? 'relevance' : sortKey;
+        url = `https://www.reddit.com/r/${sub}/search.json?raw_json=1&restrict_sr=1`
+          + `&q=${encodeURIComponent(q)}&sort=${searchSort}&t=${tWindow}&limit=${lim}`;
+      } else if (sortKey === 'top') {
+        url = `https://www.reddit.com/r/${sub}/top.json?raw_json=1&limit=${lim}&t=${tWindow}`;
+      } else {
+        url = `https://www.reddit.com/r/${sub}/${sortKey}.json?raw_json=1&limit=${lim}`;
+      }
       const data = await request(acct.partition, url);
       const posts = (data?.data?.children || []).map(normalizePost);
       return { ok: true, posts };
