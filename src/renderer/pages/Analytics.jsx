@@ -55,7 +55,7 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 22 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 14 }}>
         <StatCard label="Total accounts" value={totals.accounts} />
         <StatCard label="Ready" value={totals.ready} accent="#7a9a5a" />
         <StatCard label="Warming" value={totals.warming} accent="#d4a55a" />
@@ -63,6 +63,29 @@ export default function AnalyticsPage() {
         <StatCard label="Banned" value={totals.banned} accent="#b3473a" />
         <StatCard label="Total karma" value={totals.total_karma.toLocaleString()} accent="var(--gold-bright)" />
       </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 22 }}>
+        <StatCard label="Scheduled" value={(totals.scheduled || 0).toLocaleString()} accent="#7aa2f7" />
+        <StatCard label="Posted" value={(totals.posted || 0).toLocaleString()} accent="#7fd99a" />
+        <StatCard label="Failed" value={(totals.failed || 0).toLocaleString()} accent="#e2a3a3" />
+        <StatCard label="Events logged" value={(totals.events || 0).toLocaleString()} accent="var(--text-2)" />
+        <StatCard label="Boosts ordered" value={(totals.boosts_ordered || 0).toLocaleString()} accent="#d4a64a" />
+      </div>
+
+      {totals.by_platform && Object.keys(totals.by_platform).length > 0 && (
+        <div className="card" style={{ padding: 14, marginBottom: 22, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span className="dim" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Accounts by platform</span>
+          {Object.entries(totals.by_platform).map(([p, n]) => {
+            const color = p === 'redgifs' ? '#ff2e74' : p === 'x' ? '#1d9bf0' : p === 'instagram' ? '#e1306c' : p === 'tiktok' ? '#25f4ee' : '#ff4500';
+            return (
+              <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: color }} />
+                {p} <span className="dim">· {n}</span>
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>

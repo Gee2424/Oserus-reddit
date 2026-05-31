@@ -65,6 +65,22 @@ function register(ipcMain) {
         };
       });
 
+      // Cross-account roll-ups so the page has something to show even when
+      // karma snapshots are sparse. Wrap each query in try/catch so a missing
+      // table (fresh install) doesn't blow up the whole summary.
+      let scheduledTotal = 0, postedTotal = 0, failedTotal = 0, eventsTotal = 0, boostsOrdered = 0;
+      try { scheduledTotal = getDb().prepare("SELECT COUNT(*) c FROM scheduled_posts WHERE status='pending'").get()?.c || 0; } catch {}
+      try { postedTotal    = getDb().prepare("SELECT COUNT(*) c FROM scheduled_posts WHERE status='posted'").get()?.c || 0; } catch {}
+      try { failedTotal    = getDb().prepare("SELECT COUNT(*) c FROM scheduled_posts WHERE status='failed'").get()?.c || 0; } catch {}
+      try { eventsTotal    = getDb().prepare("SELECT COUNT(*) c FROM post_events").get()?.c || 0; } catch {}
+      try { boostsOrdered  = getDb().prepare("SELECT COUNT(*) c FROM scheduled_posts WHERE boost_status='ordered'").get()?.c || 0; } catch {}
+
+      const byPlatform = {};
+      for (const a of accounts) {
+        const p = a.platform || 'reddit';
+        byPlatform[p] = (byPlatform[p] || 0) + 1;
+      }
+
       const totals = {
         accounts: accounts.length,
         ready: accounts.filter(a => a.status === 'ready').length,
@@ -72,6 +88,12 @@ function register(ipcMain) {
         paused: accounts.filter(a => a.status === 'paused').length,
         banned: accounts.filter(a => a.status === 'banned').length,
         total_karma: stats.reduce((s, a) => s + (a.total_karma || 0), 0),
+        scheduled: scheduledTotal,
+        posted: postedTotal,
+        failed: failedTotal,
+        events: eventsTotal,
+        boosts_ordered: boostsOrdered,
+        by_platform: byPlatform,
       };
 
       return { ok: true, accounts: stats, totals };

@@ -178,7 +178,7 @@ function register(ipcMain) {
       if (!user) throw new Error('Not authenticated');
       if (!canAccessProfile(user, profileId)) throw new Error('Not authorized');
       const plat = platform || 'reddit';
-      if (!['reddit', 'redgifs'].includes(plat)) throw new Error('Invalid platform');
+      if (!['reddit', 'redgifs', 'x', 'instagram', 'tiktok'].includes(plat)) throw new Error('Invalid platform');
       ensureAccountMigrations();
       const partitionKey = `${plat}-${profileId}-${username.toLowerCase().replace(/[^a-z0-9_-]/g, '')}-${Date.now()}`;
       const info = getDb()
@@ -277,7 +277,7 @@ function register(ipcMain) {
       if (!user) throw new Error('Not authenticated');
       if (!canAccessProfile(user, profileId)) throw new Error('Not authorized for this profile');
       const plat = platform || 'reddit';
-      if (!['reddit', 'redgifs'].includes(plat)) throw new Error('Invalid platform');
+      if (!['reddit', 'redgifs', 'x', 'instagram', 'tiktok'].includes(plat)) throw new Error('Invalid platform');
       ensureAccountMigrations();
 
       const input = String(lines || '').split(/\r?\n/);

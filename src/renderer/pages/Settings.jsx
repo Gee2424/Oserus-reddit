@@ -163,35 +163,61 @@ export default function SettingsPage({ navigate }) {
             </div>
           </div>
 
-          {/* Boost provider */}
+          {/* Boost — generic provider list. upvote.biz is the only one wired
+              today but the section is laid out so future Reddit / X / IG /
+              TikTok providers slot in without restructuring the page. */}
           <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: hasVoteKey ? 'var(--green)' : 'var(--text-3)' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <h4 style={{ margin: 0, fontSize: 13, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--gold-bright)' }}>
-                Boost provider · upvote.biz
+                Boost
               </h4>
-              {hasVoteKey && <span className="mono" style={{ fontSize: 10, color: 'var(--ok)' }}>✓ configured</span>}
+              <span className="dim" style={{ fontSize: 11 }}>Engagement providers schedules can attach to a post</span>
             </div>
-            <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
-              Powers the ▲ Boost option on scheduled posts. Encrypted on disk via OS keychain.
-            </div>
-            {voteKeyMsg && (
-              <div className={voteKeyMsg.kind === 'err' ? 'error-banner' : ''} style={voteKeyMsg.kind === 'ok' ? styles.ok : {}}>
-                {voteKeyMsg.text}
+
+            <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: hasVoteKey ? 'var(--green)' : 'var(--text-3)' }} />
+                <strong style={{ fontSize: 12 }}>upvote.biz</strong>
+                <span className="dim" style={{ fontSize: 11 }}>· Reddit upvotes</span>
+                {hasVoteKey && <span className="mono" style={{ fontSize: 10, color: 'var(--ok)', marginLeft: 'auto' }}>✓ configured</span>}
               </div>
-            )}
-            <form onSubmit={saveVoteKey} style={{ display: 'flex', gap: 8 }}>
-              <input
-                type="password"
-                placeholder={hasVoteKey ? '••••••••••••••••  (paste a new key to replace)' : 'upvote.biz API key'}
-                value={voteKey}
-                onChange={(e) => setVoteKey(e.target.value)}
-                style={{ flex: 1 }}
-                autoComplete="off"
-              />
-              <button type="submit" className="primary">Save</button>
-              {hasVoteKey && <button type="button" className="danger" onClick={clearVoteKey}>Remove</button>}
-            </form>
+              {voteKeyMsg && (
+                <div className={voteKeyMsg.kind === 'err' ? 'error-banner' : ''} style={voteKeyMsg.kind === 'ok' ? styles.ok : {}}>
+                  {voteKeyMsg.text}
+                </div>
+              )}
+              <form onSubmit={saveVoteKey} style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="password"
+                  placeholder={hasVoteKey ? '••••••••••••••••  (paste a new key to replace)' : 'upvote.biz API key'}
+                  value={voteKey}
+                  onChange={(e) => setVoteKey(e.target.value)}
+                  style={{ flex: 1 }}
+                  autoComplete="off"
+                />
+                <button type="submit" className="primary">Save</button>
+                {hasVoteKey && <button type="button" className="danger" onClick={clearVoteKey}>Remove</button>}
+              </form>
+            </div>
+
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[
+                { v: 'tiktok-views',    label: 'TikTok views',          color: '#25f4ee' },
+                { v: 'instagram-likes', label: 'Instagram likes',       color: '#e1306c' },
+                { v: 'x-engagement',    label: 'X engagement',          color: '#1d9bf0' },
+                { v: 'reddit-other',    label: 'Other Reddit provider', color: '#ff4500' },
+              ].map((p) => (
+                <button key={p.v} disabled title={`${p.label} — provider slot coming soon`} style={{
+                  background: 'var(--bg-1)', border: '1px dashed var(--border)',
+                  borderRadius: 999, padding: '4px 12px', fontSize: 11, fontWeight: 600,
+                  cursor: 'not-allowed', opacity: 0.55,
+                  display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-2)',
+                }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.color }} />
+                  + {p.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Proxy pool, embedded so it flows directly after the boost provider */}
