@@ -16,7 +16,7 @@ const NAV = [
   { key: 'add-accounts', label: '+ Add Accounts', icon: '＋', group: 'Accounts', perm: 'page.reddit-api' },
 
   { key: 'reddit',     label: 'Reddit Browser',      icon: '◈', group: 'Reddit', perm: 'page.reddit' },
-  { key: 'inbox',      label: 'Inbox Manager',       icon: '✉', group: 'Reddit', perm: 'page.reddit-api' },
+  { key: 'inbox',      label: 'Account Manager Pro', icon: '✉', group: 'Reddit', perm: 'page.reddit-api' },
   { key: 'intel',      label: 'Reddit Intelligence', icon: '◎', group: 'Reddit', perm: 'page.intel' },
   { key: 'redgifs',    label: 'RedGIFs',             icon: '▮', group: 'Reddit', perm: 'page.redgifs' },
 

@@ -47,6 +47,39 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   const [unreadByAccount, setUnreadByAccount] = useState({}); // { [accountId]: count }
   const [templates, setTemplates] = useState([]);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [scheduleForm, setScheduleForm] = useState({ subreddit: '', title: '', body: '', kind: 'self', when: '' });
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [scheduleMsg, setScheduleMsg] = useState(null);
+
+  async function submitSchedule() {
+    if (!active) { setScheduleMsg({ kind: 'err', text: 'Pick an account first.' }); return; }
+    if (!scheduleForm.subreddit || !scheduleForm.title || !scheduleForm.when) {
+      setScheduleMsg({ kind: 'err', text: 'Subreddit, title and time are required.' });
+      return;
+    }
+    setScheduleBusy(true);
+    setScheduleMsg(null);
+    const dt = scheduleForm.when.replace('T', ' ') + ':00';
+    const res = await window.api.scheduled.bulkCreate({
+      token,
+      items: [{
+        accountId: active.id,
+        subreddit: scheduleForm.subreddit.replace(/^r\//i, '').trim(),
+        title: scheduleForm.title,
+        body: scheduleForm.body || null,
+        kind: scheduleForm.kind,
+        scheduledFor: dt,
+      }],
+    });
+    setScheduleBusy(false);
+    if (res.ok && res.created) {
+      setScheduleMsg({ kind: 'ok', text: `Scheduled to r/${scheduleForm.subreddit} at ${scheduleForm.when}` });
+      setScheduleForm({ subreddit: '', title: '', body: '', kind: 'self', when: '' });
+    } else {
+      setScheduleMsg({ kind: 'err', text: res.error || (res.errors && res.errors[0]) || 'Failed' });
+    }
+  }
 
   useEffect(() => {
     window.api.messaging.templatesList({ token, profileId: active?.profile_id }).then((r) => {
@@ -117,7 +150,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
     else setErr(res.error);
   }
   async function popOut() {
-    await window.api.windows.openPopout({ route: 'inbox', title: 'Inbox Manager', width: 1180, height: 760 });
+    await window.api.windows.openPopout({ route: 'inbox', title: 'Account Manager Pro', width: 1180, height: 760 });
   }
 
   // Build a synthetic conversation grouping: by counterparty username so the
@@ -138,13 +171,22 @@ export default function InboxPage({ embedded, standalone, navigate }) {
 
   return (
     <div>
-      {!embedded && <div className="title-block"><div><div className="eyebrow">Messages</div><h1>Inbox Manager</h1></div></div>}
+      {!embedded && <div className="title-block"><div><div className="eyebrow">Messages</div><h1>Account Manager Pro</h1></div></div>}
 
       <div style={shell}>
         {/* Top action bar */}
         <div style={topBar}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Inbox Manager</h2>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Account Manager Pro</h2>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => setShowSchedule((v) => !v)}
+              style={{
+                background: showSchedule ? 'var(--gold)' : 'var(--bg-1)',
+                color: showSchedule ? '#1a1a14' : 'var(--gold-bright)',
+                border: '1px solid var(--gold)',
+                borderRadius: 999, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}
+            >◷ Schedule post</button>
             <button className="ghost" onClick={load} disabled={loading}>↻ Refresh Account</button>
             <button className="ghost" onClick={async () => {
               for (const a of redditAccounts) {
@@ -156,6 +198,46 @@ export default function InboxPage({ embedded, standalone, navigate }) {
             {!standalone && <button className="ghost" onClick={popOut}>⧉ Pop out</button>}
           </div>
         </div>
+
+        {showSchedule && (
+          <div style={{
+            padding: '14px 18px', borderBottom: '1px solid #272729',
+            background: 'linear-gradient(180deg, #131110, #0f0e0c)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--gold-bright)' }}>
+                Schedule a post {active ? `as u/${active.username}` : ''}
+              </div>
+              <button className="ghost" style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 10px' }} onClick={() => setShowSchedule(false)}>✕ Close</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+              <input placeholder="r/subreddit" value={scheduleForm.subreddit}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, subreddit: e.target.value })} />
+              <input placeholder="Title" value={scheduleForm.title}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, title: e.target.value })} />
+              <select value={scheduleForm.kind} onChange={(e) => setScheduleForm({ ...scheduleForm, kind: e.target.value })}>
+                <option value="self">Text</option>
+                <option value="link">Link</option>
+                <option value="image">Image</option>
+              </select>
+              <input type="datetime-local" value={scheduleForm.when}
+                onChange={(e) => setScheduleForm({ ...scheduleForm, when: e.target.value })} />
+            </div>
+            <textarea placeholder="Body (optional)" rows={3} value={scheduleForm.body}
+              onChange={(e) => setScheduleForm({ ...scheduleForm, body: e.target.value })}
+              style={{ width: '100%', background: '#0f0f10', border: '1px solid #2a2a2c', color: '#d7dadc', borderRadius: 8, padding: 10, fontSize: 13, fontFamily: 'inherit' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+              <button className="primary" onClick={submitSchedule} disabled={scheduleBusy}>
+                {scheduleBusy ? 'Scheduling…' : '◷ Schedule post'}
+              </button>
+              {scheduleMsg && (
+                <span style={{ fontSize: 12, color: scheduleMsg.kind === 'ok' ? '#7fd99a' : '#e2a3a3' }}>
+                  {scheduleMsg.text}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Messaging Analytics strip */}
         {(() => {
