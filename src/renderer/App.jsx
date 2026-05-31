@@ -78,7 +78,7 @@ function Inner() {
       case 'scheduler-pro': return <SchedulerProPage initialProTab={routeParams.tab} />;
       case 'intel': return <IntelligencePage />;
       case 'model-hub': return <ModelHubPage modelId={routeParams.modelId} navigate={navigate} />;
-      case 'add-accounts': return <AddAccountsPage navigate={navigate} />;
+      case 'add-accounts': return <AddAccountsPage navigate={navigate} initialTab={routeParams.tab} />;
       default: return <DashboardPage navigate={navigate} />;
     }
   })();

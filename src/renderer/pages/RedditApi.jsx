@@ -8,11 +8,11 @@ const TABS = [
 ];
 
 const PLATFORM_PILLS = [
-  { v: 'reddit',    label: 'Reddit',    color: '#ff4500', live: true  },
-  { v: 'redgifs',   label: 'RedGIFs',   color: '#ff2e74', live: true  },
-  { v: 'x',         label: 'X',         color: '#1d9bf0', live: false },
-  { v: 'instagram', label: 'Instagram', color: '#e1306c', live: false },
-  { v: 'tiktok',    label: 'TikTok',    color: '#25f4ee', live: false },
+  { v: 'reddit',    label: 'Reddit',    color: '#ff4500' },
+  { v: 'redgifs',   label: 'RedGIFs',   color: '#ff2e74' },
+  { v: 'x',         label: 'X',         color: '#1d9bf0' },
+  { v: 'instagram', label: 'Instagram', color: '#e1306c' },
+  { v: 'tiktok',    label: 'TikTok',    color: '#25f4ee' },
 ];
 
 export default function RedditApiPage({ initialTab, navigate }) {
@@ -40,24 +40,31 @@ export default function RedditApiPage({ initialTab, navigate }) {
           return (
             <button
               key={p.v}
-              onClick={() => p.live && setPlatform(p.v)}
-              disabled={!p.live}
-              title={p.live ? p.label : `${p.label} — adapter coming soon`}
+              onClick={() => setPlatform(p.v)}
+              title={p.label}
               style={{
                 background: active ? p.color : 'var(--bg-1)',
-                color: active ? '#fff' : (p.live ? 'var(--text-1)' : 'var(--text-3)'),
+                color: active ? '#fff' : 'var(--text-1)',
                 border: `1px solid ${active ? p.color : 'var(--border)'}`,
                 borderRadius: 999, padding: '5px 14px', fontSize: 12, fontWeight: 600,
-                cursor: p.live ? 'pointer' : 'not-allowed', opacity: p.live ? 1 : 0.55,
+                cursor: 'pointer',
                 display: 'inline-flex', alignItems: 'center', gap: 6,
               }}
             >
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: p.color }} />
               {p.label}
-              {!p.live && <span style={{ fontSize: 9, opacity: 0.8 }}>soon</span>}
             </button>
           );
         })}
+        <div style={{ flex: 1 }} />
+        {navigate && (
+          <button
+            onClick={() => navigate('add-accounts', { tab: 'proxies' })}
+            className="ghost"
+            style={{ fontSize: 12, padding: '5px 14px' }}
+            title="Manage proxy pool"
+          >⚙ Proxies</button>
+        )}
       </div>
 
       <div style={tabBar}>

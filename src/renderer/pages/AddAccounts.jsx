@@ -35,9 +35,9 @@ const STATUSES = [
   { v: 'paused',  label: 'Paused' },
 ];
 
-export default function AddAccountsPage({ navigate }) {
+export default function AddAccountsPage({ navigate, initialTab }) {
   const { token } = useAuth();
-  const [tab, setTab] = useState('bulk');
+  const [tab, setTab] = useState(initialTab && TABS.some((t) => t.key === initialTab) ? initialTab : 'bulk');
   const [profiles, setProfiles] = useState([]);
   const [proxies, setProxies] = useState([]);
   const [form, setForm] = useState({

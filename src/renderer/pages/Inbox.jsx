@@ -195,6 +195,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                 if (r.ok) setUnreadByAccount((p) => ({ ...p, [a.id]: (r.messages || []).length }));
               }
             }}>↻ Refresh All Accounts</button>
+            {navigate && <button className="ghost" onClick={() => navigate('add-accounts', { tab: 'proxies' })}>⚙ Proxies</button>}
             {!standalone && <button className="ghost" onClick={popOut}>⧉ Pop out</button>}
           </div>
         </div>
