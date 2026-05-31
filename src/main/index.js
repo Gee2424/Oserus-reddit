@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('path');
 const { initDatabase, getDb, decryptSecret } = require('./db');
 const { initAutoUpdater, quitAndInstall, stopAutoUpdater, checkNow } = require('./updater');
-const { createTray, destroyTray, markQuitting, isAppQuitting } = require('./tray');
+const { createTray, destroyTray, markQuitting, isAppQuitting, setUpdateReady } = require('./tray');
 
 const registerAuthHandlers = require('./ipc/auth');
 const registerProfileHandlers = require('./ipc/profiles');
@@ -229,8 +229,11 @@ app.whenReady().then(() => {
   // Autopilot coordinator — only acts when an admin has enabled it AND a
   // protocol is enabled. Starting the timer here is harmless when disabled.
   coordinator.start();
-  initAutoUpdater(mainWindow);
-  createTray(mainWindow, checkNow);
+  // Tray "Install update" item triggers the same quit-and-install path the
+  // renderer banner uses. The tray is created first so setUpdateReady is wired
+  // by the time the updater fires its first downloaded event.
+  createTray(mainWindow, checkNow, quitAndInstall);
+  initAutoUpdater(mainWindow, (info) => setUpdateReady(info));
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

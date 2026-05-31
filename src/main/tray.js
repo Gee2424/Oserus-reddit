@@ -4,6 +4,10 @@ const log = require('electron-log');
 
 let tray = null;
 let isQuitting = false;
+let trayMainWindow = null;
+let trayOnCheckForUpdates = null;
+let trayOnInstallUpdate = null;
+let trayUpdateReady = null; // { version } or null
 
 function markQuitting() {
   isQuitting = true;
@@ -13,8 +17,59 @@ function isAppQuitting() {
   return isQuitting;
 }
 
-function createTray(mainWindow, onCheckForUpdates) {
+function rebuildTrayMenu() {
+  if (!tray) return;
+  const items = [
+    {
+      label: 'Open Oserus Management',
+      click: () => {
+        if (trayMainWindow && !trayMainWindow.isDestroyed()) {
+          if (trayMainWindow.isMinimized()) trayMainWindow.restore();
+          trayMainWindow.show();
+          trayMainWindow.focus();
+        }
+      },
+    },
+    { type: 'separator' },
+  ];
+  if (trayUpdateReady) {
+    items.push({
+      label: `▲ Install update ${trayUpdateReady.version} & restart`,
+      click: () => {
+        try { trayOnInstallUpdate && trayOnInstallUpdate(); } catch (e) { log.error('[tray] install update failed', e); }
+      },
+    });
+  }
+  items.push({
+    label: 'Check for updates',
+    click: () => {
+      try { trayOnCheckForUpdates && trayOnCheckForUpdates(); } catch (e) { log.error('[tray] update check failed', e); }
+    },
+  });
+  items.push({ type: 'separator' });
+  items.push({
+    label: 'Quit',
+    click: () => {
+      isQuitting = true;
+      app.quit();
+    },
+  });
+  tray.setContextMenu(Menu.buildFromTemplate(items));
+  tray.setToolTip(trayUpdateReady
+    ? `Oserus Management — update ${trayUpdateReady.version} ready`
+    : 'Oserus Management');
+}
+
+function setUpdateReady(info) {
+  trayUpdateReady = info ? { version: info.version } : null;
+  rebuildTrayMenu();
+}
+
+function createTray(mainWindow, onCheckForUpdates, onInstallUpdate) {
   if (tray) return tray;
+  trayMainWindow = mainWindow;
+  trayOnCheckForUpdates = onCheckForUpdates;
+  trayOnInstallUpdate = onInstallUpdate;
 
   const iconPath = app.isPackaged
     ? path.join(process.resourcesPath, 'build', 'icon.png')
@@ -28,37 +83,7 @@ function createTray(mainWindow, onCheckForUpdates) {
   }
 
   tray = new Tray(image);
-  tray.setToolTip('Oserus Management');
-
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Open Oserus Management',
-      click: () => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          if (mainWindow.isMinimized()) mainWindow.restore();
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      },
-    },
-    { type: 'separator' },
-    {
-      label: 'Check for updates',
-      click: () => {
-        try { onCheckForUpdates && onCheckForUpdates(); } catch (e) { log.error('[tray] update check failed', e); }
-      },
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      },
-    },
-  ]);
-
-  tray.setContextMenu(contextMenu);
+  rebuildTrayMenu();
 
   tray.on('click', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -81,4 +106,4 @@ function destroyTray() {
   }
 }
 
-module.exports = { createTray, destroyTray, markQuitting, isAppQuitting };
+module.exports = { createTray, destroyTray, markQuitting, isAppQuitting, setUpdateReady };
