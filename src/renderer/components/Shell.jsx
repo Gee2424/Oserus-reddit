@@ -13,7 +13,6 @@ const NAV = [
   { key: 'analytics', label: 'Analytics', icon: '◧', group: 'Overview', perm: 'page.analytics' },
 
   { key: 'profiles',     label: 'Model Profiles', icon: '◇', group: 'Accounts', perm: 'page.profiles' },
-  { key: 'add-accounts', label: '+ Add Accounts', icon: '＋', group: 'Accounts', perm: 'page.reddit-api' },
 
   { key: 'browser',    label: 'Browser',             icon: '◈', group: 'Reddit', perm: 'page.reddit' },
   { key: 'inbox',      label: 'Account Manager Pro', icon: '✉', group: 'Reddit', perm: 'page.reddit-api' },

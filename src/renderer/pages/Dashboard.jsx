@@ -133,9 +133,22 @@ export default function DashboardPage({ navigate }) {
   }, [accounts]);
 
   async function openAllForModel(model) {
+    // Hand off to Opera GX (or the OS default browser) so every linked
+    // platform opens as tabs in the user's own browser session.
+    const platformHomes = {
+      reddit: 'https://www.reddit.com/',
+      redgifs: 'https://www.redgifs.com/',
+      x: 'https://x.com/home',
+      instagram: 'https://www.instagram.com/',
+      tiktok: 'https://www.tiktok.com/foryou',
+    };
+    const seen = new Set();
+    const urls = [];
     for (const a of model.accountsList) {
-      await window.api.windows.openAccountBrowser({ accountId: a.id });
+      const u = platformHomes[a.platform || 'reddit'];
+      if (u && !seen.has(u)) { seen.add(u); urls.push(u); }
     }
+    if (urls.length) await window.api.windows.openExternalTabs({ urls });
   }
 
   const filtered = useMemo(() => {
@@ -206,18 +219,30 @@ export default function DashboardPage({ navigate }) {
                 </div>
               </div>
               <span style={{ color: 'var(--text-3)', fontSize: 14 }}>→</span>
-              <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 4, minWidth: 0 }}>
-                {m.accountsList.map((a) => (
-                  <button
-                    key={a.id}
-                    onClick={(e) => { e.stopPropagation(); window.api.windows.openAccountBrowser({ accountId: a.id }); }}
-                    title={`Open ${a.platform || 'reddit'} · ${a.username}`}
-                    style={acctChip}
-                  >
-                    <span style={{ ...platformDot, background: platformColor(a.platform) }} />
-                    {a.username}
-                  </button>
-                ))}
+              <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 6, minWidth: 0 }}>
+                {(() => {
+                  const byPlatform = new Map();
+                  for (const a of m.accountsList) {
+                    const p = a.platform || 'reddit';
+                    if (!byPlatform.has(p)) byPlatform.set(p, []);
+                    byPlatform.get(p).push(a);
+                  }
+                  return [...byPlatform.entries()].map(([p, list]) => (
+                    <button
+                      key={p}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (list.length === 1) window.api.windows.openAccountBrowser({ accountId: list[0].id });
+                        else navigate('model-hub', { modelId: m.id });
+                      }}
+                      title={`${list.length} ${p} account${list.length === 1 ? '' : 's'}`}
+                      style={{ ...platformLogoPill, background: platformColor(p) }}
+                    >
+                      <span style={{ fontWeight: 800, fontSize: 11, color: '#fff' }}>{platformInitial(p)}</span>
+                      {list.length > 1 && <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', opacity: 0.9 }}>×{list.length}</span>}
+                    </button>
+                  ));
+                })()}
               </div>
               <span style={{ color: 'var(--text-3)', fontSize: 14 }}>→</span>
               <div style={{ minWidth: 180, fontSize: 12, color: m.mainEmail ? 'var(--text-2)' : 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
@@ -539,12 +564,25 @@ const acctChip = {
   fontFamily: 'var(--font-mono)',
 };
 const platformDot = { width: 6, height: 6, borderRadius: '50%' };
+const platformLogoPill = {
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  width: 30, height: 22, justifyContent: 'center',
+  borderRadius: 6, border: 'none', cursor: 'pointer',
+  padding: '0 6px',
+};
 function platformColor(p) {
   return p === 'redgifs' ? '#ff2e74'
     : p === 'x' ? '#1d9bf0'
     : p === 'instagram' ? '#e1306c'
     : p === 'tiktok' ? '#25f4ee'
     : '#ff4500';
+}
+function platformInitial(p) {
+  return p === 'redgifs' ? 'G'
+    : p === 'x' ? '𝕏'
+    : p === 'instagram' ? 'IG'
+    : p === 'tiktok' ? 'TT'
+    : 'R';
 }
 const actionBar = { display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' };
 const th = { textAlign: 'left', padding: '11px 14px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)' };

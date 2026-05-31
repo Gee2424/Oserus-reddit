@@ -195,6 +195,7 @@ const api = {
   windows: {
     openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),
     openAccountBrowser: (data) => ipcRenderer.invoke('window:openAccountBrowser', data),
+    openExternalTabs: (data) => ipcRenderer.invoke('system:openExternalTabs', data),
     setAlwaysOnTop: (data) => ipcRenderer.invoke('window:setAlwaysOnTop', data),
     close: () => ipcRenderer.invoke('window:close'),
   },

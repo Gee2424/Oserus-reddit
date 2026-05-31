@@ -1,5 +1,7 @@
-const { app, BrowserWindow, ipcMain, session } = require('electron');
+const { app, BrowserWindow, ipcMain, session, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const { spawn } = require('child_process');
 const { initDatabase, getDb, decryptSecret } = require('./db');
 const { initAutoUpdater, quitAndInstall, stopAutoUpdater, checkNow } = require('./updater');
 const { createTray, destroyTray, markQuitting, isAppQuitting, setUpdateReady } = require('./tray');
@@ -185,6 +187,49 @@ const PLATFORM_URLS = {
   instagram: 'https://www.instagram.com/',
   tiktok:    'https://www.tiktok.com/foryou',
 };
+
+// Launch every URL in the user's external browser, preferring Opera GX if
+// installed (per user request). Falls back to whatever shell.openExternal
+// resolves to (the OS default browser).
+function findOperaGxPath() {
+  const candidates = [];
+  if (process.platform === 'win32') {
+    const local = process.env.LOCALAPPDATA;
+    const programs = process.env.PROGRAMFILES;
+    const programsX86 = process.env['PROGRAMFILES(X86)'];
+    if (local) candidates.push(path.join(local, 'Programs', 'Opera GX', 'opera.exe'));
+    if (programs) candidates.push(path.join(programs, 'Opera GX', 'opera.exe'));
+    if (programsX86) candidates.push(path.join(programsX86, 'Opera GX', 'opera.exe'));
+  } else if (process.platform === 'darwin') {
+    candidates.push('/Applications/Opera GX.app/Contents/MacOS/Opera GX');
+  }
+  for (const c of candidates) {
+    try { if (fs.existsSync(c)) return c; } catch {}
+  }
+  return null;
+}
+
+ipcMain.handle('system:openExternalTabs', async (_e, { urls }) => {
+  const list = Array.isArray(urls) ? urls.filter(Boolean) : [];
+  if (list.length === 0) return { ok: false, error: 'No URLs' };
+  const opera = findOperaGxPath();
+  if (opera) {
+    try {
+      // Spawn detached so Opera GX outlives this electron process. Passing
+      // all URLs in one invocation makes Opera open them as tabs in the
+      // same window.
+      spawn(opera, list, { detached: true, stdio: 'ignore' }).unref();
+      return { ok: true, browser: 'opera-gx', count: list.length };
+    } catch (e) {
+      // fall through to default
+    }
+  }
+  // Default browser fallback — opens each URL via the OS handler.
+  for (const u of list) {
+    try { await shell.openExternal(u); } catch {}
+  }
+  return { ok: true, browser: 'default', count: list.length };
+});
 
 ipcMain.handle('window:openAccountBrowser', async (_e, { accountId, url }) => {
   if (!accountId) return { ok: false, error: 'accountId required' };

@@ -13,8 +13,11 @@ const STATUS_OPTIONS = [
 const STATUS_COLORS = { warming: '#d4a55a', ready: '#7a9a5a', paused: '#968b78', banned: '#b3473a' };
 
 const PLATFORMS = [
-  { v: 'reddit', label: 'Reddit', icon: '🔴', usernamePrefix: 'u/' },
-  { v: 'redgifs', label: 'RedGifs', icon: '🟠', usernamePrefix: '@' },
+  { v: 'reddit',    label: 'Reddit',    icon: '🔴', color: '#ff4500', usernamePrefix: 'u/' },
+  { v: 'redgifs',   label: 'RedGIFs',   icon: '🟠', color: '#ff2e74', usernamePrefix: '@' },
+  { v: 'x',         label: 'X',         icon: '🔵', color: '#1d9bf0', usernamePrefix: '@' },
+  { v: 'instagram', label: 'Instagram', icon: '🟣', color: '#e1306c', usernamePrefix: '@' },
+  { v: 'tiktok',    label: 'TikTok',    icon: '⚫', color: '#25f4ee', usernamePrefix: '@' },
 ];
 
 export default function ModelDetailPage({ modelId, navigate }) {
@@ -288,12 +291,8 @@ export default function ModelDetailPage({ modelId, navigate }) {
       <div style={tabBarStyle}>
         <div style={{ display: 'flex', gap: 4 }}>
           {[
-            { v: 'resources', label: 'Logins & proxies', count: accounts.length + modelProxies.length },
-            { v: 'inbox', label: 'Inbox', count: 0 },
-            { v: 'scheduler', label: 'Scheduler', count: scheduledPosts.filter(p => p.status === 'pending').length },
+            { v: 'resources', label: 'Linked accounts', count: accounts.length + modelProxies.length },
             { v: 'analytics', label: 'Analytics', count: 0 },
-            { v: 'docs', label: 'Docs', count: modelDocs.length },
-            { v: 'promo', label: 'Promo subs', count: promoSubs.length },
             ...(canManage ? [{ v: 'activity', label: 'Activity', count: activityEntries.length }] : []),
           ].map(t => (
             <button
@@ -314,12 +313,16 @@ export default function ModelDetailPage({ modelId, navigate }) {
             <button className="primary" onClick={() => setAddMenuOpen(v => !v)}>+ Add resource</button>
             {addMenuOpen && (
               <div style={addMenuStyle}>
-                <button style={addMenuItemStyle} onClick={() => { setAddMenuOpen(false); startAddFor('reddit'); }}>
-                  <span style={{ color: '#ff4500' }}>🔴</span> Reddit account
-                </button>
-                <button style={addMenuItemStyle} onClick={() => { setAddMenuOpen(false); startAddFor('redgifs'); }}>
-                  <span style={{ color: '#ff8a00' }}>🟠</span> RedGifs account
-                </button>
+                {PLATFORMS.map((plat) => (
+                  <button
+                    key={plat.v}
+                    style={addMenuItemStyle}
+                    onClick={() => { setAddMenuOpen(false); startAddFor(plat.v); }}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: plat.color, display: 'inline-block', marginRight: 6 }} />
+                    {plat.label} account
+                  </button>
+                ))}
                 <button style={addMenuItemStyle} onClick={() => { setAddMenuOpen(false); setShowAddProxy(true); }}>
                   <span style={{ color: 'var(--green-bright)' }}>⌁</span> Proxy
                 </button>
