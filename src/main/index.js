@@ -174,6 +174,45 @@ ipcMain.handle('window:openPopout', (_e, { route, title, width, height }) => {
   return openPopout(route, { title, width, height });
 });
 
+// Open a real browser window pre-bound to an account's persistent session
+// partition. Used by Model Hub to launch every account (Reddit, RedGIFs, X,
+// Instagram, TikTok…) in one click — cookies + proxy + UA are already wired by
+// prepareSessionForAccount.
+const PLATFORM_URLS = {
+  reddit:    'https://www.reddit.com/',
+  redgifs:   'https://www.redgifs.com/',
+  x:         'https://x.com/home',
+  instagram: 'https://www.instagram.com/',
+  tiktok:    'https://www.tiktok.com/foryou',
+};
+
+ipcMain.handle('window:openAccountBrowser', async (_e, { accountId, url }) => {
+  if (!accountId) return { ok: false, error: 'accountId required' };
+  const prep = await prepareSessionForAccount(accountId);
+  if (!prep.ok) return prep;
+  const db = getDb();
+  const acct = db.prepare('SELECT username, platform FROM reddit_accounts WHERE id = ?').get(accountId);
+  if (!acct) return { ok: false, error: 'Account not found' };
+  const target = url || PLATFORM_URLS[acct.platform] || 'about:blank';
+  const isMac = process.platform === 'darwin';
+  const win = new BrowserWindow({
+    width: 1180,
+    height: 820,
+    minWidth: 600,
+    minHeight: 480,
+    backgroundColor: '#0d0c0a',
+    title: `${acct.platform} · u/${acct.username}`,
+    titleBarStyle: isMac ? 'hiddenInset' : 'default',
+    webPreferences: {
+      partition: `persist:${prep.partitionKey}`,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  win.loadURL(target);
+  return { ok: true };
+});
+
 ipcMain.handle('window:setAlwaysOnTop', (e, { value }) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (win) win.setAlwaysOnTop(!!value, 'floating');

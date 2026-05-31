@@ -79,9 +79,15 @@ export default function ModelHubPage({ modelId, navigate }) {
   }), [accounts]);
 
   function openAccount(a) {
-    setActiveFor((a.platform || 'reddit'), a.id);
-    if (a.platform === 'redgifs') navigate('redgifs');
-    else navigate('reddit');
+    // Real browser window pre-bound to this account's session partition —
+    // works for every platform (Reddit, RedGIFs, X, Instagram, TikTok) so the
+    // user lands already logged in (or on the login page the first time).
+    window.api.windows.openAccountBrowser({ accountId: a.id });
+  }
+  async function openAllAccounts() {
+    for (const a of accounts) {
+      await window.api.windows.openAccountBrowser({ accountId: a.id });
+    }
   }
   function openInbox(a) {
     setActiveFor('reddit', a.id);
@@ -118,6 +124,11 @@ export default function ModelHubPage({ modelId, navigate }) {
           <PopOutButton route={`model-${modelId}`} title={`Model Hub · ${profile.name}`} />
           <button className="ghost" onClick={() => navigate('profiles')}>All Models</button>
           <button className="ghost" onClick={() => navigate('scheduler-pro')}>Open Scheduler</button>
+          {accounts.length > 0 && (
+            <button className="primary" onClick={openAllAccounts} title="Open every linked account in its own browser window, pre-logged-in">
+              ⧉ Open all {accounts.length} account{accounts.length === 1 ? '' : 's'}
+            </button>
+          )}
         </div>
       </div>
 

@@ -13,8 +13,11 @@ const TABS = [
 ];
 
 const PLATFORMS = [
-  { v: 'reddit',  label: 'Reddit' },
-  { v: 'redgifs', label: 'RedGIFs' },
+  { v: 'reddit',    label: 'Reddit',    url: 'https://www.reddit.com/login' },
+  { v: 'redgifs',   label: 'RedGIFs',   url: 'https://www.redgifs.com/signin' },
+  { v: 'x',         label: 'X (Twitter)', url: 'https://x.com/login' },
+  { v: 'instagram', label: 'Instagram', url: 'https://www.instagram.com/accounts/login/' },
+  { v: 'tiktok',    label: 'TikTok',    url: 'https://www.tiktok.com/login' },
 ];
 
 const USER_AGENTS = [

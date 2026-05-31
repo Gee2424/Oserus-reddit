@@ -412,7 +412,11 @@ export default function DashboardPage({ navigate }) {
                       })()}
                     </td>
                     <td style={td}>
-                      <span style={{ display: 'inline-grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', background: '#ff4500', color: '#fff', fontWeight: 700, fontSize: 12 }} title={`u/${a.username}`}>R</span>
+                      <button
+                        onClick={() => window.api.windows.openAccountBrowser({ accountId: a.id })}
+                        title={`Open u/${a.username} in a browser window (pre-logged in)`}
+                        style={{ display: 'inline-grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', background: '#ff4500', color: '#fff', fontWeight: 700, fontSize: 12, border: 'none', cursor: 'pointer', padding: 0 }}
+                      >R</button>
                     </td>
                     <td style={td}>
                       {a.profile_id ? (

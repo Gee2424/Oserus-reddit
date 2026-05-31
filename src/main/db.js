@@ -210,6 +210,42 @@ function initDatabase() {
     console.error('[db] Migration check failed:', e.message);
   }
 
+  // Migration: drop the CHECK(platform IN ('reddit','redgifs')) constraint on
+  // reddit_accounts.platform so new platforms (x, instagram, tiktok, …) can be
+  // added without breaking inserts.
+  try {
+    const t = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='reddit_accounts'").get();
+    if (t && t.sql && t.sql.includes("CHECK(platform IN")) {
+      console.log('[db] Removing CHECK constraint on reddit_accounts.platform…');
+      const cols = db.prepare("PRAGMA table_info(reddit_accounts)").all();
+      const colNames = cols.map((c) => c.name).join(', ');
+      db.exec('BEGIN TRANSACTION;');
+      try {
+        // Rebuild table without the CHECK. Copy columns by name so additive
+        // ALTERs from later migrations come along for the ride.
+        const defs = cols.map((c) => {
+          const notNull = c.notnull ? ' NOT NULL' : '';
+          const dflt = c.dflt_value != null ? ` DEFAULT ${c.dflt_value}` : '';
+          const pk = c.pk ? ' PRIMARY KEY AUTOINCREMENT' : '';
+          return `${c.name} ${c.type}${pk}${notNull}${dflt}`;
+        }).join(',\n');
+        db.exec(`
+          CREATE TABLE reddit_accounts_new (${defs});
+          INSERT INTO reddit_accounts_new (${colNames}) SELECT ${colNames} FROM reddit_accounts;
+          DROP TABLE reddit_accounts;
+          ALTER TABLE reddit_accounts_new RENAME TO reddit_accounts;
+        `);
+        db.exec('COMMIT;');
+        console.log('[db] reddit_accounts.platform CHECK removed.');
+      } catch (e) {
+        db.exec('ROLLBACK;');
+        console.error('[db] platform CHECK removal failed:', e.message);
+      }
+    }
+  } catch (e) {
+    console.error('[db] platform CHECK check failed:', e.message);
+  }
+
   // Migration: drop the CHECK(role IN (...)) constraint on users.role so
   // custom role keys are allowed. Detect by looking for the CHECK clause.
   try {
