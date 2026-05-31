@@ -211,27 +211,45 @@ function initDatabase() {
   }
 
   // Migration: drop the CHECK(platform IN ('reddit','redgifs')) constraint on
-  // reddit_accounts.platform so new platforms (x, instagram, tiktok, …) can be
-  // added without breaking inserts.
+  // reddit_accounts.platform so new platforms (x, instagram, tiktok) save
+  // without "CHECK constraint failed". The earlier dynamic-rebuild version
+  // could silently fail on rows with quoted defaults and roll back, leaving
+  // the constraint in place — this one writes the target schema literally.
   try {
     const t = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='reddit_accounts'").get();
     if (t && t.sql && t.sql.includes("CHECK(platform IN")) {
       console.log('[db] Removing CHECK constraint on reddit_accounts.platform…');
-      const cols = db.prepare("PRAGMA table_info(reddit_accounts)").all();
-      const colNames = cols.map((c) => c.name).join(', ');
+      const liveCols = db.prepare("PRAGMA table_info(reddit_accounts)").all().map((c) => c.name);
+      // Columns we know exist in current code; copy whichever are actually
+      // present so the migration works against any historic schema.
+      const target = [
+        'id', 'profile_id', 'platform', 'username', 'partition_key',
+        'password_encrypted', 'email', 'email_password_encrypted',
+        'status', 'proxy_id', 'notes', 'created_at',
+        'user_agent', 'starred',
+      ];
+      const carry = target.filter((c) => liveCols.includes(c));
+      const colList = carry.join(', ');
       db.exec('BEGIN TRANSACTION;');
       try {
-        // Rebuild table without the CHECK. Copy columns by name so additive
-        // ALTERs from later migrations come along for the ride.
-        const defs = cols.map((c) => {
-          const notNull = c.notnull ? ' NOT NULL' : '';
-          const dflt = c.dflt_value != null ? ` DEFAULT ${c.dflt_value}` : '';
-          const pk = c.pk ? ' PRIMARY KEY AUTOINCREMENT' : '';
-          return `${c.name} ${c.type}${pk}${notNull}${dflt}`;
-        }).join(',\n');
         db.exec(`
-          CREATE TABLE reddit_accounts_new (${defs});
-          INSERT INTO reddit_accounts_new (${colNames}) SELECT ${colNames} FROM reddit_accounts;
+          CREATE TABLE reddit_accounts_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_id INTEGER NOT NULL REFERENCES model_profiles(id) ON DELETE CASCADE,
+            platform TEXT NOT NULL DEFAULT 'reddit',
+            username TEXT NOT NULL,
+            partition_key TEXT NOT NULL UNIQUE,
+            password_encrypted TEXT,
+            email TEXT,
+            email_password_encrypted TEXT,
+            status TEXT NOT NULL CHECK(status IN ('warming','ready','paused','banned')) DEFAULT 'warming',
+            proxy_id INTEGER REFERENCES proxies(id) ON DELETE SET NULL,
+            notes TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            user_agent TEXT,
+            starred INTEGER DEFAULT 0
+          );
+          INSERT INTO reddit_accounts_new (${colList}) SELECT ${colList} FROM reddit_accounts;
           DROP TABLE reddit_accounts;
           ALTER TABLE reddit_accounts_new RENAME TO reddit_accounts;
         `);

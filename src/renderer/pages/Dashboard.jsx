@@ -189,11 +189,24 @@ export default function DashboardPage({ navigate }) {
         <div style={modelList}>
           {models.map((m) => (
             <div key={m.id} style={modelRowCard}>
+              <button
+                onClick={(e) => { e.stopPropagation(); openAllForModel(m); }}
+                title={`Launch all ${m.total} account${m.total === 1 ? '' : 's'} in browsers`}
+                style={{
+                  width: 32, height: 32, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, var(--green), var(--gold))',
+                  color: '#1a1a14', border: '1px solid var(--gold)',
+                  fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                  display: 'grid', placeItems: 'center',
+                  boxShadow: '0 2px 8px rgba(127,217,154,0.3)', flexShrink: 0,
+                  padding: 0,
+                }}
+              >▶</button>
               <Avatar name={m.name} size={36} />
               <div
-                onClick={() => navigate('model-hub', { modelId: m.id })}
+                onClick={() => navigate('model', { modelId: m.id })}
                 style={{ cursor: 'pointer', minWidth: 140 }}
-                title={`Open ${m.name} hub`}
+                title={`Open ${m.name} profile`}
               >
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</div>
                 <div style={{ fontSize: 10, color: '#9aa0a6', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>
@@ -425,11 +438,7 @@ export default function DashboardPage({ navigate }) {
                             }}>★</span>
                           ) : null}
                         </div>
-                        <div
-                          onClick={() => a.profile_id && navigate('model-hub', { modelId: a.profile_id })}
-                          style={{ fontWeight: 500, cursor: a.profile_id ? 'pointer' : 'default' }}
-                          title={`Open ${a.profile_name || 'Model'} hub`}
-                        >
+                        <div style={{ fontWeight: 500 }}>
                           <div>{a.profile_name || 'Unassigned'}</div>
                           <div className="mono dim" style={{ fontSize: 11, fontWeight: 400, marginTop: 2 }}>{a.username}</div>
                         </div>

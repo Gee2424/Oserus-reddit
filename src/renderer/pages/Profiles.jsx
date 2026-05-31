@@ -177,33 +177,7 @@ export default function ProfilesPage({ navigate }) {
           {profiles.map((p) => (
             <div key={p.id} className="card" style={{ borderLeft: `3px solid ${p.avatar_color || 'var(--accent)'}`, padding: 0, overflow: 'hidden' }}>
               <div style={{ padding: 18, position: 'relative' }}>
-                <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', gap: 6, zIndex: 2 }}>
-                  <button
-                    title="Open Model Hub"
-                    onClick={(e) => { e.stopPropagation(); navigate && navigate('model-hub', { modelId: p.id }); }}
-                    style={{
-                      width: 38, height: 38, borderRadius: '50%', padding: 0,
-                      display: 'grid', placeItems: 'center', fontSize: 16,
-                      background: 'var(--bg-1)', color: 'var(--gold-bright)',
-                      border: '1px solid var(--gold)', cursor: 'pointer',
-                    }}
-                  >◇</button>
-                  <button
-                    title="Start Reddit browser as this model's first account"
-                    onClick={(e) => { e.stopPropagation(); playModel(p.id); }}
-                    style={{
-                      width: 38, height: 38, borderRadius: '50%', padding: 0,
-                      display: 'grid', placeItems: 'center', fontSize: 14,
-                      background: 'var(--gradient-brand)', color: '#1a1a14',
-                      border: '1px solid var(--gold)', cursor: 'pointer',
-                      boxShadow: '0 2px 8px rgba(212,166,74,0.35)',
-                    }}
-                  >▶</button>
-                </div>
-                <div
-                  onClick={() => navigate && navigate('model', { modelId: p.id })}
-                  style={{ cursor: 'pointer', paddingRight: 52 }}
-                >
+                <div style={{ paddingRight: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
                   <h3>{p.name}</h3>
                   {p.niche && <span className="pill">{p.niche}</span>}
