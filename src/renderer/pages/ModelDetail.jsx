@@ -309,25 +309,36 @@ export default function ModelDetailPage({ modelId, navigate }) {
           ))}
         </div>
         {canManage && tab === 'resources' && (
-          <div style={{ position: 'relative' }}>
-            <button className="primary" onClick={() => setAddMenuOpen(v => !v)}>+ Add resource</button>
-            {addMenuOpen && (
-              <div style={addMenuStyle}>
-                {PLATFORMS.map((plat) => (
-                  <button
-                    key={plat.v}
-                    style={addMenuItemStyle}
-                    onClick={() => { setAddMenuOpen(false); startAddFor(plat.v); }}
-                  >
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: plat.color, display: 'inline-block', marginRight: 6 }} />
-                    {plat.label} account
-                  </button>
-                ))}
-                <button style={addMenuItemStyle} onClick={() => { setAddMenuOpen(false); setShowAddProxy(true); }}>
-                  <span style={{ color: 'var(--green-bright)' }}>⌁</span> Proxy
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span className="dim" style={{ fontSize: 11, marginRight: 4 }}>+ Add account:</span>
+            {PLATFORMS.map((plat) => {
+              const active = showAddPlatform === plat.v;
+              return (
+                <button
+                  key={plat.v}
+                  onClick={() => startAddFor(plat.v)}
+                  title={`Link a new ${plat.label} account to this model`}
+                  style={{
+                    background: active ? plat.color : 'var(--bg-1)',
+                    color: active ? '#fff' : 'var(--text-1)',
+                    border: `1px solid ${active ? plat.color : 'var(--border)'}`,
+                    borderRadius: 999, padding: '5px 14px', fontSize: 12, fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                  }}
+                >
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: plat.color }} />
+                  {plat.label}
                 </button>
-              </div>
-            )}
+              );
+            })}
+            <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 4px' }} />
+            <button
+              onClick={() => setShowAddProxy(true)}
+              className="ghost"
+              style={{ fontSize: 12, padding: '5px 12px' }}
+              title="Add a proxy to this model"
+            >⌁ Proxy</button>
           </div>
         )}
       </div>
