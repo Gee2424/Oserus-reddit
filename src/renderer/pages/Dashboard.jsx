@@ -134,7 +134,8 @@ export default function DashboardPage({ navigate }) {
 
   async function openAllForModel(model) {
     // Hand off to Opera GX (or the OS default browser) so every linked
-    // platform opens as tabs in the user's own browser session.
+    // account opens as its own tab. One tab per account — not per platform —
+    // so multiple Reddit logins each get their own tab.
     const platformHomes = {
       reddit: 'https://www.reddit.com/',
       redgifs: 'https://www.redgifs.com/',
@@ -142,12 +143,9 @@ export default function DashboardPage({ navigate }) {
       instagram: 'https://www.instagram.com/',
       tiktok: 'https://www.tiktok.com/foryou',
     };
-    const seen = new Set();
-    const urls = [];
-    for (const a of model.accountsList) {
-      const u = platformHomes[a.platform || 'reddit'];
-      if (u && !seen.has(u)) { seen.add(u); urls.push(u); }
-    }
+    const urls = model.accountsList
+      .map((a) => platformHomes[a.platform || 'reddit'])
+      .filter(Boolean);
     if (urls.length) await window.api.windows.openExternalTabs({ urls });
   }
 

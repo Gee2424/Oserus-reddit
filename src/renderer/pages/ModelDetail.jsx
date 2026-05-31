@@ -42,7 +42,10 @@ export default function ModelDetailPage({ modelId, navigate }) {
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [activityEntries, setActivityEntries] = useState([]);
   const [modelDocs, setModelDocs] = useState([]);
-  const [tab, setTab] = useState('resources'); // resources | scheduler | activity | docs | promo
+  const [tab, setTab] = useState('resources'); // resources | analytics | activity
+  // Reddit + RedGIFs share a single "Reddit" group inside Linked accounts —
+  // this picks which sub-platform's section is currently visible.
+  const [redditSub, setRedditSub] = useState('reddit');
   const [addMenuOpen, setAddMenuOpen] = useState(false);
 
   const can = useCan();
@@ -343,7 +346,41 @@ export default function ModelDetailPage({ modelId, navigate }) {
         )}
       </div>
 
-      {tab === 'resources' && PLATFORMS.map(plat => {
+      {tab === 'resources' && (
+        <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-elev)' }}>
+          <h2 style={{ margin: 0, fontSize: 14, color: 'var(--gold-bright)' }}>Reddit ↔ RedGIFs</h2>
+          <div style={{ display: 'flex', gap: 4, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 999, padding: 2 }}>
+            {[
+              { k: 'reddit',  label: 'Reddit',  color: '#ff4500' },
+              { k: 'redgifs', label: 'RedGIFs', color: '#ff2e74' },
+            ].map((s) => {
+              const active = redditSub === s.k;
+              const n = accounts.filter((a) => (a.platform || 'reddit') === s.k).length;
+              return (
+                <button key={s.k} onClick={() => setRedditSub(s.k)} style={{
+                  padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 999,
+                  border: 'none', cursor: 'pointer',
+                  background: active ? s.color : 'transparent',
+                  color: active ? '#fff' : 'var(--text-2)',
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: s.color }} />
+                  {s.label} <span style={{ opacity: 0.75 }}>· {n}</span>
+                </button>
+              );
+            })}
+          </div>
+          <span className="dim" style={{ fontSize: 11, marginLeft: 'auto' }}>Reddit & RedGIFs accounts live in the same section — switch above.</span>
+        </div>
+      )}
+
+      {tab === 'resources' && PLATFORMS.filter((p) => {
+        // Reddit + RedGIFs share a section. Show whichever sub-platform is
+        // currently picked; everything else (X, IG, TikTok) always renders.
+        if (p.v === 'reddit')  return redditSub === 'reddit';
+        if (p.v === 'redgifs') return redditSub === 'redgifs';
+        return true;
+      }).map(plat => {
         const platAccounts = accounts.filter(a => (a.platform || 'reddit') === plat.v);
         const isAddingThis = showAddPlatform === plat.v && !editing;
         const isEditingThis = editing && editing.platform === plat.v;
