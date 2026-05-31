@@ -377,6 +377,7 @@ export default function DashboardPage({ navigate }) {
             <thead>
               <tr style={{ background: 'var(--bg-2)' }}>
                 <th style={{ ...th, width: 36 }}><input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} /></th>
+                <th style={{ ...th, width: 44 }}></th>
                 <th style={th}>Model</th>
                 <th style={{ ...th, textAlign: 'right' }}>Age</th>
                 <th style={th}>NSFW</th>
@@ -391,15 +392,30 @@ export default function DashboardPage({ navigate }) {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={11} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>Loading…</td></tr>
+                <tr><td colSpan={12} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>Loading…</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={11} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>No accounts.</td></tr>
+                <tr><td colSpan={12} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>No accounts.</td></tr>
               ) : filtered.map((a) => {
                 const sel = selected.has(a.id);
                 const nsfw = a.status === 'ready';
                 return (
                   <tr key={a.id} style={{ borderTop: '1px solid var(--border)', background: sel ? 'rgba(212,166,74,0.06)' : 'transparent' }}>
                     <td style={td}><input type="checkbox" checked={sel} onChange={() => toggle(a.id)} /></td>
+                    <td style={td}>
+                      <button
+                        onClick={() => window.api.windows.openAccountBrowser({ accountId: a.id })}
+                        title={`Launch ${a.username} in its own pre-logged-in browser`}
+                        style={{
+                          width: 28, height: 28, borderRadius: '50%',
+                          background: 'linear-gradient(135deg, var(--green), var(--gold))',
+                          color: '#1a1a14', border: '1px solid var(--gold)',
+                          fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                          display: 'grid', placeItems: 'center',
+                          boxShadow: '0 1px 4px rgba(127,217,154,0.3)',
+                          padding: 0,
+                        }}
+                      >▶</button>
+                    </td>
                     <td style={td}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <div style={{ position: 'relative' }}>
