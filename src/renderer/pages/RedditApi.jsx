@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import SchedulerPage from './Scheduler.jsx';
-import AccountsPage from './Accounts.jsx';
 import InboxPage from './Inbox.jsx';
 
 const TABS = [
+  { key: 'inbox',   label: 'Inbox',   icon: '✉', hint: 'DMs & modmail' },
   { key: 'posting', label: 'Posting', icon: '◷', hint: 'Scheduled posts' },
-  { key: 'reddit', label: 'Reddit', icon: '◈', hint: 'Connected accounts' },
-  { key: 'inbox', label: 'Inbox', icon: '✉', hint: 'DMs & modmail' },
 ];
 
 const PLATFORM_PILLS = [
@@ -19,7 +17,7 @@ const PLATFORM_PILLS = [
 
 export default function RedditApiPage({ initialTab, navigate }) {
   const [tab, setTab] = useState(
-    TABS.find((t) => t.key === initialTab) ? initialTab : 'posting'
+    TABS.find((t) => t.key === initialTab) ? initialTab : 'inbox'
   );
   const [platform, setPlatform] = useState('reddit');
 
@@ -81,9 +79,8 @@ export default function RedditApiPage({ initialTab, navigate }) {
         })}
       </div>
 
+      {tab === 'inbox'   && <InboxPage embedded navigate={navigate} />}
       {tab === 'posting' && <SchedulerPage embedded />}
-      {tab === 'reddit' && <AccountsPage navigate={navigate} embedded />}
-      {tab === 'inbox' && <InboxPage embedded navigate={navigate} />}
     </div>
   );
 }
