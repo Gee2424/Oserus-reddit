@@ -9,16 +9,21 @@ import logoUrl from '../assets/logo.png';
 // under "Reddit"; cross-platform tools sit under "Workspace"; future
 // platforms get their own groups.
 const NAV = [
-  { key: 'dashboard',     label: 'Dashboard',      icon: '⬢', group: 'Overview', perm: 'page.dashboard' },
-  { key: 'profiles',      label: 'Models',         icon: '◇', group: 'Overview', perm: 'page.profiles' },
+  { key: 'dashboard',     label: 'Dashboard',           icon: '⬢', group: 'Overview', perm: 'page.dashboard' },
+  { key: 'profiles',      label: 'Models',              icon: '◇', group: 'Overview', perm: 'page.profiles' },
+  { key: 'analytics',     label: 'Analytics',           icon: '◧', group: 'Overview', perm: 'page.analytics' },
 
-  { key: 'browser',       label: 'Browser',        icon: '◈', group: 'Workspace', perm: 'page.reddit' },
-  { key: 'scheduler-pro', label: 'Scheduler',      icon: '◷', group: 'Workspace', perm: 'page.scheduler' },
-  { key: 'analytics',     label: 'Analytics',      icon: '◧', group: 'Workspace', perm: 'page.analytics' },
-  { key: 'activity',      label: 'Activity',       icon: '☷', group: 'Workspace', perm: 'page.activity' },
+  { key: 'browser',       label: 'Browser',             icon: '◈', group: 'Workspace', perm: 'page.reddit' },
+  { key: 'inbox',         label: 'Account Manager Pro', icon: '✉', group: 'Workspace', perm: 'page.reddit-api' },
+  { key: 'scheduler-pro', label: 'Scheduler',           icon: '◷', group: 'Workspace', perm: 'page.scheduler' },
+  { key: 'intel',         label: 'Reddit Intelligence', icon: '◎', group: 'Workspace', perm: 'page.intel' },
+  { key: 'autopilot',     label: 'Autopilot',           icon: '⟳', group: 'Workspace', perm: 'page.autopilot' },
 
   { key: 'users',    label: 'Team',          icon: '◉', group: 'Team', perm: 'page.team' },
-  { key: 'settings', label: 'Configuration', icon: '⚙', group: 'Team', perm: 'page.settings' },
+  { key: 'activity', label: 'Activity',      icon: '☷', group: 'Team', perm: 'page.activity' },
+  { key: 'docs',     label: 'Documentation', icon: '◫', group: 'Team', perm: 'page.docs' },
+
+  { key: 'settings', label: 'Configuration', icon: '⚙', group: 'Configure', perm: 'page.settings' },
 ];
 
 export default function Shell({ route, navigate, children }) {
