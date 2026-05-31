@@ -236,7 +236,9 @@ ipcMain.handle('window:openAccountBrowser', async (_e, { accountId, url }) => {
   const prep = await prepareSessionForAccount(accountId);
   if (!prep.ok) return prep;
   const db = getDb();
-  const acct = db.prepare('SELECT username, platform FROM reddit_accounts WHERE id = ?').get(accountId);
+  const acct = db.prepare(
+    'SELECT username, platform, password_encrypted FROM reddit_accounts WHERE id = ?'
+  ).get(accountId);
   if (!acct) return { ok: false, error: 'Account not found' };
   const target = url || PLATFORM_URLS[acct.platform] || 'about:blank';
   const isMac = process.platform === 'darwin';
@@ -254,6 +256,53 @@ ipcMain.handle('window:openAccountBrowser', async (_e, { accountId, url }) => {
       nodeIntegration: false,
     },
   });
+
+  // Autofill: when the page finishes loading, look for a login form and
+  // populate the username + password fields. Platform-aware so we pick the
+  // right selectors per site. Runs on every load (incl. redirects) so it
+  // catches the actual login page after Reddit/X bounce through OAuth.
+  const password = acct.password_encrypted ? decryptSecret(acct.password_encrypted) : '';
+  if (acct.username && password) {
+    const safeUser = JSON.stringify(acct.username);
+    const safePass = JSON.stringify(password);
+    win.webContents.on('did-finish-load', () => {
+      const js = `
+        (() => {
+          try {
+            const u = ${safeUser};
+            const p = ${safePass};
+            const setVal = (el, v) => {
+              if (!el) return false;
+              const proto = Object.getPrototypeOf(el);
+              const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+              if (desc && desc.set) desc.set.call(el, v); else el.value = v;
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              return true;
+            };
+            const userSel = [
+              'input[name="username"]', 'input[autocomplete="username"]',
+              'input[name="text"]',     // X
+              'input[name="email"]',    // some IG variants
+              'input[type="email"]',
+              'input[name="loginfmt"]',
+            ];
+            const passSel = [
+              'input[name="password"]', 'input[autocomplete="current-password"]',
+              'input[type="password"]',
+            ];
+            let uEl = null, pEl = null;
+            for (const s of userSel) { uEl = document.querySelector(s); if (uEl) break; }
+            for (const s of passSel) { pEl = document.querySelector(s); if (pEl) break; }
+            if (uEl) setVal(uEl, u);
+            if (pEl) setVal(pEl, p);
+          } catch (e) { /* ignore */ }
+        })();
+      `;
+      win.webContents.executeJavaScript(js).catch(() => {});
+    });
+  }
+
   win.loadURL(target);
   return { ok: true };
 });

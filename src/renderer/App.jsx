@@ -67,7 +67,7 @@ function Inner() {
       case 'users': return <TeamPage />;
       case 'infra':
       case 'proxies':
-        return <AddAccountsPage navigate={navigate} initialTab="proxies" />;
+        return <SettingsPage navigate={navigate} />;
       case 'votes':
         return <SchedulerProPage initialProTab="configure" navigate={navigate} />;
       case 'subreddits': return <SubredditsPage />;

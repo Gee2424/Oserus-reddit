@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import { Tag } from '../components/ui.jsx';
+import ProxiesPanel from '../components/ProxiesPanel.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 
 export default function SettingsPage({ navigate }) {
@@ -153,28 +154,60 @@ export default function SettingsPage({ navigate }) {
       )}
 
       {isAdmin && (
-        <div className="card" style={{ marginBottom: 22, borderColor: hasVoteKey ? 'var(--ok)' : 'var(--border)' }}>
-          <h3 style={{ marginBottom: 6 }}>upvote.biz API key {hasVoteKey && <span className="mono" style={{ fontSize: 11, color: 'var(--ok)', marginLeft: 8 }}>✓ configured</span>}</h3>
-          <div className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
-            Used by the Votes page to query balance, services, and place orders. Stored encrypted on disk using your OS keychain.
-          </div>
-          {voteKeyMsg && (
-            <div className={voteKeyMsg.kind === 'err' ? 'error-banner' : ''} style={voteKeyMsg.kind === 'ok' ? styles.ok : {}}>
-              {voteKeyMsg.text}
+        <div className="card" style={{ marginBottom: 22, padding: 0, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', background: 'var(--bg-1)' }}>
+            <h3 style={{ margin: 0, fontSize: 15 }}>Infrastructure</h3>
+            <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+              Shared pools every Model can pull from — boost provider, then proxies.
+              Schedules attach a boost to a post and a proxy to an account from these here.
             </div>
-          )}
-          <form onSubmit={saveVoteKey} style={{ display: 'flex', gap: 8 }}>
-            <input
-              type="password"
-              placeholder={hasVoteKey ? '••••••••••••••••  (paste a new key to replace)' : 'upvote.biz API key'}
-              value={voteKey}
-              onChange={(e) => setVoteKey(e.target.value)}
-              style={{ flex: 1 }}
-              autoComplete="off"
-            />
-            <button type="submit" className="primary">Save</button>
-            {hasVoteKey && <button type="button" className="danger" onClick={clearVoteKey}>Remove</button>}
-          </form>
+          </div>
+
+          {/* Boost provider */}
+          <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: hasVoteKey ? 'var(--green)' : 'var(--text-3)' }} />
+              <h4 style={{ margin: 0, fontSize: 13, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--gold-bright)' }}>
+                Boost provider · upvote.biz
+              </h4>
+              {hasVoteKey && <span className="mono" style={{ fontSize: 10, color: 'var(--ok)' }}>✓ configured</span>}
+            </div>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+              Powers the ▲ Boost option on scheduled posts. Encrypted on disk via OS keychain.
+            </div>
+            {voteKeyMsg && (
+              <div className={voteKeyMsg.kind === 'err' ? 'error-banner' : ''} style={voteKeyMsg.kind === 'ok' ? styles.ok : {}}>
+                {voteKeyMsg.text}
+              </div>
+            )}
+            <form onSubmit={saveVoteKey} style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="password"
+                placeholder={hasVoteKey ? '••••••••••••••••  (paste a new key to replace)' : 'upvote.biz API key'}
+                value={voteKey}
+                onChange={(e) => setVoteKey(e.target.value)}
+                style={{ flex: 1 }}
+                autoComplete="off"
+              />
+              <button type="submit" className="primary">Save</button>
+              {hasVoteKey && <button type="button" className="danger" onClick={clearVoteKey}>Remove</button>}
+            </form>
+          </div>
+
+          {/* Proxy pool, embedded so it flows directly after the boost provider */}
+          <div style={{ padding: '16px 18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)' }} />
+              <h4 style={{ margin: 0, fontSize: 13, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--gold-bright)' }}>
+                Proxy pool
+              </h4>
+            </div>
+            <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
+              HTTP / HTTPS / SOCKS5 proxies attachable to a model (inherited by its accounts)
+              or to a single account. Health auto-tested every 30 min.
+            </div>
+            <ProxiesPanel />
+          </div>
         </div>
       )}
 
