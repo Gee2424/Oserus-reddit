@@ -188,11 +188,6 @@ export default function DashboardPage({ navigate }) {
         <div style={modelList}>
           {models.map((m) => (
             <div key={m.id} style={modelRowCard}>
-              <button
-                onClick={(e) => { e.stopPropagation(); openAllForModel(m); }}
-                title={`Open all ${m.total} account${m.total === 1 ? '' : 's'} in pre-logged-in browsers`}
-                style={playBtn}
-              >▶</button>
               <Avatar name={m.name} size={36} />
               <div
                 onClick={() => navigate('model-hub', { modelId: m.id })}
