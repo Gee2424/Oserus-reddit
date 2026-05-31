@@ -212,36 +212,21 @@ async function runDueScheduled() {
           subreddit: post.subreddit, title: post.title, remote_id: result.id,
           status: 'posted', source: 'scheduled',
         });
-        // Integrated boosting: if the row was scheduled with an upvote
-        // service + quantity, fire an order against upvote.biz now that the
-        // post has a URL. Best-effort — failures don't fail the post itself.
+        // Persist the post URL so deferred boost orders have it later, and
+        // either fire immediately (delay=0) or stage the boost for the
+        // runDueBoosts ticker to pick up at boost_fire_at.
+        if (result.url) {
+          db.prepare("UPDATE scheduled_posts SET posted_url=? WHERE id=?").run(result.url, post.id);
+        }
         if (post.boost_service_id && Number(post.boost_qty) > 0 && result.url) {
-          try {
-            const { getSetting } = require('./settings');
-            const { decryptSecret } = require('../db');
-            const enc = getSetting('upvote_biz_api_key');
-            const apiKey = enc ? decryptSecret(enc) : null;
-            if (apiKey) {
-              const body = new URLSearchParams({
-                key: apiKey, action: 'add',
-                service: String(post.boost_service_id),
-                link: result.url,
-                quantity: String(post.boost_qty),
-              });
-              const res = await fetch('https://upvote.biz/api/v1', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: body.toString(),
-              });
-              const data = await res.json().catch(() => null);
-              const ok = data && (data.order || data.orderid || data.id);
-              db.prepare("UPDATE scheduled_posts SET boost_status=? WHERE id=?")
-                .run(ok ? 'ordered' : 'failed', post.id);
-            } else {
-              db.prepare("UPDATE scheduled_posts SET boost_status='failed' WHERE id=?").run(post.id);
-            }
-          } catch {
-            db.prepare("UPDATE scheduled_posts SET boost_status='failed' WHERE id=?").run(post.id);
+          const delayMin = Math.max(0, Number(post.boost_delay_minutes) || 0);
+          if (delayMin === 0) {
+            await fireBoostOrder(post, result.url);
+          } else {
+            const fireAt = new Date(Date.now() + delayMin * 60000)
+              .toISOString().replace('T', ' ').slice(0, 19);
+            db.prepare("UPDATE scheduled_posts SET boost_status='pending', boost_fire_at=? WHERE id=?")
+              .run(fireAt, post.id);
           }
         }
       } else {
@@ -313,12 +298,75 @@ async function autoTestProxies() {
   } catch { /* never let proxy testing crash the coordinator */ }
 }
 
+// Send a single upvote.biz order. Stamps boost_status + boost_order_id on the
+// post row regardless of outcome so the UI can display it. Drip rate is sent
+// as `runs`/`interval` when the provider exposes those, otherwise it's a
+// harmless extra parameter.
+async function fireBoostOrder(post, url) {
+  const db = getDb();
+  try {
+    const { getSetting } = require('./settings');
+    const { decryptSecret } = require('../db');
+    const enc = getSetting('upvote_biz_api_key');
+    const apiKey = enc ? decryptSecret(enc) : null;
+    if (!apiKey) {
+      db.prepare("UPDATE scheduled_posts SET boost_status='failed' WHERE id=?").run(post.id);
+      return;
+    }
+    const params = {
+      key: apiKey, action: 'add',
+      service: String(post.boost_service_id),
+      link: url,
+      quantity: String(post.boost_qty),
+    };
+    // Map drip rate to provider drip parameters (runs/interval). Conservative
+    // defaults — provider ignores them when unsupported.
+    if (post.boost_drip_rate === 'fast')        { params.runs = '1'; params.interval = '0'; }
+    else if (post.boost_drip_rate === 'medium') { params.runs = '4'; params.interval = '15'; }
+    else if (post.boost_drip_rate === 'slow')   { params.runs = '8'; params.interval = '60'; }
+    const res = await fetch('https://upvote.biz/api/v1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(params).toString(),
+    });
+    const data = await res.json().catch(() => null);
+    const orderId = data && (data.order || data.orderid || data.id);
+    if (orderId) {
+      db.prepare("UPDATE scheduled_posts SET boost_status='ordered', boost_order_id=? WHERE id=?")
+        .run(String(orderId), post.id);
+    } else {
+      db.prepare("UPDATE scheduled_posts SET boost_status='failed' WHERE id=?").run(post.id);
+    }
+  } catch {
+    db.prepare("UPDATE scheduled_posts SET boost_status='failed' WHERE id=?").run(post.id);
+  }
+}
+
+async function runDueBoosts() {
+  const db = getDb();
+  const due = db.prepare(
+    `SELECT * FROM scheduled_posts
+     WHERE boost_status='pending'
+       AND posted_url IS NOT NULL
+       AND boost_fire_at IS NOT NULL
+       AND datetime(boost_fire_at) <= datetime('now')
+     LIMIT 50`
+  ).all();
+  for (const post of due) {
+    await fireBoostOrder(post, post.posted_url);
+  }
+}
+
+let boostTimer = null;
+
 function start() {
   if (timer) return;
   const mins = Number(getSetting('autopilot_interval_min') || 30);
   timer = setInterval(tick, Math.max(5, mins) * 60 * 1000);
   // Scheduled posts fire on their own ~1-min cadence regardless of autopilot.
   schedTimer = setInterval(() => runDueScheduled().catch(() => {}), 60 * 1000);
+  // Deferred boost orders — every 30s so a 5-min delay still fires near on-time.
+  boostTimer = setInterval(() => runDueBoosts().catch(() => {}), 30 * 1000);
   // Proxy health check every 30 min.
   proxyTimer = setInterval(autoTestProxies, 30 * 60 * 1000);
   setTimeout(() => runDueScheduled().catch(() => {}), 15 * 1000);
@@ -330,6 +378,7 @@ function stop() {
   if (timer) { clearInterval(timer); timer = null; }
   if (schedTimer) { clearInterval(schedTimer); schedTimer = null; }
   if (proxyTimer) { clearInterval(proxyTimer); proxyTimer = null; }
+  if (boostTimer) { clearInterval(boostTimer); boostTimer = null; }
 }
 
 function status() {

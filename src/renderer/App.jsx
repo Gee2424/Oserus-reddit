@@ -16,7 +16,6 @@ import SettingsPage from './pages/Settings.jsx';
 import DocsPage from './pages/Docs.jsx';
 import AnalyticsPage from './pages/Analytics.jsx';
 import ActivityPage from './pages/Activity.jsx';
-import OperationsPage from './pages/Operations.jsx';
 import AutopilotPage from './pages/Autopilot.jsx';
 import SchedulerProPage from './pages/SchedulerPro.jsx';
 import IntelligencePage from './pages/Intelligence.jsx';
@@ -66,15 +65,15 @@ function Inner() {
       case 'users': return <TeamPage />;
       case 'infra':
       case 'proxies':
+        return <AddAccountsPage navigate={navigate} initialTab="proxies" />;
       case 'votes':
-        return <OperationsPage />;
+        return <SchedulerProPage initialProTab="configure" />;
       case 'subreddits': return <SubredditsPage />;
       case 'webviews': return <WebviewsPage />;
       case 'settings': return <SettingsPage navigate={navigate} />;
       case 'docs': return <DocsPage />;
       case 'analytics': return <AnalyticsPage />;
       case 'activity': return <ActivityPage />;
-      case 'operations': return <OperationsPage navigate={navigate} />;
       case 'autopilot': return <AutopilotPage />;
       case 'scheduler-pro': return <SchedulerProPage initialProTab={routeParams.tab} />;
       case 'intel': return <IntelligencePage />;
@@ -90,7 +89,6 @@ function Inner() {
       switch (popoutRoute) {
         case 'inbox': return <InboxPage embedded standalone />;
         case 'scheduler-pro': return <SchedulerProPage />;
-        case 'operations': return <OperationsPage navigate={navigate} />;
         case 'autopilot': return <AutopilotPage />;
         case 'analytics': return <AnalyticsPage />;
         case 'intel': return <IntelligencePage />;

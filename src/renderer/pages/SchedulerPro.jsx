@@ -374,6 +374,19 @@ function StatusColumns({ posts, onCancel, onDelete }) {
                   </div>
                   <div style={{ marginTop: 3, color: 'var(--gold)', fontSize: 11 }}>r/{p.subreddit}</div>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>{p.title}</div>
+                  {p.boost_status && (
+                    <div style={{
+                      marginTop: 4, display: 'inline-block', fontSize: 9, fontWeight: 700,
+                      padding: '2px 6px', borderRadius: 999, letterSpacing: '0.05em', textTransform: 'uppercase',
+                      background: p.boost_status === 'ordered' ? 'rgba(127,217,154,0.14)'
+                        : p.boost_status === 'failed' ? 'rgba(226,163,163,0.14)'
+                        : 'rgba(212,166,74,0.14)',
+                      color: p.boost_status === 'ordered' ? '#7fd99a'
+                        : p.boost_status === 'failed' ? '#e2a3a3' : '#d4a64a',
+                    }} title={`Boost · ${p.boost_qty} · ${p.boost_status}${p.boost_fire_at ? ` · fires ${p.boost_fire_at}` : ''}`}>
+                      ▲ {p.boost_qty} {p.boost_status}
+                    </div>
+                  )}
                   <div className="muted" style={{ fontSize: 10, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                     {p.profile_color && <span style={{ width: 6, height: 6, borderRadius: 999, background: p.profile_color }} />}
                     {p.profile_name || '—'} · u/{p.account_username}
@@ -990,7 +1003,7 @@ function Composer({ token, accounts, onDone, onError }) {
   const [conflicts, setConflicts] = useState([]);
   const [busy, setBusy] = useState(false);
   // Boosting: integrated from Operations → Upvotes per the new architecture.
-  const [boost, setBoost] = useState({ enabled: false, serviceId: '', qty: 25 });
+  const [boost, setBoost] = useState({ enabled: false, serviceId: '', qty: 25, delayMinutes: 0, dripRate: 'medium' });
   const [services, setServices] = useState([]);
   const [balance, setBalance] = useState(null);
   // Eligibility intel: subreddit gates × account karma/age.
@@ -1064,6 +1077,8 @@ function Composer({ token, accounts, onDone, onError }) {
       scheduledFor: toStored(form.when),
       boostServiceId: boost.enabled ? boost.serviceId : null,
       boostQty: boost.enabled ? Number(boost.qty) : 0,
+      boostDelayMinutes: boost.enabled ? Number(boost.delayMinutes) || 0 : 0,
+      boostDripRate: boost.enabled ? boost.dripRate : null,
     }));
     const res = await window.api.scheduled.bulkCreate({ token, items });
     setBusy(false);
@@ -1225,6 +1240,18 @@ function Composer({ token, accounts, onDone, onError }) {
                 <div>
                   <label>Quantity</label>
                   <input type="number" min={1} value={boost.qty} onChange={(e) => setBoost({ ...boost, qty: e.target.value })} />
+                </div>
+                <div>
+                  <label>Start delay (min)</label>
+                  <input type="number" min={0} value={boost.delayMinutes} onChange={(e) => setBoost({ ...boost, delayMinutes: e.target.value })} placeholder="0 = fire immediately" />
+                </div>
+                <div>
+                  <label>Drip rate</label>
+                  <select value={boost.dripRate} onChange={(e) => setBoost({ ...boost, dripRate: e.target.value })}>
+                    <option value="fast">Fast</option>
+                    <option value="medium">Medium</option>
+                    <option value="slow">Slow (steady)</option>
+                  </select>
                 </div>
               </div>
             )

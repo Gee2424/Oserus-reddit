@@ -31,7 +31,12 @@ function ensureTable() {
   if (!have('auto_generate'))    db.exec('ALTER TABLE scheduled_posts ADD COLUMN auto_generate INTEGER DEFAULT 0');
   if (!have('boost_service_id')) db.exec('ALTER TABLE scheduled_posts ADD COLUMN boost_service_id TEXT');
   if (!have('boost_qty'))        db.exec('ALTER TABLE scheduled_posts ADD COLUMN boost_qty INTEGER DEFAULT 0');
-  if (!have('boost_status'))     db.exec('ALTER TABLE scheduled_posts ADD COLUMN boost_status TEXT'); // queued | ordered | failed
+  if (!have('boost_status'))     db.exec('ALTER TABLE scheduled_posts ADD COLUMN boost_status TEXT'); // queued | pending | ordered | failed
+  if (!have('boost_delay_minutes')) db.exec('ALTER TABLE scheduled_posts ADD COLUMN boost_delay_minutes INTEGER DEFAULT 0');
+  if (!have('boost_drip_rate'))  db.exec("ALTER TABLE scheduled_posts ADD COLUMN boost_drip_rate TEXT"); // fast | medium | slow
+  if (!have('boost_fire_at'))    db.exec('ALTER TABLE scheduled_posts ADD COLUMN boost_fire_at TEXT');
+  if (!have('boost_order_id'))   db.exec('ALTER TABLE scheduled_posts ADD COLUMN boost_order_id TEXT');
+  if (!have('posted_url'))       db.exec('ALTER TABLE scheduled_posts ADD COLUMN posted_url TEXT');
 }
 
 // Flag scheduling conflicts for a candidate (account, time) against the
@@ -155,8 +160,9 @@ function register(ipcMain) {
       if (!Array.isArray(items) || !items.length) throw new Error('No items to schedule');
       const stmt = getDb().prepare(
         `INSERT INTO scheduled_posts
-           (account_id, subreddit, title, body, kind, url, scheduled_for, created_by_user_id, boost_service_id, boost_qty, boost_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (account_id, subreddit, title, body, kind, url, scheduled_for, created_by_user_id,
+            boost_service_id, boost_qty, boost_status, boost_delay_minutes, boost_drip_rate)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       let created = 0; const errors = [];
       const tx = getDb().transaction((rows) => {
@@ -171,7 +177,9 @@ function register(ipcMain) {
             it.body || null, it.kind || 'self', it.url || null, it.scheduledFor, user.id,
             wantsBoost ? String(it.boostServiceId) : null,
             wantsBoost ? Math.max(1, Number(it.boostQty)) : 0,
-            wantsBoost ? 'queued' : null
+            wantsBoost ? 'queued' : null,
+            wantsBoost ? Math.max(0, Number(it.boostDelayMinutes) || 0) : 0,
+            wantsBoost ? (it.boostDripRate || null) : null,
           );
           created++;
         }

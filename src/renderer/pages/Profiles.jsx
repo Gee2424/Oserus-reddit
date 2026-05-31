@@ -215,9 +215,26 @@ export default function ProfilesPage({ navigate }) {
                 {p.notes && <div className="muted" style={{ fontSize: 12 }}>{p.notes}</div>}
                 </div>
               </div>
+              {(p.members && p.members.length > 0) && (
+                <div style={{ padding: '10px 18px', borderTop: '1px solid var(--border)', background: 'var(--bg-1)' }}>
+                  <div className="dim" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Team</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {p.members.map((m) => (
+                      <span key={m.id} style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        background: 'var(--bg-2)', border: '1px solid var(--border)',
+                        borderRadius: 999, padding: '3px 9px', fontSize: 11,
+                      }} title={`${m.display_name} · ${m.role}`}>
+                        <span style={{ color: 'var(--gold)' }}>{m.display_name}</span>
+                        <span className="dim" style={{ fontSize: 10 }}>{m.role}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               {canManage && (
                 <div style={{ padding: 18, paddingTop: 12, borderTop: '1px solid var(--border)', background: 'var(--bg-1)' }}>
-                  <label>Assigned team member</label>
+                  <label>Primary manager</label>
                   <select
                     value={p.assigned_user_id || ''}
                     onChange={(e) => reassign(p.id, e.target.value ? Number(e.target.value) : null)}
@@ -227,6 +244,54 @@ export default function ProfilesPage({ navigate }) {
                       <option key={u.id} value={u.id}>{u.display_name} ({u.username})</option>
                     ))}
                   </select>
+                  <label style={{ marginTop: 10 }}>Add team member</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <select id={`member-user-${p.id}`} defaultValue="" style={{ flex: 2 }}>
+                      <option value="">— pick user —</option>
+                      {users.map((u) => (
+                        <option key={u.id} value={u.id}>{u.display_name} ({u.username})</option>
+                      ))}
+                    </select>
+                    <select id={`member-role-${p.id}`} defaultValue="chatter" style={{ flex: 1 }}>
+                      <option value="manager">Manager</option>
+                      <option value="chatter">Chatter</option>
+                      <option value="coordinator">Coordinator</option>
+                      <option value="marketing">Marketing</option>
+                    </select>
+                    <button className="ghost" onClick={async () => {
+                      const u = Number(document.getElementById(`member-user-${p.id}`).value);
+                      const r = document.getElementById(`member-role-${p.id}`).value;
+                      if (!u) return;
+                      await window.api.profiles.addMember({ token, profileId: p.id, userId: u, role: r });
+                      load();
+                    }}>Add</button>
+                  </div>
+                  {p.members && p.members.length > 0 && (
+                    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {p.members.map((m) => (
+                        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                          <span style={{ flex: 1 }}>{m.display_name} <span className="dim">({m.username})</span></span>
+                          <select
+                            value={m.role}
+                            onChange={async (e) => {
+                              await window.api.profiles.setMemberRole({ token, profileId: p.id, userId: m.user_id, role: e.target.value });
+                              load();
+                            }}
+                            style={{ fontSize: 11, padding: '2px 6px' }}
+                          >
+                            <option value="manager">Manager</option>
+                            <option value="chatter">Chatter</option>
+                            <option value="coordinator">Coordinator</option>
+                            <option value="marketing">Marketing</option>
+                          </select>
+                          <button className="ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={async () => {
+                            await window.api.profiles.removeMember({ token, profileId: p.id, userId: m.user_id });
+                            load();
+                          }}>✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <label style={{ marginTop: 10 }}>Model proxy <span className="dim" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>(inherited by accounts without their own)</span></label>
                   <select
                     value={p.proxy_id || ''}

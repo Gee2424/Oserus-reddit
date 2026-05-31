@@ -22,7 +22,6 @@ const NAV = [
 
   { key: 'scheduler-pro', label: 'Scheduler', icon: '◷', group: 'Workspace', perm: 'page.scheduler' },
   { key: 'autopilot',     label: 'Autopilot',     icon: '⟳', group: 'Workspace', perm: 'page.autopilot' },
-  { key: 'operations',    label: 'Operations',    icon: '▷', group: 'Workspace', perm: 'page.operations' },
 
   { key: 'users',    label: 'Team',          icon: '◉', group: 'Team', perm: 'page.team' },
   { key: 'activity', label: 'Activity',      icon: '☷', group: 'Team', perm: 'page.activity' },

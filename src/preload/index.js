@@ -28,6 +28,9 @@ const api = {
     update: (data) => ipcRenderer.invoke('profiles:update', data),
     assign: (data) => ipcRenderer.invoke('profiles:assign', data),
     delete: (data) => ipcRenderer.invoke('profiles:delete', data),
+    addMember: (data) => ipcRenderer.invoke('profiles:addMember', data),
+    removeMember: (data) => ipcRenderer.invoke('profiles:removeMember', data),
+    setMemberRole: (data) => ipcRenderer.invoke('profiles:setMemberRole', data),
   },
   accounts: {
     listForProfile: (data) => ipcRenderer.invoke('accounts:listForProfile', data),
