@@ -184,6 +184,11 @@ const api = {
     fetchProfile: (data) => ipcRenderer.invoke('redgifs:fetchProfile', data),
     fetchAll:     (data) => ipcRenderer.invoke('redgifs:fetchAll', data),
   },
+  messaging: {
+    templatesList:  (data) => ipcRenderer.invoke('messaging:templatesList', data),
+    templateCreate: (data) => ipcRenderer.invoke('messaging:templateCreate', data),
+    templateDelete: (data) => ipcRenderer.invoke('messaging:templateDelete', data),
+  },
   windows: {
     openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),
     setAlwaysOnTop: (data) => ipcRenderer.invoke('window:setAlwaysOnTop', data),

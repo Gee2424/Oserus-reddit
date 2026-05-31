@@ -84,6 +84,22 @@ export default function DashboardPage({ navigate }) {
     return [...m.entries()].map(([id, name]) => ({ id, name }));
   }, [reddit]);
 
+  // Models row — one card per profile_id with live/banned/proxy-issue counts.
+  const models = useMemo(() => {
+    const m = new Map();
+    for (const a of accounts) {
+      const pid = a.profile_id;
+      if (!pid) continue;
+      if (!m.has(pid)) m.set(pid, { id: pid, name: a.profile_name || `Model ${pid}`, total: 0, live: 0, banned: 0, proxyBad: 0 });
+      const row = m.get(pid);
+      row.total += 1;
+      if (a.status === 'ready') row.live += 1;
+      if (a.status === 'banned') row.banned += 1;
+      if (a.proxy_test_ok === 0) row.proxyBad += 1;
+    }
+    return [...m.values()].sort((a, b) => b.total - a.total);
+  }, [accounts]);
+
   const filtered = useMemo(() => {
     let r = reddit;
     if (statusFilter !== 'all') r = r.filter((a) => a.status === statusFilter);
@@ -127,6 +143,31 @@ export default function DashboardPage({ navigate }) {
         </div>
         <div style={{ marginLeft: 'auto' }}><PopOutButton route="dashboard" title="Dashboard" /></div>
       </div>
+
+      {models.length > 0 && (
+        <div style={modelRow}>
+          {models.map((m) => (
+            <div
+              key={m.id}
+              onClick={() => navigate('model-hub', { modelId: m.id })}
+              style={modelCard}
+              title={`Open ${m.name} hub`}
+            >
+              <Avatar name={m.name} size={32} />
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</div>
+                <div style={{ fontSize: 11, color: '#9aa0a6', marginTop: 2 }}>
+                  <span style={{ color: '#7fd99a' }}>{m.live} live</span>
+                  <span style={{ margin: '0 6px', opacity: 0.4 }}>·</span>
+                  <span>{m.total} acct{m.total === 1 ? '' : 's'}</span>
+                  {m.banned > 0 && (<><span style={{ margin: '0 6px', opacity: 0.4 }}>·</span><span style={{ color: '#e2a3a3' }}>{m.banned} banned</span></>)}
+                  {m.proxyBad > 0 && (<><span style={{ margin: '0 6px', opacity: 0.4 }}>·</span><span style={{ color: '#7aa2f7' }}>{m.proxyBad} proxy</span></>)}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={statRow}>
         <StatTile label="Total Accounts"  value={totals.total}   tone="blue" />
@@ -390,6 +431,13 @@ function Modal({ title, children, onClose }) {
 }
 
 const statRow = { display: 'flex', gap: 14, marginBottom: 18 };
+const modelRow = { display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' };
+const modelCard = {
+  display: 'flex', alignItems: 'center', gap: 10,
+  padding: '8px 12px', minWidth: 200, flex: '0 1 240px',
+  background: 'var(--bg-elev)', border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-lg)', cursor: 'pointer',
+};
 const actionBar = { display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' };
 const th = { textAlign: 'left', padding: '11px 14px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)' };
 const td = { padding: '10px 14px', verticalAlign: 'middle' };

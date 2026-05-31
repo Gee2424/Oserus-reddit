@@ -45,6 +45,14 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
   const [unreadByAccount, setUnreadByAccount] = useState({}); // { [accountId]: count }
+  const [templates, setTemplates] = useState([]);
+  const [showTemplates, setShowTemplates] = useState(false);
+
+  useEffect(() => {
+    window.api.messaging.templatesList({ token, profileId: active?.profile_id }).then((r) => {
+      if (r.ok) setTemplates(r.templates || []);
+    });
+  }, [token, active?.profile_id]);
 
   useEffect(() => {
     if (!active && redditAccounts && redditAccounts.length > 0) setActive(redditAccounts[0].id);
@@ -270,13 +278,50 @@ export default function InboxPage({ embedded, standalone, navigate }) {
 
                 {folder !== 'sent' && (
                   <div style={composer}>
-                    <textarea
-                      value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
-                      placeholder={`Reply as u/${active.username}…`}
-                      style={composerInput}
-                      onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendReply(); }}
-                    />
+                    <div style={{ flex: 1, position: 'relative' }}>
+                      <textarea
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        placeholder={`Reply as u/${active.username}…`}
+                        style={{ ...composerInput, width: '100%' }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendReply(); }}
+                      />
+                      {templates.length > 0 && (
+                        <button
+                          onClick={() => setShowTemplates((v) => !v)}
+                          title="Insert from canned templates"
+                          style={{
+                            position: 'absolute', right: 8, top: 8,
+                            background: 'rgba(255,255,255,0.06)', border: '1px solid #343536',
+                            color: '#d7dadc', borderRadius: 8, padding: '4px 8px', fontSize: 11, cursor: 'pointer',
+                          }}
+                        >📋 {templates.length}</button>
+                      )}
+                      {showTemplates && (
+                        <div style={{
+                          position: 'absolute', bottom: 'calc(100% + 6px)', right: 0,
+                          width: 280, maxHeight: 260, overflowY: 'auto',
+                          background: '#1a1a1b', border: '1px solid #343536',
+                          borderRadius: 10, padding: 6, zIndex: 50,
+                          boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                        }}>
+                          {templates.map((t) => (
+                            <button
+                              key={t.id}
+                              onClick={() => { setReplyText((cur) => cur + (cur ? '\n\n' : '') + t.body); setShowTemplates(false); }}
+                              style={{
+                                display: 'block', width: '100%', textAlign: 'left',
+                                background: 'transparent', border: 'none', cursor: 'pointer',
+                                color: '#d7dadc', padding: '8px 10px', borderRadius: 6,
+                              }}
+                            >
+                              <div style={{ fontSize: 12, fontWeight: 600 }}>{t.name}</div>
+                              <div style={{ fontSize: 11, color: '#818384', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.body.slice(0, 60)}{t.body.length > 60 ? '…' : ''}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <button onClick={sendReply} disabled={sending || !replyText.trim()} style={sendBtn}>{sending ? '…' : '➤'}</button>
                   </div>
                 )}

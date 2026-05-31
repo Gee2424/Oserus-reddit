@@ -25,6 +25,7 @@ const registerProtocolHandlers = require('./ipc/protocols');
 const registerIntelHandlers = require('./ipc/intelligence');
 const registerTemplateHandlers = require('./ipc/templates');
 const registerRedgifsHandlers = require('./ipc/redgifs');
+const registerMessagingHandlers = require('./ipc/messaging');
 const coordinator = require('./services/coordinator');
 
 const isDev = !app.isPackaged;
@@ -216,6 +217,7 @@ app.whenReady().then(() => {
   registerIntelHandlers(ipcMain);
   registerTemplateHandlers(ipcMain);
   registerRedgifsHandlers(ipcMain);
+  registerMessagingHandlers(ipcMain);
 
   createWindow();
 
