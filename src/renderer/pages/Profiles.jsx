@@ -10,15 +10,17 @@ export default function ProfilesPage({ navigate }) {
   const { startAccount } = useActiveAccount();
   const [profiles, setProfiles] = useState([]);
 
-  async function playModel(profileId, platform = 'reddit') {
-    const res = await window.api.accounts.listForProfile({ token, profileId, platform });
+  async function playModel(profileId) {
+    const res = await window.api.accounts.listForProfile({ token, profileId });
     if (!res.ok || !res.accounts.length) {
-      alert(`No ${platform} accounts on this model yet. Open the model and link one.`);
+      alert('No accounts on this model yet. Link one first.');
       return;
     }
-    const pick = pickPreferredAccount(res.accounts);
-    await startAccount(pick.id);
-    navigate(platform);
+    // Pre-cookied Chrome window per account (Electron BrowserWindow uses the
+    // account's persist:<partition> so cookies + UA + proxy are already wired).
+    for (const a of res.accounts) {
+      await window.api.windows.openAccountBrowser({ accountId: a.id });
+    }
   }
 
   const [users, setUsers] = useState([]);
@@ -188,7 +190,7 @@ export default function ProfilesPage({ navigate }) {
                   >◇</button>
                   <button
                     title="Start Reddit browser as this model's first account"
-                    onClick={(e) => { e.stopPropagation(); playModel(p.id, 'reddit'); }}
+                    onClick={(e) => { e.stopPropagation(); playModel(p.id); }}
                     style={{
                       width: 38, height: 38, borderRadius: '50%', padding: 0,
                       display: 'grid', placeItems: 'center', fontSize: 14,

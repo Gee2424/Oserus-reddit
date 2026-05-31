@@ -44,7 +44,11 @@ export default function SchedulerProPage({ initialProTab, navigate }) {
   const { token } = useAuth();
   const { accounts } = useActiveAccount();
 
-  const [mode, setMode] = useState(() => localStorage.getItem('scheduler_mode') || 'advanced');
+  // Basic mode was removed — there's just one Scheduler now. Keep the state
+  // around so legacy mode === 'advanced' checks below keep evaluating true
+  // without having to touch every reference.
+  const [mode, setMode] = useState('advanced');
+  useEffect(() => { localStorage.setItem('scheduler_mode', 'advanced'); }, []);
   useEffect(() => { localStorage.setItem('scheduler_mode', mode); }, [mode]);
   const [proTab, setProTab] = useState(initialProTab && PRO_TABS.some((t) => t.key === initialProTab) ? initialProTab : 'configure');
   const [posts, setPosts] = useState([]);
@@ -136,33 +140,6 @@ export default function SchedulerProPage({ initialProTab, navigate }) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{
-            display: 'inline-flex', background: 'var(--bg-1)', border: '1px solid var(--border)',
-            borderRadius: 999, padding: 2, gap: 2,
-          }}>
-            {['basic', 'advanced'].map((m) => (
-              <button
-                key={m}
-                onClick={() => {
-                  // Advanced mode lives in Account Manager Pro now — bounce
-                  // the user there with the posting tab pre-selected and
-                  // remember the choice so they don't have to flip it again.
-                  if (m === 'advanced' && navigate) {
-                    localStorage.setItem('scheduler_mode', 'advanced');
-                    navigate('inbox', { tab: 'posting' });
-                    return;
-                  }
-                  setMode(m);
-                }}
-                style={{
-                  padding: '5px 12px', borderRadius: 999, border: 'none', cursor: 'pointer',
-                  fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase',
-                  background: mode === m ? 'var(--gold)' : 'transparent',
-                  color: mode === m ? '#1a1a14' : 'var(--text-2)',
-                }}
-              >{m}</button>
-            ))}
-          </div>
           <PopOutButton route="scheduler-pro" title="Scheduler" />
           {mode === 'advanced' && <button className="ghost" onClick={() => setShowAI((v) => !v)}>{showAI ? 'Close AI' : '✦ AI Settings'}</button>}
           <button className="primary" onClick={() => setShowCompose((v) => !v)}>

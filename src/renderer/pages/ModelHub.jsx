@@ -79,9 +79,6 @@ export default function ModelHubPage({ modelId, navigate }) {
   }), [accounts]);
 
   function openAccount(a) {
-    // Real browser window pre-bound to this account's session partition —
-    // works for every platform (Reddit, RedGIFs, X, Instagram, TikTok) so the
-    // user lands already logged in (or on the login page the first time).
     window.api.windows.openAccountBrowser({ accountId: a.id });
   }
   async function openAllAccounts() {

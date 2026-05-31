@@ -90,11 +90,11 @@ export default function SettingsPage({ navigate }) {
         </div>
       </div>
 
-      {/* Configuration sub-tabs */}
+      {/* Configuration sub-tabs — Post Scheduling Configuration moved to
+          Account Manager Pro / Scheduler, only Settings & API Keys remains. */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 18, borderBottom: '1px solid var(--border)' }}>
         {[
           { k: 'settings',   l: 'Settings & API Keys' },
-          { k: 'scheduling', l: 'Post Scheduling Configuration' },
         ].map((t) => (
           <button
             key={t.k}
@@ -108,8 +108,23 @@ export default function SettingsPage({ navigate }) {
         ))}
       </div>
 
-      {cfgTab === 'scheduling' && <SchedulingConfig token={token} navigate={navigate} />}
       {cfgTab === 'settings' && <>
+
+      {/* Connected devices placeholder — surfaces here so the admin can see
+          the feature exists, even though native device bridging ships later. */}
+      <div className="card" style={{ marginBottom: 22 }}>
+        <h3 style={{ marginBottom: 6 }}>Connected devices <span className="mono dim" style={{ fontSize: 10, marginLeft: 8 }}>BETA</span></h3>
+        <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
+          Plug a jailbroken iOS / rooted Android device in over USB and Oserus
+          will detect it, associate accounts to it, and route supported
+          launches through the device's native apps instead of a desktop browser.
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: 'var(--bg-1)', border: '1px dashed var(--border)', borderRadius: 8 }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--text-3)' }} />
+          <span style={{ fontSize: 13 }}>No supported devices detected.</span>
+          <span className="dim" style={{ marginLeft: 'auto', fontSize: 11 }}>Bridge service not yet shipped — placeholder.</span>
+        </div>
+      </div>
 
       {isAdmin && (
         <div className="card" style={{ marginBottom: 22, borderColor: hasApiKey ? 'var(--ok)' : 'var(--border)' }}>

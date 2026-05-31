@@ -133,20 +133,11 @@ export default function DashboardPage({ navigate }) {
   }, [accounts]);
 
   async function openAllForModel(model) {
-    // Hand off to Opera GX (or the OS default browser) so every linked
-    // account opens as its own tab. One tab per account — not per platform —
-    // so multiple Reddit logins each get their own tab.
-    const platformHomes = {
-      reddit: 'https://www.reddit.com/',
-      redgifs: 'https://www.redgifs.com/',
-      x: 'https://x.com/home',
-      instagram: 'https://www.instagram.com/',
-      tiktok: 'https://www.tiktok.com/foryou',
-    };
-    const urls = model.accountsList
-      .map((a) => platformHomes[a.platform || 'reddit'])
-      .filter(Boolean);
-    if (urls.length) await window.api.windows.openExternalTabs({ urls });
+    // One pre-cookied Chrome window per linked account. Cookies, UA, and
+    // proxy are wired by prepareSessionForAccount so the user lands logged in.
+    for (const a of model.accountsList) {
+      await window.api.windows.openAccountBrowser({ accountId: a.id });
+    }
   }
 
   const filtered = useMemo(() => {
@@ -228,10 +219,9 @@ export default function DashboardPage({ navigate }) {
                   return [...byPlatform.entries()].map(([p, list]) => (
                     <button
                       key={p}
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        if (list.length === 1) window.api.windows.openAccountBrowser({ accountId: list[0].id });
-                        else navigate('model-hub', { modelId: m.id });
+                        for (const a of list) await window.api.windows.openAccountBrowser({ accountId: a.id });
                       }}
                       title={`${list.length} ${p} account${list.length === 1 ? '' : 's'}`}
                       style={{ ...platformLogoPill, background: platformColor(p) }}
@@ -387,7 +377,7 @@ export default function DashboardPage({ navigate }) {
             <thead>
               <tr style={{ background: 'var(--bg-2)' }}>
                 <th style={{ ...th, width: 36 }}><input type="checkbox" checked={selected.size === filtered.length && filtered.length > 0} onChange={toggleAll} /></th>
-                <th style={th}>Account</th>
+                <th style={th}>Model</th>
                 <th style={{ ...th, textAlign: 'right' }}>Age</th>
                 <th style={th}>NSFW</th>
                 <th style={{ ...th, textAlign: 'right' }}>Post Karma</th>
@@ -396,15 +386,14 @@ export default function DashboardPage({ navigate }) {
                 <th style={th}>Status</th>
                 <th style={th}>Health</th>
                 <th style={th}>Web</th>
-                <th style={th}>Class</th>
                 <th style={th}>Pro Schedule</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={12} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>Loading…</td></tr>
+                <tr><td colSpan={11} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>Loading…</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={12} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>No accounts.</td></tr>
+                <tr><td colSpan={11} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>No accounts.</td></tr>
               ) : filtered.map((a) => {
                 const sel = selected.has(a.id);
                 const nsfw = a.status === 'ready';
@@ -424,7 +413,14 @@ export default function DashboardPage({ navigate }) {
                             }}>★</span>
                           ) : null}
                         </div>
-                        <div style={{ fontWeight: 500 }}>{a.username}</div>
+                        <div
+                          onClick={() => a.profile_id && navigate('model-hub', { modelId: a.profile_id })}
+                          style={{ fontWeight: 500, cursor: a.profile_id ? 'pointer' : 'default' }}
+                          title={`Open ${a.profile_name || 'Model'} hub`}
+                        >
+                          <div>{a.profile_name || 'Unassigned'}</div>
+                          <div className="mono dim" style={{ fontSize: 11, fontWeight: 400, marginTop: 2 }}>{a.username}</div>
+                        </div>
                       </div>
                     </td>
                     <td style={{ ...td, textAlign: 'right' }} className="mono dim">{ageFromIso(a.created_at)}</td>
@@ -472,26 +468,9 @@ export default function DashboardPage({ navigate }) {
                     <td style={td}>
                       <button
                         onClick={() => window.api.windows.openAccountBrowser({ accountId: a.id })}
-                        title={`Open u/${a.username} in a browser window (pre-logged in)`}
+                        title={`Open ${a.username} in a pre-logged-in browser window`}
                         style={{ display: 'inline-grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', background: '#ff4500', color: '#fff', fontWeight: 700, fontSize: 12, border: 'none', cursor: 'pointer', padding: 0 }}
                       >R</button>
-                    </td>
-                    <td style={td}>
-                      {a.profile_id ? (
-                        <button
-                          onClick={() => navigate('model-hub', { modelId: a.profile_id })}
-                          style={{
-                            background: 'transparent', border: '1px solid var(--border-strong)',
-                            borderRadius: 999, padding: '2px 9px',
-                            fontSize: 10, fontWeight: 600, color: 'var(--gold-bright)',
-                            cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
-                            letterSpacing: '0.03em', textTransform: 'uppercase',
-                          }}
-                          title="Open Model Hub"
-                        >
-                          ◇ {a.profile_name || '—'}
-                        </button>
-                      ) : <Tag tone="neutral">—</Tag>}
                     </td>
                     <td style={td}>
                       {(() => {
