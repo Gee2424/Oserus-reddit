@@ -346,7 +346,7 @@ function CompatibilityPanel({ token, accountId, accounts, onAccount }) {
       </div>
 
       {!acct ? null : subs.length === 0 ? (
-        <div className="card" style={{ padding: 30, textAlign: 'center' }} className="muted">
+        <div className="card muted" style={{ padding: 30, textAlign: 'center' }}>
           No subreddit intel yet. Fetch some under the Requirements tab first.
         </div>
       ) : (

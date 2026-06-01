@@ -29,10 +29,10 @@ phases land.
 | Subreddits.jsx | dead-ish | `subreddits` only | **REVIEW** — no sidebar entry, content absorbed into Intelligence |
 | Webviews.jsx | dead-ish | `webviews` only | **REVIEW** — no sidebar entry |
 | RedGifsDashboard.jsx | live | `redgifs`, `redgifs-dashboard` | **REVIEW** — content reachable via UnifiedBrowser too |
-| **Accounts.jsx** | dead | none | **DELETE** — no imports |
-| **Operations.jsx** | dead | none | **DELETE** — no imports |
-| **Users.jsx** | dead | none | **DELETE** — Team.jsx replaced it |
-| **Roles.jsx** | dead | none | **DELETE** — no imports |
+| **Accounts.jsx** | DELETED in 0.53.0 | none | gone |
+| **Operations.jsx** | DELETED in 0.53.0 | none | gone |
+| Users.jsx | live (Team subtab) | imported by Team.jsx | keep — Team's `members` tab |
+| Roles.jsx | live (Team subtab) | imported by Team.jsx | keep — Team's `roles` tab |
 
 ## Routes (App.jsx switch)
 
