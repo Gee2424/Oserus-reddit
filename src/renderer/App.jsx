@@ -57,8 +57,6 @@ function Inner() {
       case 'redgifs': return <RedGifsDashboardPage navigate={navigate} />;
       case 'redgifs-browse': return <UnifiedBrowser navigate={navigate} defaultPlatform="redgifs" />;
       case 'reddit-api': return <RedditApiPage initialTab={routeParams.tab} navigate={navigate} />;
-      case 'accounts': return <RedditApiPage initialTab="reddit" navigate={navigate} />;
-      case 'scheduler': return <RedditApiPage initialTab="posting" navigate={navigate} />;
       case 'inbox': return <RedditApiPage initialTab="inbox" navigate={navigate} />;
       case 'profiles': return <ProfilesPage navigate={navigate} />;
       case 'model': return <ModelDetailPage modelId={routeParams.modelId} navigate={navigate} />;
