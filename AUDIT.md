@@ -105,26 +105,34 @@ Each phase = one PR-sized commit, fully verified before the next.
    - Both pages are orphan. Decision: drop the pages, keep the data
      tables for now (they back Intelligence)
 
-6. **Scheduler eligibility pre-check** (new feature)
-   - Hook `subreddit_intel` requirements into `runDueScheduled` so
-     under-karma/under-age posts skip with a clear failed reason
+6. **Scheduler eligibility pre-check** ✅ shipped v0.54.0
+   - `checkEligibility(db, post)` in coordinator hooks `subreddit_intel` +
+     latest karma_snapshots + account age. Posts that fail the gate land
+     in `status='failed'` with a clear reason and an audit event
 
-7. **Auto karma + Star User scrape** (new feature)
-   - One daily request per account → fills `karma_snapshots` + sets
-     `starred` automatically. Kills the manual button on Analytics
+7. **Auto karma + Star User scrape** ✅ shipped v0.54.0
+   - `refreshKarmaSnapshots()` runs every 6h (first run 3 min after boot)
+     against `/api/me.json` per account. Writes karma_snapshots and flips
+     `starred` via heuristic (employee, or verified email + 10k karma, or
+     50k karma)
 
-8. **Cupid AI / messaging automation** (new feature)
-   - `messaging_rules` table + matcher inside `inbox:fetch` to auto-reply
-     from `messaging_templates`. UI lives inside Inbox
+8. **Cupid AI messaging automation** ✅ shipped v0.54.0 (IPC + matcher)
+   - `messaging_rules` + `messaging_rule_fires` tables, full CRUD IPC,
+     and a matcher in `inbox:fetch` that fires on new unread DMs against
+     enabled rules with regex + daily limits + dedup. UI for rules
+     management is the next batch (data layer is wired, no admin page yet)
 
-9. **Multi-platform Intelligence**
-   - Scraper tab gets TikTok / IG / X panels with their own request
-     paths (Reddit ships first, others are scaffolded but disabled
-     until adapter lands)
+9. **Multi-platform Intelligence** ✅ scaffold shipped v0.54.0
+   - Scraper tab has a platform pill row (Reddit live, TikTok / IG / X
+     disabled with honest "adapter ships next batch" placeholder). Network
+     adapters for the other platforms are the next batch
 
-10. **Content Planning workflow**
-    - Research → review → select findings → generate plan (Grok). Plan
-      saves to `model_docs`. No auto-generation
+10. **Content Planning workflow** ✅ shipped v0.54.0
+    - New `Plan` inner tab in Reddit Intelligence. Pick a sub, pull top
+      week, tick the findings to include, optionally choose a model.
+      Calls `intel:synthesizePlan` → Grok produces themes / title
+      formulas / posting windows / captions. Saves to `docs` when a model
+      is chosen. User-in-the-loop, no auto-gen
 
 ---
 

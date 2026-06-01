@@ -244,6 +244,48 @@ function register(ipcMain) {
     }
   });
 
+  // Content Planning — pass selected research findings + a model profile,
+  // get back a Grok-synthesized 1-page content plan. Saves the plan into
+  // the docs table tied to the profile so it's reviewable later.
+  ipcMain.handle('intel:synthesizePlan', async (_e, { token, profileId, findings, save = true }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      if (!Array.isArray(findings) || !findings.length) throw new Error('No findings selected');
+      const { callGrok, getSetting } = require('../services/postgen');
+      const { decryptSecret } = require('../db');
+      const enc = getSetting('grok_api_key');
+      const apiKey = enc ? decryptSecret(enc) : null;
+      if (!apiKey) throw new Error('Grok API key not configured — set it in Configuration first');
+      let profile = null;
+      if (profileId) {
+        try { profile = getDb().prepare('SELECT * FROM model_profiles WHERE id = ?').get(profileId); } catch {}
+      }
+      const system = [
+        'You are a content strategist for adult creators on Reddit.',
+        'Given the listed real Reddit posts that performed well, produce a one-week content plan.',
+        'Plan must contain: themes to lean into, exact title formulas (3-5 examples), recommended subreddits + posting windows, and 3 caption variations.',
+        'Be concrete. No marketing fluff.',
+      ].join(' ');
+      const userMsg = [
+        profile ? `Model: ${profile.name}${profile.brand_voice ? ` · brand voice: ${profile.brand_voice}` : ''}.` : '',
+        `Selected findings (top performing posts):`,
+        ...findings.map((f, i) => `${i + 1}. [r/${f.subreddit || '?'}] ${f.title || ''} · ${f.ups || 0} ups · ${f.num_comments || 0} comments`),
+      ].filter(Boolean).join('\n');
+      const text = await callGrok(apiKey, system, userMsg, { maxTokens: 1200 });
+      if (save && profileId) {
+        try {
+          getDb().prepare(
+            "INSERT INTO docs (profile_id, title, body, created_by_user_id) VALUES (?,?,?,?)"
+          ).run(profileId, `Content plan · ${new Date().toISOString().slice(0,10)}`, text, user.id);
+        } catch {}
+      }
+      return { ok: true, plan: text };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   // Link flairs offered by a subreddit (best-effort; some require mod auth).
   ipcMain.handle('intel:scrapeFlairs', async (_e, { token, accountId, subreddit }) => {
     try {

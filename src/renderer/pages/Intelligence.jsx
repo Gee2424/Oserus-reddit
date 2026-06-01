@@ -9,6 +9,7 @@ const INNER_TABS = [
   { k: 'compat',       l: 'Compatibility', d: 'Which subs qualify for an account' },
   { k: 'scraper',      l: 'Scraper',       d: 'Hot · Top · Rising · New · Users · Mods · Flairs' },
   { k: 'research',     l: 'Research',      d: 'Trending words & best posting times' },
+  { k: 'plan',         l: 'Plan',          d: 'Pick findings → Grok-synthesized content plan saved to docs' },
 ];
 
 function fmt(n) { return n == null ? '—' : n.toLocaleString(); }
@@ -143,6 +144,9 @@ export default function IntelligencePage({ initialTab }) {
       )}
       {tab === 'research' && (
         <ResearchPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
+      )}
+      {tab === 'plan' && (
+        <PlanPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
       )}
 
       {tab === 'requirements' && (<>
@@ -395,6 +399,11 @@ function AccountSelect({ accounts, accountId, onAccount }) {
 }
 
 function ScraperPanel({ token, accountId, accounts, onAccount, onMsg, onError }) {
+  // Platform tab — Reddit ships end-to-end; the others are scaffolded with
+  // "Coming soon" placeholders so the surface exists and we can hook each
+  // adapter (TikTok hashtag search, IG reels, X trending) without a UI
+  // rewrite.
+  const [scraperPlatform, setScraperPlatform] = useState('reddit');
   const [mode, setMode] = useState('posts'); // posts | user | mods | flairs
   const [subreddit, setSubreddit] = useState('');
   const [username, setUsername] = useState('');
@@ -460,6 +469,47 @@ function ScraperPanel({ token, accountId, accounts, onAccount, onMsg, onError })
 
   return (
     <div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+        {[
+          { v: 'reddit',    label: 'Reddit',    color: '#ff4500', live: true,  hint: 'Posts · Users · Mods · Flairs' },
+          { v: 'tiktok',    label: 'TikTok',    color: '#25f4ee', live: false, hint: 'Hashtag / sound / creator scrape — coming soon' },
+          { v: 'instagram', label: 'Instagram', color: '#e1306c', live: false, hint: 'Reels / hashtags — coming soon' },
+          { v: 'x',         label: 'X',         color: '#1d9bf0', live: false, hint: 'Trending topics / creators — coming soon' },
+        ].map((p) => {
+          const active = scraperPlatform === p.v;
+          return (
+            <button
+              key={p.v}
+              onClick={() => p.live && setScraperPlatform(p.v)}
+              disabled={!p.live}
+              title={p.hint}
+              style={{
+                background: active ? p.color : 'var(--bg-1)',
+                color: active ? '#fff' : (p.live ? 'var(--text-1)' : 'var(--text-3)'),
+                border: `1px solid ${active ? p.color : 'var(--border)'}`,
+                borderRadius: 999, padding: '5px 14px', fontSize: 12, fontWeight: 600,
+                cursor: p.live ? 'pointer' : 'not-allowed', opacity: p.live ? 1 : 0.55,
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: p.color }} />
+              {p.label}
+              {!p.live && <span style={{ fontSize: 9, opacity: 0.85 }}>soon</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {scraperPlatform !== 'reddit' && (
+        <div className="card muted" style={{ padding: 28, textAlign: 'center', fontSize: 13, marginBottom: 18 }}>
+          {scraperPlatform === 'tiktok'    && 'TikTok scraper — hashtag / sound / creator search ships when the adapter lands.'}
+          {scraperPlatform === 'instagram' && 'Instagram scraper — reels / hashtags / creators ships when the adapter lands.'}
+          {scraperPlatform === 'x'         && 'X scraper — trending topics / creators / keywords ships when the adapter lands.'}
+          <div className="dim" style={{ fontSize: 11, marginTop: 6 }}>UI is in place; the network adapter for this platform is the next batch.</div>
+        </div>
+      )}
+
+      {scraperPlatform === 'reddit' && <>
       <div className="card" style={{ padding: 18, marginBottom: 16 }}>
         <AccountSelect accounts={accounts} accountId={accountId} onAccount={onAccount} />
 
@@ -566,6 +616,7 @@ function ScraperPanel({ token, accountId, accounts, onAccount, onMsg, onError })
       {mode === 'user' && userData && <UserResult data={userData} />}
       {mode === 'mods' && mods.length > 0 && <ModsResult mods={mods} subreddit={subreddit} />}
       {mode === 'flairs' && flairs.length > 0 && <FlairsResult flairs={flairs} subreddit={subreddit} />}
+      </>}
     </div>
   );
 }
@@ -779,3 +830,127 @@ function StatCard({ label, value, accent = 'neutral' }) {
 
 const th = { textAlign: 'left', padding: '10px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)' };
 const td = { padding: '9px 12px', verticalAlign: 'middle' };
+
+// Content planning workflow — fetch some posts from a sub, tick the ones
+// you want included, Grok synthesizes a 1-page plan (themes, title
+// formulas, posting windows, captions). Saved as a doc on the chosen
+// model so it's reviewable later. User-in-the-loop, not autonomous.
+function PlanPanel({ token, accountId, accounts, onAccount, onMsg, onError }) {
+  const [subreddit, setSubreddit] = React.useState('');
+  const [profiles, setProfiles] = React.useState([]);
+  const [profileId, setProfileId] = React.useState('');
+  const [posts, setPosts] = React.useState([]);
+  const [picked, setPicked] = React.useState(() => new Set());
+  const [plan, setPlan] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
+
+  React.useEffect(() => {
+    window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
+  }, [token]);
+
+  async function fetchTop() {
+    if (!accountId) { onError('Pick a scraper account first.'); return; }
+    if (!subreddit.trim()) { onError('Enter a subreddit.'); return; }
+    setBusy(true);
+    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
+    const r = await window.api.intel.scrapePosts({
+      token, accountId: Number(accountId),
+      subreddit, sort: 'top', t: 'week', limit: 25,
+    });
+    setBusy(false);
+    if (r.ok) { setPosts(r.posts); setPicked(new Set()); onMsg(`Fetched ${r.posts.length} top posts.`); }
+    else onError(r.error);
+  }
+
+  function toggle(id) {
+    setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  async function synthesize() {
+    if (picked.size === 0) { onError('Tick at least one post first.'); return; }
+    setBusy(true);
+    setSaved(false);
+    const findings = posts.filter((p) => picked.has(p.id)).map((p) => ({
+      subreddit: p.subreddit || subreddit,
+      title: p.title,
+      ups: p.score || p.ups || 0,
+      num_comments: p.num_comments || 0,
+    }));
+    const r = await window.api.intel.synthesizePlan({
+      token, profileId: profileId ? Number(profileId) : null, findings, save: !!profileId,
+    });
+    setBusy(false);
+    if (r.ok) { setPlan(r.plan); setSaved(!!profileId); onMsg(profileId ? 'Plan generated and saved to model docs.' : 'Plan generated (pick a model to save it).'); }
+    else onError(r.error);
+  }
+
+  return (
+    <div>
+      <div className="card" style={{ padding: 18, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 2fr auto', gap: 12, alignItems: 'end' }}>
+          <div>
+            <label>Scraper account</label>
+            <select value={accountId} onChange={(e) => onAccount(e.target.value)}>
+              <option value="">— select an account —</option>
+              {accounts.map((a) => <option key={a.id} value={a.id}>{a.username}</option>)}
+            </select>
+          </div>
+          <div>
+            <label>Subreddit</label>
+            <input value={subreddit} onChange={(e) => setSubreddit(e.target.value)} placeholder="e.g. gonewild" />
+          </div>
+          <div>
+            <label>Save plan to model</label>
+            <select value={profileId} onChange={(e) => setProfileId(e.target.value)}>
+              <option value="">— don't save (preview only) —</option>
+              {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <button onClick={fetchTop} disabled={busy} className="primary">{busy ? 'Working…' : 'Pull top week'}</button>
+        </div>
+      </div>
+
+      {posts.length > 0 && (
+        <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
+          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <strong style={{ fontSize: 13 }}>Tick findings to include</strong>
+            <span className="dim" style={{ fontSize: 11 }}>{picked.size} of {posts.length} selected</span>
+            <div style={{ flex: 1 }} />
+            <button className="ghost" onClick={() => setPicked(new Set(posts.map((p) => p.id)))} style={{ fontSize: 11 }}>Select all</button>
+            <button className="ghost" onClick={() => setPicked(new Set())} style={{ fontSize: 11 }}>Clear</button>
+            <button className="primary" onClick={synthesize} disabled={busy || picked.size === 0}>
+              {busy ? 'Synthesizing…' : `✦ Synthesize plan${picked.size ? ` from ${picked.size}` : ''}`}
+            </button>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <tbody>
+              {posts.map((p) => {
+                const on = picked.has(p.id);
+                return (
+                  <tr key={p.id} onClick={() => toggle(p.id)}
+                      style={{ borderTop: '1px solid var(--border)', cursor: 'pointer', background: on ? 'rgba(212,166,74,0.06)' : 'transparent' }}>
+                    <td style={{ ...td, width: 30 }}><input type="checkbox" checked={on} onChange={() => toggle(p.id)} /></td>
+                    <td style={td}>{p.title}</td>
+                    <td style={{ ...td, textAlign: 'right' }} className="mono dim">{(p.score || p.ups || 0).toLocaleString()} ups</td>
+                    <td style={{ ...td, textAlign: 'right' }} className="mono dim">{(p.num_comments || 0).toLocaleString()} c</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {plan && (
+        <div className="card" style={{ padding: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <strong style={{ fontSize: 14 }}>Content plan</strong>
+            {saved && <span className="mono" style={{ fontSize: 10, color: 'var(--ok)' }}>✓ saved to model docs</span>}
+          </div>
+          <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--font-body)', fontSize: 13, lineHeight: 1.6, margin: 0 }}>{plan}</pre>
+        </div>
+      )}
+    </div>
+  );
+}

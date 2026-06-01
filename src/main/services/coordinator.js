@@ -165,6 +165,23 @@ async function runDueScheduled() {
     const platform = post.platform || 'reddit';
     if (!(await protocols.acquireLock(platform, post.account_id, HOLDER, 300))) continue;
     try {
+      // Eligibility pre-check — if we have cached subreddit_intel for this
+      // sub and the account fails its minimum age / karma gates, fail the
+      // post early with a clear reason instead of letting Reddit reject it.
+      // Only runs for Reddit (other platforms don't have intel rows yet).
+      if (platform === 'reddit') {
+        const fail = checkEligibility(db, post);
+        if (fail) {
+          db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?").run(fail, post.id);
+          await protocols.recordEvent({
+            platform, account_id: post.account_id, profile_id: post.profile_id,
+            subreddit: post.subreddit, title: post.title,
+            status: 'failed', source: 'scheduled', error: fail,
+          });
+          await protocols.releaseLock(platform, post.account_id);
+          continue;
+        }
+      }
       const adapter = getAdapter(platform);
       if (!adapter || !adapter.configured) {
         db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?")
@@ -302,6 +319,40 @@ async function autoTestProxies() {
 // post row regardless of outcome so the UI can display it. Drip rate is sent
 // as `runs`/`interval` when the provider exposes those, otherwise it's a
 // harmless extra parameter.
+// Returns null if the post should fire, otherwise a human-readable reason
+// string. Pulls the latest karma snapshot + account row + cached subreddit
+// intel and checks min_account_age_days / min_post_karma / min_comment_karma
+// gates. Silent when subreddit_intel has no row for this sub.
+function checkEligibility(db, post) {
+  let intel;
+  try {
+    intel = db.prepare('SELECT * FROM subreddit_intel WHERE name = ? COLLATE NOCASE').get(post.subreddit);
+  } catch { return null; }
+  if (!intel) return null;
+  const acct = db.prepare('SELECT created_at FROM reddit_accounts WHERE id = ?').get(post.account_id);
+  const karma = (() => {
+    try { return db.prepare('SELECT post_karma, comment_karma FROM karma_snapshots WHERE account_id = ? ORDER BY taken_at DESC LIMIT 1').get(post.account_id); }
+    catch { return null; }
+  })();
+  if (intel.min_account_age_days && acct && acct.created_at) {
+    try {
+      const ageDays = Math.floor((Date.now() - new Date(acct.created_at.replace(' ', 'T') + 'Z').getTime()) / 86400000);
+      if (ageDays < intel.min_account_age_days) {
+        return `Account too young for r/${post.subreddit} (${ageDays}d < ${intel.min_account_age_days}d required)`;
+      }
+    } catch {}
+  }
+  if (karma) {
+    if (intel.min_post_karma && (karma.post_karma || 0) < intel.min_post_karma) {
+      return `Post karma too low for r/${post.subreddit} (${karma.post_karma || 0} < ${intel.min_post_karma} required)`;
+    }
+    if (intel.min_comment_karma && (karma.comment_karma || 0) < intel.min_comment_karma) {
+      return `Comment karma too low for r/${post.subreddit} (${karma.comment_karma || 0} < ${intel.min_comment_karma} required)`;
+    }
+  }
+  return null;
+}
+
 async function fireBoostOrder(post, url) {
   const db = getDb();
   try {
@@ -358,6 +409,45 @@ async function runDueBoosts() {
 }
 
 let boostTimer = null;
+let karmaTimer = null;
+
+// Daily-ish karma + star-user refresh. For each Reddit account, pulls
+// /api/me.json through its session partition and writes a karma_snapshots
+// row plus updates the starred flag based on Reddit's is_employee /
+// has_verified_email + a karma threshold. Best-effort; failures per-account
+// don't stop the loop.
+async function refreshKarmaSnapshots() {
+  const db = getDb();
+  let accounts;
+  try {
+    accounts = db.prepare(
+      "SELECT id, partition_key FROM reddit_accounts WHERE platform = 'reddit' AND status != 'banned'"
+    ).all();
+  } catch { return; }
+  const { partitionFor, request } = require('./redditSession');
+  for (const a of accounts) {
+    try {
+      const part = `persist:${a.partition_key}`;
+      const me = await request(part, 'https://www.reddit.com/api/me.json?raw_json=1');
+      const d = me?.data;
+      if (!d || !d.name) continue;
+      const post_karma = Number(d.link_karma) || 0;
+      const comment_karma = Number(d.comment_karma) || 0;
+      db.prepare(
+        'INSERT INTO karma_snapshots (account_id, post_karma, comment_karma, taken_at) VALUES (?,?,?,datetime(\'now\'))'
+      ).run(a.id, post_karma, comment_karma);
+      // Star User heuristic — Reddit doesn't expose the flair directly, so
+      // we approximate: employee, verified email + 10k combined karma, or
+      // very high karma alone gets the star.
+      const isStar = !!d.is_employee
+        || (d.has_verified_email && (post_karma + comment_karma) >= 10000)
+        || (post_karma + comment_karma) >= 50000;
+      try { db.prepare('UPDATE reddit_accounts SET starred = ? WHERE id = ?').run(isStar ? 1 : 0, a.id); } catch {}
+    } catch {
+      // ignore — proxy / rate-limit / not-logged-in; retry next cycle
+    }
+  }
+}
 
 function start() {
   if (timer) return;
@@ -369,8 +459,11 @@ function start() {
   boostTimer = setInterval(() => runDueBoosts().catch(() => {}), 30 * 1000);
   // Proxy health check every 30 min.
   proxyTimer = setInterval(autoTestProxies, 30 * 60 * 1000);
+  // Karma + Star User refresh every 6 hours. First run 3 min after boot.
+  karmaTimer = setInterval(() => refreshKarmaSnapshots().catch(() => {}), 6 * 60 * 60 * 1000);
   setTimeout(() => runDueScheduled().catch(() => {}), 15 * 1000);
   setTimeout(autoTestProxies, 90 * 1000); // first run a bit after boot
+  setTimeout(() => refreshKarmaSnapshots().catch(() => {}), 3 * 60 * 1000);
   setTimeout(tick, 60 * 1000);
 }
 
@@ -379,6 +472,7 @@ function stop() {
   if (schedTimer) { clearInterval(schedTimer); schedTimer = null; }
   if (proxyTimer) { clearInterval(proxyTimer); proxyTimer = null; }
   if (boostTimer) { clearInterval(boostTimer); boostTimer = null; }
+  if (karmaTimer) { clearInterval(karmaTimer); karmaTimer = null; }
 }
 
 function status() {

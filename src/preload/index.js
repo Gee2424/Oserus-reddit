@@ -169,6 +169,7 @@ const api = {
     scrapeMods:   (data) => ipcRenderer.invoke('intel:scrapeMods', data),
     scrapeFlairs: (data) => ipcRenderer.invoke('intel:scrapeFlairs', data),
     analyze:      (data) => ipcRenderer.invoke('intel:analyze', data),
+    synthesizePlan: (data) => ipcRenderer.invoke('intel:synthesizePlan', data),
   },
   aiconfig: {
     get: (data) => ipcRenderer.invoke('aiconfig:get', data),
@@ -191,6 +192,10 @@ const api = {
     templatesList:  (data) => ipcRenderer.invoke('messaging:templatesList', data),
     templateCreate: (data) => ipcRenderer.invoke('messaging:templateCreate', data),
     templateDelete: (data) => ipcRenderer.invoke('messaging:templateDelete', data),
+    rulesList:      (data) => ipcRenderer.invoke('messaging:rulesList', data),
+    ruleCreate:     (data) => ipcRenderer.invoke('messaging:ruleCreate', data),
+    ruleUpdate:     (data) => ipcRenderer.invoke('messaging:ruleUpdate', data),
+    ruleDelete:     (data) => ipcRenderer.invoke('messaging:ruleDelete', data),
   },
   windows: {
     openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),
