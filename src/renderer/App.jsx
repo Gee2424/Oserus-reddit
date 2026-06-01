@@ -9,8 +9,6 @@ import UnifiedBrowser from './pages/UnifiedBrowser.jsx';
 import ProfilesPage from './pages/Profiles.jsx';
 import ModelDetailPage from './pages/ModelDetail.jsx';
 import TeamPage from './pages/Team.jsx';
-import SubredditsPage from './pages/Subreddits.jsx';
-import WebviewsPage from './pages/Webviews.jsx';
 import SettingsPage from './pages/Settings.jsx';
 import DocsPage from './pages/Docs.jsx';
 import AnalyticsPage from './pages/Analytics.jsx';
@@ -66,8 +64,6 @@ function Inner() {
         return <SettingsPage navigate={navigate} />;
       case 'votes':
         return <SchedulerProPage initialProTab="configure" navigate={navigate} />;
-      case 'subreddits': return <SubredditsPage />;
-      case 'webviews': return <WebviewsPage />;
       case 'settings': return <SettingsPage navigate={navigate} />;
       case 'docs': return <DocsPage />;
       case 'analytics': return <AnalyticsPage />;
@@ -93,7 +89,6 @@ function Inner() {
         case 'dashboard': return <DashboardPage navigate={navigate} />;
         case 'redgifs-dashboard': return <RedGifsDashboardPage navigate={navigate} />;
         case 'activity': return <ActivityPage />;
-        case 'subreddits': return <SubredditsPage />;
         default: return <InboxPage embedded standalone />;
       }
     })();
