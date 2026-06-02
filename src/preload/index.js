@@ -206,6 +206,12 @@ const api = {
     deleteImage: (data) => ipcRenderer.invoke('examples:deleteImage', data),
     readImage:   (data) => ipcRenderer.invoke('examples:readImage', data),
   },
+  engagement: {
+    get:      (data) => ipcRenderer.invoke('engagement:get', data),
+    set:      (data) => ipcRenderer.invoke('engagement:set', data),
+    runNow:   (data) => ipcRenderer.invoke('engagement:runNow', data),
+    sessions: (data) => ipcRenderer.invoke('engagement:sessions', data),
+  },
   windows: {
     openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),
     openAccountBrowser: (data) => ipcRenderer.invoke('window:openAccountBrowser', data),

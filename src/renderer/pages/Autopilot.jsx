@@ -240,6 +240,9 @@ export default function AutopilotPage() {
       {/* Per-account example library — autopilot seeds Grok with these. */}
       <ExampleLibrary token={token} />
 
+      {/* Human-like engagement (scroll/like/follow) for IG / TikTok / X / Reddit. */}
+      <EngagementPanel token={token} />
+
       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 18 }}>
         {/* Protocol editor */}
         <div className="card" style={{ padding: 18 }}>
@@ -486,6 +489,191 @@ function ImageThumb({ token, id }) {
   }, [token, id]);
   if (!src) return <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', color: 'var(--text-3)', fontSize: 11 }}>…</div>;
   return <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />;
+}
+
+function EngagementPanel({ token }) {
+  const [accounts, setAccounts] = useState([]);
+  const [accountId, setAccountId] = useState('');
+  const [proto, setProto] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [hashtagsText, setHashtagsText] = useState('');
+  const [followText, setFollowText] = useState('');
+
+  useEffect(() => {
+    window.api.accounts.listForUser({ token }).then((r) => {
+      if (r.ok) {
+        const list = r.accounts || [];
+        setAccounts(list);
+        if (!accountId && list.length) setAccountId(String(list[0].id));
+      }
+    });
+  }, [token]);
+
+  const load = useCallback(async (id) => {
+    if (!id) { setProto(null); setSessions([]); return; }
+    const [p, s] = await Promise.all([
+      window.api.engagement.get({ token, accountId: Number(id) }),
+      window.api.engagement.sessions({ token, accountId: Number(id), limit: 10 }),
+    ]);
+    if (p.ok) {
+      setProto(p.protocol);
+      try { setHashtagsText((JSON.parse(p.protocol.hashtags_json || '[]') || []).join(', ')); } catch { setHashtagsText(''); }
+      try { setFollowText((JSON.parse(p.protocol.follow_list_json || '[]') || []).join(', ')); } catch { setFollowText(''); }
+    }
+    if (s.ok) setSessions(s.sessions || []);
+  }, [token]);
+
+  useEffect(() => { load(accountId); }, [accountId, load]);
+
+  async function save() {
+    if (!proto) return;
+    setBusy(true); setErr(null);
+    const hashtags = hashtagsText.split(/[,\n]/).map((s) => s.trim().replace(/^#/, '')).filter(Boolean);
+    const followList = followText.split(/[,\n]/).map((s) => s.trim().replace(/^@/, '')).filter(Boolean);
+    const r = await window.api.engagement.set({
+      token, accountId: Number(accountId),
+      patch: { ...proto, hashtags_json: JSON.stringify(hashtags), follow_list_json: JSON.stringify(followList) },
+    });
+    setBusy(false);
+    if (r.ok) { setProto(r.protocol); setMsg('Saved.'); }
+    else setErr(r.error);
+  }
+  async function runNow(dryRun) {
+    setBusy(true); setErr(null);
+    const r = await window.api.engagement.runNow({ token, accountId: Number(accountId), dryRun });
+    setBusy(false);
+    if (r.ok) {
+      setMsg(`Session done · ${r.stats?.posts_seen ?? 0} seen · ${r.stats?.likes ?? 0} liked · ${r.stats?.follows ?? 0} followed · ${r.seconds}s`);
+      load(accountId);
+    } else setErr(r.error);
+  }
+  useEffect(() => { if (!msg && !err) return; const t = setTimeout(() => { setMsg(null); setErr(null); }, 5000); return () => clearTimeout(t); }, [msg, err]);
+
+  const acct = accounts.find((a) => String(a.id) === String(accountId));
+  const platform = acct?.platform || 'reddit';
+  const supportsHashtags = platform === 'instagram' || platform === 'tiktok';
+
+  return (
+    <div className="card" style={{ padding: 18, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <h3 style={{ margin: 0 }}>Engagement</h3>
+        <span className="muted" style={{ fontSize: 11 }}>
+          human-like scroll · like · follow · watch · per-account, per-platform
+        </span>
+      </div>
+      <div className="muted" style={{ fontSize: 11, marginBottom: 14, lineHeight: 1.5 }}>
+        Opens a hidden browser on this account's session and runs a session you'd never tell from a real user — scrolls a random amount, likes a fraction of posts, follows a fraction (filtered to your follow-list if set), watches some reels in full and skips others. Selectors are best-effort; platforms change markup, so verify with a dry run before relying on it.
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
+        <label style={{ fontSize: 12, margin: 0 }}>Account</label>
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ minWidth: 320 }}>
+          <option value="">— pick an account —</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {(a.platform || 'reddit')} · {a.username}{a.profile_name ? ` · ${a.profile_name}` : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {err && <Banner kind="err">{err}</Banner>}
+      {msg && <Banner kind="ok">{msg}</Banner>}
+
+      {proto && accountId && (
+        <>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}>
+            <input type="checkbox" checked={!!proto.enabled} onChange={(e) => setProto({ ...proto, enabled: e.target.checked ? 1 : 0 })} style={{ width: 'auto' }} />
+            <span style={{ fontWeight: 600 }}>Engagement enabled for this account</span>
+          </label>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label>Sessions per day</label>
+              <input type="number" min={1} max={48} value={proto.sessions_per_day} onChange={(e) => setProto({ ...proto, sessions_per_day: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label>Session min (min)</label>
+              <input type="number" min={1} value={proto.session_minutes_min} onChange={(e) => setProto({ ...proto, session_minutes_min: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label>Session max (min)</label>
+              <input type="number" min={1} value={proto.session_minutes_max} onChange={(e) => setProto({ ...proto, session_minutes_max: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label>Like rate (%)</label>
+              <input type="number" min={0} max={100} value={proto.like_rate_pct} onChange={(e) => setProto({ ...proto, like_rate_pct: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label>Follow rate (%)</label>
+              <input type="number" min={0} max={100} value={proto.follow_rate_pct} onChange={(e) => setProto({ ...proto, follow_rate_pct: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label>Watch-fully rate (%)</label>
+              <input type="number" min={0} max={100} value={proto.watch_full_rate_pct} onChange={(e) => setProto({ ...proto, watch_full_rate_pct: Number(e.target.value) })} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label>Follow-list (usernames, comma or newline)</label>
+              <textarea
+                rows={3}
+                placeholder="@modelhandle1, @modelhandle2"
+                value={followText}
+                onChange={(e) => setFollowText(e.target.value)}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+              />
+              <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>Empty = follow anyone the rate allows. Filled = only follow accounts on this list.</div>
+            </div>
+            <div>
+              <label>Hashtags {supportsHashtags ? '(IG / TikTok will land on one per session)' : '(N/A for this platform)'}</label>
+              <textarea
+                rows={3}
+                disabled={!supportsHashtags}
+                placeholder="#fitness, #travel"
+                value={hashtagsText}
+                onChange={(e) => setHashtagsText(e.target.value)}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 12, opacity: supportsHashtags ? 1 : 0.5 }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className="primary" onClick={save} disabled={busy}>Save protocol</button>
+            <button className="ghost" onClick={() => runNow(true)} disabled={busy}>Dry run (open + skip)</button>
+            <button className="ghost" onClick={() => runNow(false)} disabled={busy}>Run one session now</button>
+            <span className="muted" style={{ marginLeft: 'auto', fontSize: 11 }}>
+              {proto.last_run_at ? `Last run ${new Date(proto.last_run_at.replace(' ', 'T') + 'Z').toLocaleString()}` : 'Never run'}
+            </span>
+          </div>
+
+          <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Recent sessions</div>
+            {sessions.length === 0
+              ? <div className="muted" style={{ fontSize: 12 }}>No sessions yet for this account.</div>
+              : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {sessions.map((s) => (
+                    <div key={s.id} style={{ display: 'flex', gap: 10, fontSize: 12, alignItems: 'center', padding: '4px 0', borderBottom: '1px dashed var(--border)' }}>
+                      <span className="mono dim" style={{ minWidth: 130 }}>{s.started_at}</span>
+                      <span style={{ minWidth: 70 }}>{s.platform}</span>
+                      <span style={{ minWidth: 60 }}>{s.seconds ?? '—'}s</span>
+                      <span style={{ minWidth: 60 }}>👁 {s.posts_seen}</span>
+                      <span style={{ minWidth: 50 }}>♥ {s.likes}</span>
+                      <span style={{ minWidth: 60 }}>＋ {s.follows}</span>
+                      {s.error && <span style={{ color: '#e2a3a3', fontSize: 11 }}>{s.error}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 const dot = { width: 12, height: 12, borderRadius: '50%', flexShrink: 0 };

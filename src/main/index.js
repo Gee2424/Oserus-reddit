@@ -61,6 +61,7 @@ const registerTemplateHandlers = require('./ipc/templates');
 const registerRedgifsHandlers = require('./ipc/redgifs');
 const registerMessagingHandlers = require('./ipc/messaging');
 const registerExamplesHandlers = require('./ipc/examples');
+const registerEngagementHandlers = require('./ipc/engagement');
 const coordinator = require('./services/coordinator');
 
 const isDev = !app.isPackaged;
@@ -155,6 +156,9 @@ async function prepareSessionForAccount(accountId) {
 ipcMain.handle('session:prepareForAccount', async (_e, { accountId }) => {
   return prepareSessionForAccount(accountId);
 });
+
+// Exported so service modules (engagement runner) can prep sessions too.
+module.exports.prepareSessionForAccount = prepareSessionForAccount;
 
 ipcMain.handle('session:clear', async (_e, partitionKey) => {
   const sess = session.fromPartition(`persist:${partitionKey}`);
@@ -485,6 +489,7 @@ app.whenReady().then(() => {
   registerRedgifsHandlers(ipcMain);
   registerMessagingHandlers(ipcMain);
   registerExamplesHandlers(ipcMain);
+  registerEngagementHandlers(ipcMain);
 
   createWindow();
 

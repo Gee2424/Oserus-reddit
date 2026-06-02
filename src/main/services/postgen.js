@@ -189,6 +189,24 @@ Generate 3 post ideas.`;
     }
   } catch {}
 
+  // Autopilot self-topic-discovery: pull a handful of trending titles from
+  // the model's promo subs so the generator can find its own subjects.
+  // postgen marks them used so we don't recycle the same title twice in a row.
+  try {
+    const trending = getDb().prepare(
+      `SELECT id, subreddit, title FROM reddit_topic_candidates
+        WHERE profile_id = ? AND used_at IS NULL
+        ORDER BY score DESC, discovered_at DESC
+        LIMIT 6`
+    ).all(account.profile_id);
+    if (trending.length) {
+      const block = trending.map((t, i) => `${i + 1}. r/${t.subreddit} — "${t.title}"`).join('\n');
+      system += `\n\nWhat's trending right now in this model's subs (use as inspiration for ANGLES + topics; never copy a title):\n${block}`;
+      const mark = getDb().prepare(`UPDATE reddit_topic_candidates SET used_at = datetime('now') WHERE id = ?`);
+      for (const t of trending) { try { mark.run(t.id); } catch {} }
+    }
+  } catch {}
+
   const text = await callGrok(apiKey, system, userMsg);
   try {
     const parsed = tryParseJson(text);

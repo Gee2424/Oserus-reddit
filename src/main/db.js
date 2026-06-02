@@ -189,6 +189,55 @@ function initDatabase() {
       caption TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    -- Engagement protocol per account — human-like scroll/like/follow runs on
+    -- IG / TikTok / X (also available for Reddit). The runner opens a hidden
+    -- BrowserWindow on the account's session and executes platform scripts
+    -- driven by these knobs. All disabled by default.
+    CREATE TABLE IF NOT EXISTS engagement_protocols (
+      account_id INTEGER PRIMARY KEY REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      sessions_per_day INTEGER NOT NULL DEFAULT 3,
+      session_minutes_min INTEGER NOT NULL DEFAULT 6,
+      session_minutes_max INTEGER NOT NULL DEFAULT 14,
+      like_rate_pct INTEGER NOT NULL DEFAULT 18,
+      follow_rate_pct INTEGER NOT NULL DEFAULT 4,
+      watch_full_rate_pct INTEGER NOT NULL DEFAULT 25,
+      hashtags_json TEXT,
+      follow_list_json TEXT,
+      last_run_at TEXT
+    );
+
+    -- One row per actually-run engagement session, for visibility + dedup.
+    CREATE TABLE IF NOT EXISTS engagement_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+      platform TEXT NOT NULL,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      ended_at TEXT,
+      seconds INTEGER,
+      posts_seen INTEGER NOT NULL DEFAULT 0,
+      likes INTEGER NOT NULL DEFAULT 0,
+      follows INTEGER NOT NULL DEFAULT 0,
+      error TEXT
+    );
+
+    -- Reddit topic discovery cache — coordinator pulls Hot/Top from each
+    -- model's promo subreddits, dedupes, and stores candidate topics. postgen
+    -- reads from here when generating posts so autopilot can find its own
+    -- subjects instead of being told what to write.
+    CREATE TABLE IF NOT EXISTS reddit_topic_candidates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER REFERENCES model_profiles(id) ON DELETE CASCADE,
+      subreddit TEXT NOT NULL,
+      title TEXT NOT NULL,
+      score INTEGER,
+      num_comments INTEGER,
+      url TEXT,
+      discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
+      used_at TEXT,
+      UNIQUE(profile_id, subreddit, title)
+    );
   `);
 
   // Migration: if users.role constraint is the old ('admin','creator') one, rebuild the table.
