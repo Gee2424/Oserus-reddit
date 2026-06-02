@@ -395,6 +395,16 @@ function initDatabase() {
         }
       }
     }
+    // Admin is the safety floor — every launch, ensure admin holds every perm
+    // key that exists in code. Without this, admin DBs seeded before newer
+    // perms were added (page.autopilot, page.scheduler, page.intel, etc.)
+    // permanently miss those nav items even after upgrade.
+    try {
+      const adminPerms = (BUILTIN_ROLES.find((r) => r.key === 'admin') || {}).permissions || [];
+      for (const p of adminPerms) insertRolePerm.run('admin', p);
+    } catch (e) {
+      console.error('[db] Admin top-up failed:', e.message);
+    }
   } catch (e) {
     console.error('[db] Roles seed failed:', e.message);
   }
