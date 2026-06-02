@@ -258,6 +258,167 @@ const PLATFORM_URLS = {
   tiktok:    'https://www.tiktok.com/foryou',
 };
 
+// Login-page autofill script. Pierces open shadow roots (Reddit's new login
+// renders inside <faceplate-text-input> custom elements), has specific
+// selectors for Reddit/X/Instagram/TikTok/RedGIFs, retries on a 250ms tick
+// for 10 seconds, watches MutationObserver for the same window, sets values
+// via the prototype setter so React/Vue/Lit accept the input event, and
+// auto-clicks the platform's Next/Login button once both fields are filled.
+function buildAutofillScript(safeUser, safePass) {
+  return `
+    (() => {
+      if (window.__oserusAutofillActive) return;
+      window.__oserusAutofillActive = true;
+      const u = ${safeUser};
+      const p = ${safePass};
+
+      // Recursively walk every shadow root so faceplate / Lit / custom-element
+      // inputs are reachable. Returns a flat list of elements matching sel.
+      function deepQueryAll(root, sel) {
+        const out = [];
+        const walk = (node) => {
+          if (!node) return;
+          if (node.querySelectorAll) {
+            try { out.push(...node.querySelectorAll(sel)); } catch {}
+          }
+          // Open shadow roots
+          if (node.shadowRoot) walk(node.shadowRoot);
+          // Recurse into descendants to catch nested shadow trees
+          const kids = node.children || [];
+          for (let i = 0; i < kids.length; i++) walk(kids[i]);
+        };
+        walk(root);
+        return out;
+      }
+      function deepFind(sel) {
+        const all = deepQueryAll(document.documentElement, sel);
+        return all.find((el) => el.offsetParent !== null && !el.disabled && !el.readOnly) || null;
+      }
+      function setVal(el, v) {
+        if (!el || el.value === v) return false;
+        const proto = Object.getPrototypeOf(el);
+        const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+        if (desc && desc.set) desc.set.call(el, v); else el.value = v;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        // Some forms (Reddit faceplate) listen for keyup; fire one too.
+        el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+        return true;
+      }
+
+      const host = location.hostname;
+      const isReddit    = /(^|\\.)reddit\\.com$/.test(host);
+      const isX         = /(^|\\.)(x|twitter)\\.com$/.test(host);
+      const isInstagram = /(^|\\.)instagram\\.com$/.test(host);
+      const isTikTok    = /(^|\\.)tiktok\\.com$/.test(host);
+      const isRedGifs   = /(^|\\.)redgifs\\.com$/.test(host);
+
+      // Platform-specific selectors first, then generic fallbacks.
+      const userSel = [
+        // Reddit new login (shadow-DOM input lives inside faceplate-text-input)
+        isReddit && 'input#login-username',
+        isReddit && 'input[name="username"]',
+        // X login flow
+        isX && 'input[autocomplete="username"]',
+        isX && 'input[name="text"]',
+        isX && 'input[data-testid="ocfEnterTextTextInput"]',
+        // Instagram
+        isInstagram && 'input[name="username"]',
+        isInstagram && 'input[aria-label*="username" i]',
+        // TikTok (email/username step)
+        isTikTok && 'input[name="username"]',
+        isTikTok && 'input[type="text"][placeholder*="mail" i]',
+        isTikTok && 'input[type="text"][placeholder*="sername" i]',
+        // RedGIFs + generic
+        isRedGifs && 'input[name="login"]',
+        'input[autocomplete="username"]',
+        'input[name="username"]',
+        'input[name="email"]',
+        'input[type="email"]',
+        'input[autocomplete="email"]',
+        'input[name="loginfmt"]',
+        'input[id*="login" i][type="text"]',
+        'input[placeholder*="sername" i]',
+        'input[placeholder*="mail" i]',
+      ].filter(Boolean);
+
+      const passSel = [
+        isReddit && 'input#login-password',
+        isReddit && 'input[name="password"]',
+        isX && 'input[autocomplete="current-password"]',
+        isX && 'input[name="password"]',
+        isInstagram && 'input[name="password"]',
+        isInstagram && 'input[aria-label*="password" i]',
+        isTikTok && 'input[type="password"]',
+        isRedGifs && 'input[type="password"]',
+        'input[autocomplete="current-password"]',
+        'input[name="password"]',
+        'input[type="password"]',
+        'input[placeholder*="assword" i]',
+      ].filter(Boolean);
+
+      const submitSel = [
+        // Reddit's faceplate button — match the submit role
+        isReddit && 'button[type="submit"]',
+        // X step button
+        isX && 'div[role="button"][data-testid="LoginForm_Login_Button"]',
+        isX && 'button[data-testid="LoginForm_Login_Button"]',
+        isX && 'div[role="button"][data-testid$="next_button"]',
+        // Instagram
+        isInstagram && 'button[type="submit"]',
+        // TikTok
+        isTikTok && 'button[type="submit"]',
+        // RedGIFs + generic
+        'button[type="submit"]',
+        'button[data-testid*="login" i]',
+      ].filter(Boolean);
+
+      const filled = { user: false, pass: false, submitted: false };
+
+      function findFirst(list) {
+        for (const s of list) { const el = deepFind(s); if (el) return el; }
+        return null;
+      }
+
+      function tryFill() {
+        const uEl = findFirst(userSel);
+        const pEl = findFirst(passSel);
+        if (uEl && !filled.user) { if (setVal(uEl, u)) filled.user = true; }
+        if (pEl && !filled.pass) { if (setVal(pEl, p)) filled.pass = true; }
+        return filled.user && filled.pass;
+      }
+
+      function trySubmit() {
+        if (filled.submitted) return;
+        // Only auto-submit once both fields are present and filled.
+        if (!filled.user || !filled.pass) return;
+        const btn = findFirst(submitSel);
+        if (!btn) return;
+        try { btn.click(); filled.submitted = true; } catch {}
+      }
+
+      if (tryFill()) {
+        // X has a two-step flow — username first, click Next, then password
+        // shows. Don't auto-submit on the combined Reddit/IG form unless we
+        // truly filled both. We rely on the user's existing autofill button.
+        return;
+      }
+
+      const start = Date.now();
+      const t = setInterval(() => {
+        const done = tryFill();
+        if (done || Date.now() - start > 10000) clearInterval(t);
+      }, 250);
+
+      try {
+        const mo = new MutationObserver(() => { tryFill(); });
+        mo.observe(document.documentElement, { childList: true, subtree: true });
+        setTimeout(() => mo.disconnect(), 10000);
+      } catch {}
+    })();
+  `;
+}
+
 // Launch every URL in the user's external browser, preferring Opera GX if
 // installed (per user request). Falls back to whatever shell.openExternal
 // resolves to (the OS default browser).
@@ -340,78 +501,13 @@ ipcMain.handle('window:openAccountBrowser', async (_e, { accountId, url }) => {
     const safeUser = JSON.stringify(acct.username);
     const safePass = JSON.stringify(password);
     const inject = () => {
-      const js = `
-        (() => {
-          if (window.__oserusAutofillActive) return;
-          window.__oserusAutofillActive = true;
-          const u = ${safeUser};
-          const p = ${safePass};
-          const setVal = (el, v) => {
-            if (!el || el.value === v) return false;
-            const proto = Object.getPrototypeOf(el);
-            const desc = Object.getOwnPropertyDescriptor(proto, 'value');
-            if (desc && desc.set) desc.set.call(el, v); else el.value = v;
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-            return true;
-          };
-          // Broad selector lists — covers Reddit (new + old), X (login + flow
-          // text input), Instagram, TikTok, RedGIFs, generic OAuth, Apple ID.
-          const userSel = [
-            'input[name="username"]', 'input[autocomplete="username"]',
-            'input[name="text"]',                        // X
-            'input[name="email"]',                       // IG variants, RedGIFs, generic
-            'input[type="email"]',
-            'input[name="loginfmt"]',                    // Microsoft
-            'input[autocomplete="email"]',
-            'input[id*="login"][type="text"]',
-            'input[placeholder*="sername" i]',
-            'input[placeholder*="mail" i]',
-            'input[data-testid="ocfEnterTextTextInput"]', // X flow
-          ];
-          const passSel = [
-            'input[name="password"]', 'input[autocomplete="current-password"]',
-            'input[type="password"]',
-            'input[placeholder*="assword" i]',
-          ];
-          let filled = { user: false, pass: false };
-          const tryFill = () => {
-            let uEl = null, pEl = null;
-            for (const s of userSel) {
-              uEl = Array.from(document.querySelectorAll(s)).find((el) => el.offsetParent !== null && !el.disabled && !el.readOnly);
-              if (uEl) break;
-            }
-            for (const s of passSel) {
-              pEl = Array.from(document.querySelectorAll(s)).find((el) => el.offsetParent !== null && !el.disabled && !el.readOnly);
-              if (pEl) break;
-            }
-            if (uEl && !filled.user) { setVal(uEl, u); filled.user = true; }
-            if (pEl && !filled.pass) { setVal(pEl, p); filled.pass = true; }
-            return filled.user && filled.pass;
-          };
-          if (tryFill()) return;
-          // Retry every 250ms for 10s OR until both fields are filled.
-          const start = Date.now();
-          const t = setInterval(() => {
-            if (tryFill() || Date.now() - start > 10000) clearInterval(t);
-          }, 250);
-          // Also watch DOM mutations for the same window — async-rendered
-          // forms (Reddit modal, IG SPA) commonly miss the interval.
-          try {
-            const mo = new MutationObserver(() => { tryFill(); });
-            mo.observe(document.documentElement, { childList: true, subtree: true });
-            setTimeout(() => mo.disconnect(), 10000);
-          } catch (e) {}
-        })();
-      `;
+      const js = buildAutofillScript(safeUser, safePass);
       win.webContents.executeJavaScript(js).catch(() => {});
     };
     win.webContents.on('did-finish-load', () => {
-      // Reset the in-page flag so re-injection works after each nav.
       win.webContents.executeJavaScript('window.__oserusAutofillActive = false').catch(() => {});
       inject();
     });
-    // Also re-inject on in-page navigations (Reddit modal opens, X step 2).
     win.webContents.on('did-navigate-in-page', () => {
       win.webContents.executeJavaScript('window.__oserusAutofillActive = false').catch(() => {});
       inject();

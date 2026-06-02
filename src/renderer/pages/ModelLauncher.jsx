@@ -6,6 +6,10 @@ import { PLATFORM_MAP, platformColor, platformShort } from '../lib/platforms.js'
 // main process, copied here so the launcher's <webview> tabs get the same
 // behaviour. Retries on a 250ms tick + MutationObserver for 10 seconds, so
 // async / React-controlled login forms still get filled.
+// Login-page autofill. Pierces open shadow roots (Reddit faceplate inputs
+// live inside shadow DOM), has per-platform selectors for Reddit/X/IG/TikTok/
+// RedGIFs, retries on a 250ms tick for 10s and on DOM mutations, sets values
+// through the prototype setter so React/Lit accept the input event.
 function autofillJs(username, password) {
   const u = JSON.stringify(username);
   const p = JSON.stringify(password);
@@ -14,39 +18,74 @@ function autofillJs(username, password) {
       if (window.__oserusAutofillActive) return;
       window.__oserusAutofillActive = true;
       const u = ${u}; const p = ${p};
-      const setVal = (el, v) => {
+      function deepQueryAll(root, sel) {
+        const out = [];
+        const walk = (node) => {
+          if (!node) return;
+          if (node.querySelectorAll) { try { out.push(...node.querySelectorAll(sel)); } catch {} }
+          if (node.shadowRoot) walk(node.shadowRoot);
+          const kids = node.children || [];
+          for (let i = 0; i < kids.length; i++) walk(kids[i]);
+        };
+        walk(root);
+        return out;
+      }
+      function deepFind(sel) {
+        const all = deepQueryAll(document.documentElement, sel);
+        return all.find((el) => el.offsetParent !== null && !el.disabled && !el.readOnly) || null;
+      }
+      function setVal(el, v) {
         if (!el || el.value === v) return false;
         const proto = Object.getPrototypeOf(el);
         const desc = Object.getOwnPropertyDescriptor(proto, 'value');
         if (desc && desc.set) desc.set.call(el, v); else el.value = v;
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
+        el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
         return true;
-      };
+      }
+
+      const host = location.hostname;
+      const isReddit    = /(^|\\.)reddit\\.com$/.test(host);
+      const isX         = /(^|\\.)(x|twitter)\\.com$/.test(host);
+      const isInstagram = /(^|\\.)instagram\\.com$/.test(host);
+      const isTikTok    = /(^|\\.)tiktok\\.com$/.test(host);
+      const isRedGifs   = /(^|\\.)redgifs\\.com$/.test(host);
+
       const userSel = [
-        'input[name="username"]','input[autocomplete="username"]',
-        'input[name="text"]','input[name="email"]','input[type="email"]',
-        'input[name="loginfmt"]','input[autocomplete="email"]',
-        'input[id*="login"][type="text"]','input[placeholder*="sername" i]',
-        'input[placeholder*="mail" i]','input[data-testid="ocfEnterTextTextInput"]',
-      ];
+        isReddit && 'input#login-username',
+        isReddit && 'input[name="username"]',
+        isX && 'input[autocomplete="username"]',
+        isX && 'input[name="text"]',
+        isX && 'input[data-testid="ocfEnterTextTextInput"]',
+        isInstagram && 'input[name="username"]',
+        isInstagram && 'input[aria-label*="username" i]',
+        isTikTok && 'input[name="username"]',
+        isTikTok && 'input[type="text"][placeholder*="mail" i]',
+        isTikTok && 'input[type="text"][placeholder*="sername" i]',
+        isRedGifs && 'input[name="login"]',
+        'input[autocomplete="username"]','input[name="username"]','input[name="email"]',
+        'input[type="email"]','input[autocomplete="email"]','input[name="loginfmt"]',
+        'input[id*="login" i][type="text"]','input[placeholder*="sername" i]','input[placeholder*="mail" i]',
+      ].filter(Boolean);
       const passSel = [
-        'input[name="password"]','input[autocomplete="current-password"]',
+        isReddit && 'input#login-password',
+        isReddit && 'input[name="password"]',
+        isX && 'input[autocomplete="current-password"]',
+        isX && 'input[name="password"]',
+        isInstagram && 'input[name="password"]',
+        isInstagram && 'input[aria-label*="password" i]',
+        'input[autocomplete="current-password"]','input[name="password"]',
         'input[type="password"]','input[placeholder*="assword" i]',
-      ];
-      let filled = { user: false, pass: false };
+      ].filter(Boolean);
+
+      const filled = { user: false, pass: false };
+      const findFirst = (list) => { for (const s of list) { const el = deepFind(s); if (el) return el; } return null; };
       const tryFill = () => {
-        let uEl = null, pEl = null;
-        for (const s of userSel) {
-          uEl = Array.from(document.querySelectorAll(s)).find((el) => el.offsetParent !== null && !el.disabled && !el.readOnly);
-          if (uEl) break;
-        }
-        for (const s of passSel) {
-          pEl = Array.from(document.querySelectorAll(s)).find((el) => el.offsetParent !== null && !el.disabled && !el.readOnly);
-          if (pEl) break;
-        }
-        if (uEl && !filled.user) { setVal(uEl, u); filled.user = true; }
-        if (pEl && !filled.pass) { setVal(pEl, p); filled.pass = true; }
+        const uEl = findFirst(userSel);
+        const pEl = findFirst(passSel);
+        if (uEl && !filled.user) { if (setVal(uEl, u)) filled.user = true; }
+        if (pEl && !filled.pass) { if (setVal(pEl, p)) filled.pass = true; }
         return filled.user && filled.pass;
       };
       if (tryFill()) return;
@@ -56,7 +95,7 @@ function autofillJs(username, password) {
         const mo = new MutationObserver(() => { tryFill(); });
         mo.observe(document.documentElement, { childList: true, subtree: true });
         setTimeout(() => mo.disconnect(), 10000);
-      } catch (e) {}
+      } catch {}
     })();
   `;
 }
