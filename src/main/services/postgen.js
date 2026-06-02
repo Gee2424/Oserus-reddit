@@ -173,6 +173,22 @@ Generate 3 post ideas.`;
   if (ctaBlock) system += `\n\n${ctaBlock}`;
   if (customPrompt) system += `\n\nAdditional instructions:\n${customPrompt}`;
 
+  // Per-account example library: feed in up to 8 of this account's saved
+  // example posts so the generator mirrors the established voice + topics.
+  try {
+    const examples = getDb().prepare(
+      'SELECT title, body, subreddit FROM account_example_posts WHERE account_id = ? ORDER BY RANDOM() LIMIT 8'
+    ).all(account.id);
+    if (examples.length) {
+      const block = examples.map((e, i) => {
+        const sub = e.subreddit ? `r/${e.subreddit} — ` : '';
+        const body = e.body ? `\n  body: ${String(e.body).slice(0, 280)}` : '';
+        return `${i + 1}. ${sub}"${e.title}"${body}`;
+      }).join('\n');
+      system += `\n\nExample posts this account has made (match the tone, vocabulary, sentence length, and topic range — do NOT copy verbatim):\n${block}`;
+    }
+  } catch {}
+
   const text = await callGrok(apiKey, system, userMsg);
   try {
     const parsed = tryParseJson(text);

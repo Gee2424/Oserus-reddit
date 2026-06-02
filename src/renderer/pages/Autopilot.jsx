@@ -237,6 +237,9 @@ export default function AutopilotPage() {
         </div>
       )}
 
+      {/* Per-account example library — autopilot seeds Grok with these. */}
+      <ExampleLibrary token={token} />
+
       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 18 }}>
         {/* Protocol editor */}
         <div className="card" style={{ padding: 18 }}>
@@ -329,6 +332,160 @@ export default function AutopilotPage() {
       </div>
     </div>
   );
+}
+
+function ExampleLibrary({ token }) {
+  const [accounts, setAccounts] = useState([]);
+  const [accountId, setAccountId] = useState('');
+  const [posts, setPosts] = useState([]);
+  const [images, setImages] = useState([]);
+  const [draft, setDraft] = useState({ title: '', body: '', subreddit: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    window.api.accounts.listForUser({ token }).then((r) => {
+      if (r.ok) {
+        const list = r.accounts || [];
+        setAccounts(list);
+        if (!accountId && list.length) setAccountId(String(list[0].id));
+      }
+    });
+  }, [token]);
+
+  const loadFor = useCallback(async (id) => {
+    if (!id) { setPosts([]); setImages([]); return; }
+    const [p, i] = await Promise.all([
+      window.api.examples.listPosts({ token, accountId: Number(id) }),
+      window.api.examples.listImages({ token, accountId: Number(id) }),
+    ]);
+    if (p.ok) setPosts(p.posts || []);
+    if (i.ok) setImages(i.images || []);
+  }, [token]);
+
+  useEffect(() => { loadFor(accountId); }, [accountId, loadFor]);
+
+  async function addPost() {
+    if (!accountId) return;
+    if (!draft.title.trim()) { setErr('Title required'); return; }
+    setBusy(true);
+    const r = await window.api.examples.addPost({ token, accountId: Number(accountId), ...draft });
+    setBusy(false);
+    if (r.ok) { setDraft({ title: '', body: '', subreddit: '' }); loadFor(accountId); }
+    else setErr(r.error);
+  }
+  async function delPost(id) {
+    await window.api.examples.deletePost({ token, id });
+    loadFor(accountId);
+  }
+  async function uploadImage(file) {
+    if (!file || !accountId) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataBase64 = reader.result.split(',')[1];
+      const r = await window.api.examples.addImage({ token, accountId: Number(accountId), fileName: file.name, dataBase64 });
+      if (r.ok) loadFor(accountId); else setErr(r.error);
+    };
+    reader.readAsDataURL(file);
+  }
+  async function delImage(id) {
+    await window.api.examples.deleteImage({ token, id });
+    loadFor(accountId);
+  }
+
+  return (
+    <div className="card" style={{ padding: 18, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <h3 style={{ margin: 0 }}>Example library</h3>
+        <span className="muted" style={{ fontSize: 11 }}>per account — autopilot mirrors these when generating new posts</span>
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
+        <label style={{ fontSize: 12, margin: 0 }}>Account</label>
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ minWidth: 280 }}>
+          <option value="">— pick an account —</option>
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {(a.platform || 'reddit')} · {a.username}{a.profile_name ? ` · ${a.profile_name}` : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {err && <Banner kind="err">{err}</Banner>}
+
+      {accountId && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+          {/* Example posts */}
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Example posts ({posts.length})</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+              <input placeholder="Title" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+              <input placeholder="r/subreddit (optional)" value={draft.subreddit} onChange={(e) => setDraft({ ...draft, subreddit: e.target.value.replace(/^r\//i, '') })} />
+            </div>
+            <textarea placeholder="Body (optional)" value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} style={{ minHeight: 60, width: '100%', fontSize: 13 }} />
+            <div style={{ marginTop: 8 }}>
+              <button className="primary" onClick={addPost} disabled={busy}>+ Add example post</button>
+            </div>
+            <div style={{ marginTop: 12, maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {posts.length === 0
+                ? <div className="muted" style={{ fontSize: 12 }}>No example posts yet.</div>
+                : posts.map((p) => (
+                    <div key={p.id} style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                        {p.subreddit && <span className="mono dim" style={{ fontSize: 11 }}>r/{p.subreddit}</span>}
+                        <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{p.title}</span>
+                        <button className="ghost" onClick={() => delPost(p.id)} style={{ fontSize: 11, padding: '2px 8px' }}>×</button>
+                      </div>
+                      {p.body && <div className="muted" style={{ fontSize: 12, marginTop: 4, whiteSpace: 'pre-wrap' }}>{p.body}</div>}
+                    </div>
+                  ))}
+            </div>
+          </div>
+
+          {/* Example images */}
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Example images ({images.length})</div>
+            <label style={{ display: 'inline-block', cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}>
+              <input
+                type="file" accept="image/*" multiple
+                onChange={(e) => { for (const f of e.target.files || []) uploadImage(f); e.target.value = ''; }}
+                style={{ display: 'none' }}
+              />
+              <span className="primary" style={{ display: 'inline-block', padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>+ Add image(s)</span>
+            </label>
+            <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>Pool autopilot draws from for image posts on this account.</div>
+            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
+              {images.length === 0
+                ? <div className="muted" style={{ fontSize: 12, gridColumn: '1 / -1' }}>No example images yet.</div>
+                : images.map((img) => (
+                    <div key={img.id} style={{ position: 'relative', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8, aspectRatio: '1 / 1', overflow: 'hidden' }}>
+                      <ImageThumb token={token} id={img.id} />
+                      <button onClick={() => delImage(img.id)} style={{
+                        position: 'absolute', top: 4, right: 4,
+                        background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none',
+                        borderRadius: 999, width: 22, height: 22, cursor: 'pointer', fontSize: 12,
+                      }}>×</button>
+                    </div>
+                  ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ImageThumb({ token, id }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    let active = true;
+    window.api.examples.readImage({ token, id }).then((r) => {
+      if (active && r.ok) setSrc(`data:image/*;base64,${r.dataBase64}`);
+    });
+    return () => { active = false; };
+  }, [token, id]);
+  if (!src) return <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', color: 'var(--text-3)', fontSize: 11 }}>…</div>;
+  return <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />;
 }
 
 const dot = { width: 12, height: 12, borderRadius: '50%', flexShrink: 0 };

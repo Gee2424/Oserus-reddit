@@ -20,12 +20,15 @@ function loadActive(platform) {
   return v ? Number(v) : null;
 }
 
+const KNOWN_PLATFORMS = ['reddit', 'redgifs', 'x', 'instagram', 'tiktok'];
+
 export function ActiveAccountProvider({ children }) {
   const { token, user } = useAuth();
   const [accounts, setAccounts] = useState([]);
-  const [activeIds, setActiveIds] = useState({
-    reddit: loadActive('reddit'),
-    redgifs: loadActive('redgifs'),
+  const [activeIds, setActiveIds] = useState(() => {
+    const o = {};
+    for (const p of KNOWN_PLATFORMS) o[p] = loadActive(p);
+    return o;
   });
   const [loading, setLoading] = useState(false);
 
@@ -36,10 +39,9 @@ export function ActiveAccountProvider({ children }) {
     setLoading(false);
     if (res.ok) {
       setAccounts(res.accounts);
-      // Clear any active IDs whose accounts no longer exist
       setActiveIds(prev => {
         const next = { ...prev };
-        for (const plat of ['reddit', 'redgifs']) {
+        for (const plat of KNOWN_PLATFORMS) {
           if (next[plat] && !res.accounts.find(a => a.id === next[plat])) {
             next[plat] = null;
             localStorage.removeItem(`activeAccount_${plat}`);
@@ -54,12 +56,11 @@ export function ActiveAccountProvider({ children }) {
     if (token && user) refresh();
   }, [token, user, refresh]);
 
-  // Re-prepare session whenever an active id changes
   useEffect(() => {
     for (const id of Object.values(activeIds)) {
       if (id) window.api.session.prepareForAccount({ accountId: id });
     }
-  }, [activeIds.reddit, activeIds.redgifs]);
+  }, [activeIds.reddit, activeIds.redgifs, activeIds.x, activeIds.instagram, activeIds.tiktok]);
 
   async function setActiveForPlatform(platform, accountId) {
     setActiveIds(prev => ({ ...prev, [platform]: accountId }));
@@ -85,11 +86,12 @@ export function ActiveAccountProvider({ children }) {
 
   // For a given platform, return its accounts + active + setter
   function forPlatform(platform) {
+    const id = activeIds[platform];
     return {
       accounts: accounts.filter(a => (a.platform || 'reddit') === platform),
-      active: platform === 'reddit' ? activeReddit : activeRedgifs,
-      activeId: activeIds[platform],
-      setActive: (id) => setActiveForPlatform(platform, id),
+      active: accounts.find(a => a.id === id) || null,
+      activeId: id,
+      setActive: (newId) => setActiveForPlatform(platform, newId),
     };
   }
 

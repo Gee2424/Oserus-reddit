@@ -197,6 +197,15 @@ const api = {
     ruleUpdate:     (data) => ipcRenderer.invoke('messaging:ruleUpdate', data),
     ruleDelete:     (data) => ipcRenderer.invoke('messaging:ruleDelete', data),
   },
+  examples: {
+    listPosts:   (data) => ipcRenderer.invoke('examples:listPosts', data),
+    addPost:     (data) => ipcRenderer.invoke('examples:addPost', data),
+    deletePost:  (data) => ipcRenderer.invoke('examples:deletePost', data),
+    listImages:  (data) => ipcRenderer.invoke('examples:listImages', data),
+    addImage:    (data) => ipcRenderer.invoke('examples:addImage', data),
+    deleteImage: (data) => ipcRenderer.invoke('examples:deleteImage', data),
+    readImage:   (data) => ipcRenderer.invoke('examples:readImage', data),
+  },
   windows: {
     openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),
     openAccountBrowser: (data) => ipcRenderer.invoke('window:openAccountBrowser', data),

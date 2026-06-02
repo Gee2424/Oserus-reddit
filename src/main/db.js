@@ -168,6 +168,27 @@ function initDatabase() {
       perm_key TEXT NOT NULL,
       PRIMARY KEY (role_key, perm_key)
     );
+
+    -- Per-account library of example posts the autopilot/Grok prompt can draw
+    -- from for style + topic seeding. One row per example, no global pool.
+    CREATE TABLE IF NOT EXISTS account_example_posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      body TEXT,
+      subreddit TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Per-account image pool autopilot can attach when generating image posts.
+    -- Stored as filesystem paths under userData/example_images/<account_id>/.
+    CREATE TABLE IF NOT EXISTS account_example_images (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+      file_path TEXT NOT NULL,
+      caption TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migration: if users.role constraint is the old ('admin','creator') one, rebuild the table.

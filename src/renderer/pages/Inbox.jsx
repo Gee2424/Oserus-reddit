@@ -1,12 +1,18 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
+import { PLATFORMS, platformColor } from '../lib/platforms.js';
 
 const FOLDERS = [
   { key: 'all', label: 'Inbox', icon: '✉' },
   { key: 'unread', label: 'Requests', icon: '✦' },
   { key: 'sent', label: 'Hidden', icon: '◐' },
 ];
+
+// Reddit is the only platform with a working JSON inbox today. The other
+// platforms render the pill row + a sign-in prompt so the UI is honest about
+// what's wired and what isn't.
+const INBOX_LIVE = { reddit: true, redgifs: false, x: false, instagram: false, tiktok: false };
 
 function timeAgo(unixSec) {
   if (!unixSec) return '';
@@ -34,52 +40,20 @@ function hueOf(name) {
 export default function InboxPage({ embedded, standalone, navigate }) {
   const { token } = useAuth();
   const { forPlatform } = useActiveAccount();
-  const { active, accounts: redditAccounts, setActive } = forPlatform('reddit');
+  const [platform, setPlatform] = useState('reddit');
+  const { active, accounts: platformAccounts, setActive } = forPlatform(platform);
 
   const [folder, setFolder] = useState('all');
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [notLoggedIn, setNotLoggedIn] = useState(false);
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedThreadKey, setSelectedThreadKey] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
   const [unreadByAccount, setUnreadByAccount] = useState({}); // { [accountId]: count }
   const [templates, setTemplates] = useState([]);
   const [showTemplates, setShowTemplates] = useState(false);
-  const [showSchedule, setShowSchedule] = useState(false);
-  const [scheduleForm, setScheduleForm] = useState({ subreddit: '', title: '', body: '', kind: 'self', when: '' });
-  const [scheduleBusy, setScheduleBusy] = useState(false);
-  const [scheduleMsg, setScheduleMsg] = useState(null);
-
-  async function submitSchedule() {
-    if (!active) { setScheduleMsg({ kind: 'err', text: 'Pick an account first.' }); return; }
-    if (!scheduleForm.subreddit || !scheduleForm.title || !scheduleForm.when) {
-      setScheduleMsg({ kind: 'err', text: 'Subreddit, title and time are required.' });
-      return;
-    }
-    setScheduleBusy(true);
-    setScheduleMsg(null);
-    const dt = scheduleForm.when.replace('T', ' ') + ':00';
-    const res = await window.api.scheduled.bulkCreate({
-      token,
-      items: [{
-        accountId: active.id,
-        subreddit: scheduleForm.subreddit.replace(/^r\//i, '').trim(),
-        title: scheduleForm.title,
-        body: scheduleForm.body || null,
-        kind: scheduleForm.kind,
-        scheduledFor: dt,
-      }],
-    });
-    setScheduleBusy(false);
-    if (res.ok && res.created) {
-      setScheduleMsg({ kind: 'ok', text: `Scheduled to r/${scheduleForm.subreddit} at ${scheduleForm.when}` });
-      setScheduleForm({ subreddit: '', title: '', body: '', kind: 'self', when: '' });
-    } else {
-      setScheduleMsg({ kind: 'err', text: res.error || (res.errors && res.errors[0]) || 'Failed' });
-    }
-  }
 
   useEffect(() => {
     window.api.messaging.templatesList({ token, profileId: active?.profile_id }).then((r) => {
@@ -88,11 +62,13 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   }, [token, active?.profile_id]);
 
   useEffect(() => {
-    if (!active && redditAccounts && redditAccounts.length > 0) setActive(redditAccounts[0].id);
-  }, [active, redditAccounts]);
+    if (!active && platformAccounts && platformAccounts.length > 0) setActive(platformAccounts[0].id);
+  }, [active, platformAccounts, platform]);
+
+  const isLive = INBOX_LIVE[platform];
 
   const load = useCallback(async () => {
-    if (!active) { setMessages([]); return; }
+    if (!active || !isLive) { setMessages([]); return; }
     setLoading(true); setErr(null); setNotLoggedIn(false);
     await window.api.session.prepareForAccount({ accountId: active.id });
     const res = await window.api.inbox.fetch({ token, accountId: active.id, folder });
@@ -103,22 +79,20 @@ export default function InboxPage({ embedded, standalone, navigate }) {
       setUnreadByAccount((prev) => ({ ...prev, [active.id]: u }));
     } else if (res.notLoggedIn) { setNotLoggedIn(true); setMessages([]); }
     else setErr(res.error);
-  }, [active?.id, folder, token]);
+  }, [active?.id, folder, token, isLive]);
 
-  useEffect(() => { load(); setSelectedId(null); }, [load]);
+  useEffect(() => { load(); setSelectedThreadKey(null); }, [load]);
   useEffect(() => {
-    if (!active) return;
+    if (!active || !isLive) return;
     const id = setInterval(load, 60000);
     return () => clearInterval(id);
-  }, [load, active]);
+  }, [load, active, isLive]);
 
-  // Background-fetch unread counts for the OTHER accounts so the left rail
-  // can show badges like Infloww. Light cadence to avoid hammering Reddit.
   useEffect(() => {
-    if (!redditAccounts || redditAccounts.length <= 1) return;
+    if (!isLive || !platformAccounts || platformAccounts.length <= 1) return;
     let cancelled = false;
     (async () => {
-      for (const a of redditAccounts) {
+      for (const a of platformAccounts) {
         if (cancelled || a.id === active?.id) continue;
         await window.api.session.prepareForAccount({ accountId: a.id });
         const r = await window.api.inbox.fetch({ token, accountId: a.id, folder: 'unread' });
@@ -127,24 +101,50 @@ export default function InboxPage({ embedded, standalone, navigate }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [redditAccounts, active?.id, token]);
+  }, [platformAccounts, active?.id, token, isLive]);
 
-  const selected = messages.find((m) => m.id === selectedId) || null;
+  // Group messages into conversation threads. Reddit returns nested `replies`
+  // so each message has a `firstMessageName` pointing at the root — we group
+  // on that so the full back-and-forth shows together.
+  const groups = (() => {
+    const byKey = new Map();
+    for (const m of messages) {
+      const key = m.firstMessageName || m.name;
+      // Counterparty = whichever side of the conversation isn't us.
+      const other = (m.author === active?.username) ? m.dest : m.author;
+      const cur = byKey.get(key) || { key, other: other || m.dest || m.author || 'reddit', items: [], unread: 0, lastTs: 0, last: m };
+      cur.items.push(m);
+      if (!cur.other && other) cur.other = other;
+      if (m.isNew) cur.unread++;
+      if ((m.created || 0) > cur.lastTs) { cur.lastTs = m.created; cur.last = m; }
+      byKey.set(key, cur);
+    }
+    return [...byKey.values()].sort((a, b) => b.lastTs - a.lastTs);
+  })();
 
-  async function openMessage(m) {
-    setSelectedId(m.id);
+  const selected = groups.find((g) => g.key === selectedThreadKey) || null;
+  const selectedThread = selected
+    ? [...selected.items].sort((a, b) => (a.created || 0) - (b.created || 0))
+    : [];
+  const replyTarget = selectedThread.length ? selectedThread[selectedThread.length - 1] : null;
+
+  async function openThread(g) {
+    setSelectedThreadKey(g.key);
     setReplyText('');
-    if (m.isNew) {
+    const unreadInThread = g.items.filter((m) => m.isNew);
+    for (const m of unreadInThread) {
       await window.api.inbox.markRead({ token, accountId: active.id, fullname: m.name });
-      setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, isNew: false } : x)));
-      setUnreadByAccount((prev) => ({ ...prev, [active.id]: Math.max(0, (prev[active.id] || 1) - 1) }));
+    }
+    if (unreadInThread.length) {
+      setMessages((prev) => prev.map((x) => (g.items.find((it) => it.id === x.id) ? { ...x, isNew: false } : x)));
+      setUnreadByAccount((prev) => ({ ...prev, [active.id]: Math.max(0, (prev[active.id] || 0) - unreadInThread.length) }));
     }
   }
 
   async function sendReply() {
-    if (!replyText.trim() || !selected) return;
+    if (!replyText.trim() || !replyTarget) return;
     setSending(true); setErr(null);
-    const res = await window.api.inbox.reply({ token, accountId: active.id, parentFullname: selected.name, text: replyText.trim() });
+    const res = await window.api.inbox.reply({ token, accountId: active.id, parentFullname: replyTarget.name, text: replyText.trim() });
     setSending(false);
     if (res.ok) { setReplyText(''); load(); }
     else setErr(res.error);
@@ -153,43 +153,43 @@ export default function InboxPage({ embedded, standalone, navigate }) {
     await window.api.windows.openPopout({ route: 'inbox', title: 'Account Manager Pro', width: 1180, height: 760 });
   }
 
-  // Build a synthetic conversation grouping: by counterparty username so the
-  // middle column reads like a messenger thread list, not a flat mail list.
-  const groups = (() => {
-    const byOther = new Map();
-    for (const m of messages) {
-      const other = folder === 'sent' ? m.dest : (m.author || m.dest || 'reddit');
-      const k = other || '_';
-      const cur = byOther.get(k) || { other: k, items: [], unread: 0, lastTs: 0, last: m };
-      cur.items.push(m);
-      if (m.isNew) cur.unread++;
-      if ((m.created || 0) > cur.lastTs) { cur.lastTs = m.created; cur.last = m; }
-      byOther.set(k, cur);
-    }
-    return [...byOther.values()].sort((a, b) => b.lastTs - a.lastTs);
-  })();
-
   return (
     <div>
       {!embedded && <div className="title-block"><div><div className="eyebrow">Messages</div><h1>Account Manager Pro</h1></div></div>}
 
       <div style={shell}>
+        {/* Platform pill row — switches which account list + inbox source is shown. */}
+        <div style={platformRow}>
+          {PLATFORMS.map((p) => {
+            const isActive = platform === p.v;
+            return (
+              <button
+                key={p.v}
+                onClick={() => { setPlatform(p.v); setSelectedThreadKey(null); }}
+                style={{
+                  background: isActive ? 'rgba(255,255,255,0.05)' : 'transparent',
+                  border: `1px solid ${isActive ? platformColor(p.v) : 'transparent'}`,
+                  borderRadius: 999, padding: '5px 12px',
+                  color: isActive ? '#fff' : '#9a9b9d',
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: platformColor(p.v) }} />
+                {p.label}
+                {!INBOX_LIVE[p.v] && <span style={{ fontSize: 9, opacity: 0.6 }}>browser</span>}
+              </button>
+            );
+          })}
+        </div>
+
         {/* Top action bar */}
         <div style={topBar}>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Account Manager Pro</h2>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => setShowSchedule((v) => !v)}
-              style={{
-                background: showSchedule ? 'var(--gold)' : 'var(--bg-1)',
-                color: showSchedule ? '#1a1a14' : 'var(--gold-bright)',
-                border: '1px solid var(--gold)',
-                borderRadius: 999, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              }}
-            >◷ Schedule post</button>
-            <button className="ghost" onClick={load} disabled={loading}>↻ Refresh Account</button>
-            <button className="ghost" onClick={async () => {
-              for (const a of redditAccounts) {
+            <button className="ghost" onClick={load} disabled={loading || !isLive}>↻ Refresh Account</button>
+            <button className="ghost" disabled={!isLive} onClick={async () => {
+              for (const a of platformAccounts) {
                 await window.api.session.prepareForAccount({ accountId: a.id });
                 const r = await window.api.inbox.fetch({ token, accountId: a.id, folder: 'unread' });
                 if (r.ok) setUnreadByAccount((p) => ({ ...p, [a.id]: (r.messages || []).length }));
@@ -199,46 +199,6 @@ export default function InboxPage({ embedded, standalone, navigate }) {
             {!standalone && <button className="ghost" onClick={popOut}>⧉ Pop out</button>}
           </div>
         </div>
-
-        {showSchedule && (
-          <div style={{
-            padding: '14px 18px', borderBottom: '1px solid #272729',
-            background: 'linear-gradient(180deg, #131110, #0f0e0c)',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--gold-bright)' }}>
-                Schedule a post {active ? `as u/${active.username}` : ''}
-              </div>
-              <button className="ghost" style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 10px' }} onClick={() => setShowSchedule(false)}>✕ Close</button>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
-              <input placeholder="r/subreddit" value={scheduleForm.subreddit}
-                onChange={(e) => setScheduleForm({ ...scheduleForm, subreddit: e.target.value })} />
-              <input placeholder="Title" value={scheduleForm.title}
-                onChange={(e) => setScheduleForm({ ...scheduleForm, title: e.target.value })} />
-              <select value={scheduleForm.kind} onChange={(e) => setScheduleForm({ ...scheduleForm, kind: e.target.value })}>
-                <option value="self">Text</option>
-                <option value="link">Link</option>
-                <option value="image">Image</option>
-              </select>
-              <input type="datetime-local" value={scheduleForm.when}
-                onChange={(e) => setScheduleForm({ ...scheduleForm, when: e.target.value })} />
-            </div>
-            <textarea placeholder="Body (optional)" rows={3} value={scheduleForm.body}
-              onChange={(e) => setScheduleForm({ ...scheduleForm, body: e.target.value })}
-              style={{ width: '100%', background: '#0f0f10', border: '1px solid #2a2a2c', color: '#d7dadc', borderRadius: 8, padding: 10, fontSize: 13, fontFamily: 'inherit' }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
-              <button className="primary" onClick={submitSchedule} disabled={scheduleBusy}>
-                {scheduleBusy ? 'Scheduling…' : '◷ Schedule post'}
-              </button>
-              {scheduleMsg && (
-                <span style={{ fontSize: 12, color: scheduleMsg.kind === 'ok' ? '#7fd99a' : '#e2a3a3' }}>
-                  {scheduleMsg.text}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Messaging Analytics strip */}
         {(() => {
@@ -264,7 +224,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
         <div style={threeCol}>
           {/* Column 1: accounts */}
           <div style={accountsCol}>
-            {redditAccounts && redditAccounts.length ? redditAccounts.map((a) => {
+            {platformAccounts && platformAccounts.length ? platformAccounts.map((a) => {
               const isActive = a.id === active?.id;
               const unread = unreadByAccount[a.id] || 0;
               return (
@@ -276,14 +236,14 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                   {unread > 0 && <span style={badgeRed}>{unread > 999 ? '999+' : unread}</span>}
                 </button>
               );
-            }) : <Empty text="No Reddit accounts." />}
+            }) : <Empty text={`No ${platform} accounts.`} />}
           </div>
 
           {/* Column 2: conversation list + folder tabs */}
           <div style={listCol}>
             <div style={{ padding: '12px 12px 0 12px' }}>
               <div style={{ background: '#0f0f10', border: '1px solid #2a2a2c', borderRadius: 10, padding: 10, marginBottom: 10 }}>
-                <div style={{ fontSize: 12, color: '#818384', marginBottom: 6 }}>Account: <span style={{ color: '#d7dadc', fontWeight: 600 }}>{active ? `u/${active.username}` : '—'}</span></div>
+                <div style={{ fontSize: 12, color: '#818384', marginBottom: 6 }}>Account: <span style={{ color: '#d7dadc', fontWeight: 600 }}>{active ? active.username : '—'}</span></div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: loading ? 'var(--gold)' : '#818384' }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: loading ? 'var(--gold)' : '#7fd99a' }} />
                   {loading ? 'Refreshing…' : 'Connected'}
@@ -295,7 +255,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                   const isActive = folder === f.key;
                   const count = f.key === 'unread' ? (unreadByAccount[active?.id] || 0) : null;
                   return (
-                    <button key={f.key} onClick={() => { setFolder(f.key); setSelectedId(null); }} style={{ ...folderTab, ...(isActive ? folderTabActive : {}) }}>
+                    <button key={f.key} onClick={() => { setFolder(f.key); setSelectedThreadKey(null); }} style={{ ...folderTab, ...(isActive ? folderTabActive : {}) }}>
                       <span>{f.icon}</span> {f.label}
                       {count > 0 && <span style={miniBadge}>{count}</span>}
                     </button>
@@ -304,21 +264,25 @@ export default function InboxPage({ embedded, standalone, navigate }) {
               </div>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 10px 8px' }}>
-              {!active ? <Empty text="No Reddit account selected." /> :
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 10px 8px', minHeight: 0 }}>
+              {!isLive ? (
+                <div style={{ padding: 18, textAlign: 'center', color: '#818384', fontSize: 12, lineHeight: 1.6 }}>
+                  No JSON inbox adapter for {platform} yet. Use the Browser to read DMs for this account.
+                </div>
+              ) : !active ? <Empty text="No account selected." /> :
                 notLoggedIn ? (
                   <div style={{ padding: 18, textAlign: 'center' }}>
-                    <div style={{ color: '#818384', fontSize: 13, lineHeight: 1.6 }}>u/{active.username} isn't logged into Reddit yet.</div>
-                    {navigate && <button onClick={() => { setActive(active.id); navigate('reddit'); }} style={{ ...primaryBtn, marginTop: 12 }}>Sign in via Browser ↗</button>}
+                    <div style={{ color: '#818384', fontSize: 13, lineHeight: 1.6 }}>{active.username} isn't logged into {platform} yet.</div>
+                    {navigate && <button onClick={() => { setActive(active.id); navigate('browser'); }} style={{ ...primaryBtn, marginTop: 12 }}>Sign in via Browser ↗</button>}
                   </div>
                 ) :
                 loading && messages.length === 0 ? <Empty text="Loading…" /> :
                 groups.length === 0 ? <Empty text="No messages." /> :
                 groups.map((g) => {
                   const m = g.last;
-                  const isSel = m.id === selectedId;
+                  const isSel = g.key === selectedThreadKey;
                   return (
-                    <button key={g.other + m.id} onClick={() => openMessage(m)} style={{ ...convoRow, ...(isSel ? convoRowActive : {}) }}>
+                    <button key={g.key} onClick={() => openThread(g)} style={{ ...convoRow, ...(isSel ? convoRowActive : {}) }}>
                       <div style={{ ...avatarMd, background: `hsl(${hueOf(g.other)},45%,40%)` }}>{initial(g.other)}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -349,43 +313,40 @@ export default function InboxPage({ embedded, standalone, navigate }) {
             ) : (
               <>
                 <div style={threadHeader}>
-                  <div style={{ ...avatarMd, background: `hsl(${hueOf(selected.author || selected.dest)},45%,40%)` }}>{initial(selected.author || selected.dest)}</div>
+                  <div style={{ ...avatarMd, background: `hsl(${hueOf(selected.other)},45%,40%)` }}>{initial(selected.other)}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: '#d7dadc' }}>{folder === 'sent' ? selected.dest : selected.author}</div>
-                    <div style={{ fontSize: 11, color: '#818384' }}>{messages.filter((m) => (m.author || m.dest) === (selected.author || selected.dest)).length} messages</div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: '#d7dadc' }}>{selected.other}</div>
+                    <div style={{ fontSize: 11, color: '#818384' }}>{selectedThread.length} message{selectedThread.length === 1 ? '' : 's'}</div>
                   </div>
                 </div>
 
                 <div style={threadBody}>
-                  {messages
-                    .filter((m) => (folder === 'sent' ? m.dest : (m.author || m.dest)) === (folder === 'sent' ? selected.dest : (selected.author || selected.dest)))
-                    .sort((a, b) => (a.created || 0) - (b.created || 0))
-                    .map((m) => {
-                      const fromMe = folder === 'sent' || (m.dest && m.dest === active?.username);
-                      return (
-                        <div key={m.id} style={{ display: 'flex', flexDirection: 'column', alignItems: fromMe ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
-                          <div style={{ fontSize: 11, color: '#818384', marginBottom: 4 }}>
-                            <span className="mono">{fullStamp(m.created)}</span>
-                            {fromMe && <span style={{ marginLeft: 6, color: '#d7dadc', fontWeight: 600 }}>You</span>}
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexDirection: fromMe ? 'row-reverse' : 'row', maxWidth: '80%' }}>
-                            <div style={{ ...avatarSm, background: `hsl(${hueOf(fromMe ? active?.username : (m.author || m.dest))},45%,40%)` }}>
-                              {initial(fromMe ? active?.username : (m.author || m.dest))}
-                            </div>
-                            <div style={fromMe ? bubbleMe : bubbleThem}>{m.body}</div>
-                          </div>
+                  {selectedThread.map((m) => {
+                    const fromMe = m.author === active?.username;
+                    return (
+                      <div key={m.id} style={{ display: 'flex', flexDirection: 'column', alignItems: fromMe ? 'flex-end' : 'flex-start', marginBottom: 14 }}>
+                        <div style={{ fontSize: 11, color: '#818384', marginBottom: 4 }}>
+                          <span className="mono">{fullStamp(m.created)}</span>
+                          <span style={{ marginLeft: 6, color: '#d7dadc', fontWeight: 600 }}>{fromMe ? 'You' : m.author}</span>
                         </div>
-                      );
-                    })}
+                        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, flexDirection: fromMe ? 'row-reverse' : 'row', maxWidth: '80%' }}>
+                          <div style={{ ...avatarSm, background: `hsl(${hueOf(fromMe ? active?.username : m.author)},45%,40%)` }}>
+                            {initial(fromMe ? active?.username : m.author)}
+                          </div>
+                          <div style={fromMe ? bubbleMe : bubbleThem}>{m.body}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
 
-                {folder !== 'sent' && (
+                {folder !== 'sent' && replyTarget && (
                   <div style={composer}>
                     <div style={{ flex: 1, position: 'relative' }}>
                       <textarea
                         value={replyText}
                         onChange={(e) => setReplyText(e.target.value)}
-                        placeholder={`Reply as u/${active.username}…`}
+                        placeholder={`Reply as ${active.username}…`}
                         style={{ ...composerInput, width: '100%' }}
                         onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) sendReply(); }}
                       />
@@ -461,7 +422,8 @@ function AnalyticsTile({ label, value, tone }) {
 const shell = { background: '#0f0f10', border: '1px solid #272729', borderRadius: 14, overflow: 'hidden', boxShadow: '0 8px 30px -10px rgba(0,0,0,0.6)' };
 const topBar = { display: 'flex', alignItems: 'center', padding: '16px 18px', borderBottom: '1px solid #272729', background: '#131314' };
 const analyticsStrip = { display: 'flex', gap: 10, padding: '14px 18px', borderBottom: '1px solid #272729', background: '#101011' };
-const threeCol = { display: 'grid', gridTemplateColumns: '220px 340px 1fr', height: '70vh', minHeight: 520 };
+const threeCol = { display: 'grid', gridTemplateColumns: '220px 340px 1fr', height: 'calc(100vh - 280px)', minHeight: 560 };
+const platformRow = { display: 'flex', gap: 6, padding: '10px 18px', borderBottom: '1px solid #272729', background: '#0f0f10', flexWrap: 'wrap' };
 const accountsCol = { background: '#0c0c0d', borderRight: '1px solid #1f1f21', padding: '12px 10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 };
 const listCol = { display: 'flex', flexDirection: 'column', background: '#0f0f10', borderRight: '1px solid #1f1f21' };
 const threadCol = { display: 'flex', flexDirection: 'column', background: '#0a0a0b', minWidth: 0 };

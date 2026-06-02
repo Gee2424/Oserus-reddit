@@ -58,8 +58,10 @@ export default function SchedulerProPage({ initialProTab, navigate }) {
   const [msg, setMsg] = useState(null);
   const [err, setErr] = useState(null);
   const [dragOverDay, setDragOverDay] = useState(null); // YYYY-MM-DD highlighted as drop target
-  const [showCompose, setShowCompose] = useState(false);
-  const [showAI, setShowAI] = useState(false);
+  // Scheduler now lands directly on the merged composer + AI settings view.
+  // Configure/Run/Monitor/Replenish tiles still navigate from the row above.
+  const [showCompose, setShowCompose] = useState(true);
+  const [showAI, setShowAI] = useState(true);
 
   const load = useCallback(async () => {
     const res = await window.api.scheduled.list({
@@ -985,8 +987,11 @@ function AISettings({ token, onMsg, onError }) {
 }
 
 function Composer({ token, accounts, onDone, onError }) {
+  const [platform, setPlatform] = useState('reddit');
   const [form, setForm] = useState({ subreddit: '', title: '', body: '', kind: 'self', url: '', when: '' });
   const [targets, setTargets] = useState([]); // account ids for "send to all"
+  // Accounts visible in the picker are filtered to the selected platform.
+  const platformAccounts = useMemo(() => accounts.filter((a) => (a.platform || 'reddit') === platform), [accounts, platform]);
   const [conflicts, setConflicts] = useState([]);
   const [busy, setBusy] = useState(false);
   // Boosting: integrated from Operations → Upvotes per the new architecture.
@@ -1049,23 +1054,27 @@ function Composer({ token, accounts, onDone, onError }) {
   }
 
   async function submit() {
-    if (!targets.length || !form.subreddit || !form.title || !form.when) {
-      onError('Pick at least one account, a subreddit, title, and time.');
+    if (!targets.length || !form.title || !form.when) {
+      onError('Pick at least one account, a title/caption, and time.');
+      return;
+    }
+    if (platform === 'reddit' && !form.subreddit) {
+      onError('Subreddit required for Reddit posts.');
       return;
     }
     setBusy(true);
     const items = targets.map((accountId) => ({
       accountId,
-      subreddit: form.subreddit,
+      subreddit: platform === 'reddit' ? form.subreddit : '',
       title: form.title,
       body: form.body,
       kind: form.kind,
       url: form.url,
       scheduledFor: toStored(form.when),
-      boostServiceId: boost.enabled ? boost.serviceId : null,
-      boostQty: boost.enabled ? Number(boost.qty) : 0,
-      boostDelayMinutes: boost.enabled ? Number(boost.delayMinutes) || 0 : 0,
-      boostDripRate: boost.enabled ? boost.dripRate : null,
+      boostServiceId: boost.enabled && platform === 'reddit' ? boost.serviceId : null,
+      boostQty: boost.enabled && platform === 'reddit' ? Number(boost.qty) : 0,
+      boostDelayMinutes: boost.enabled && platform === 'reddit' ? Number(boost.delayMinutes) || 0 : 0,
+      boostDripRate: boost.enabled && platform === 'reddit' ? boost.dripRate : null,
     }));
     const res = await window.api.scheduled.bulkCreate({ token, items });
     setBusy(false);
@@ -1077,71 +1086,118 @@ function Composer({ token, accounts, onDone, onError }) {
     <div className="card bordered-glow" style={{ padding: 18, marginBottom: 18 }}>
       <h3 style={{ marginTop: 0, marginBottom: 12 }}>Schedule a post {targets.length > 1 ? `to ${targets.length} accounts` : ''}</h3>
 
-      {/* Platform selector — Reddit is wired today; others slot in once their
-          adapters are configured. Keeps the workflow inside one Scheduler. */}
+      {/* Platform selector — switches the composer to per-platform fields.
+          Reddit posts fire automatically; non-Reddit posts save as drafts that
+          appear in the timeline until their adapters land. */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
         {[
-          { k: 'reddit',    l: 'Reddit',    icon: '◈', live: true,  color: '#ff4500' },
-          { k: 'redgifs',   l: 'RedGIFs',   icon: '▮', live: false, color: '#d63d3d' },
-          { k: 'x',         l: 'X',         icon: '𝕏', live: false, color: '#fff'    },
-          { k: 'instagram', l: 'Instagram', icon: '◉', live: false, color: '#e2497d' },
-          { k: 'tiktok',    l: 'TikTok',    icon: '♪', live: false, color: '#69c9d0' },
-        ].map((p) => (
-          <button
-            key={p.k}
-            disabled={!p.live}
-            style={{
-              background: p.live ? 'linear-gradient(135deg, rgba(212,166,74,0.16), rgba(58,111,140,0.06))' : 'var(--bg-1)',
-              border: '1px solid ' + (p.live ? 'var(--gold)' : 'var(--border)'),
-              borderRadius: 999, padding: '5px 12px',
-              color: p.live ? 'var(--gold-bright)' : 'var(--text-3)',
-              fontSize: 11, fontWeight: 600, opacity: p.live ? 1 : 0.5,
-              cursor: p.live ? 'pointer' : 'not-allowed',
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}
-          >
-            <span style={{ color: p.color }}>{p.icon}</span> {p.l}
-            {!p.live && <span style={{ fontSize: 9, opacity: 0.7 }}>soon</span>}
-          </button>
-        ))}
+          { k: 'reddit',    l: 'Reddit',    icon: '◈', color: '#ff4500' },
+          { k: 'redgifs',   l: 'RedGIFs',   icon: '▮', color: '#d63d3d' },
+          { k: 'x',         l: 'X',         icon: '𝕏', color: '#fff'    },
+          { k: 'instagram', l: 'Instagram', icon: '◉', color: '#e2497d' },
+          { k: 'tiktok',    l: 'TikTok',    icon: '♪', color: '#69c9d0' },
+        ].map((p) => {
+          const isActive = platform === p.k;
+          return (
+            <button
+              key={p.k}
+              onClick={() => { setPlatform(p.k); setTargets([]); }}
+              style={{
+                background: isActive ? 'linear-gradient(135deg, rgba(212,166,74,0.16), rgba(58,111,140,0.06))' : 'var(--bg-1)',
+                border: '1px solid ' + (isActive ? 'var(--gold)' : 'var(--border)'),
+                borderRadius: 999, padding: '5px 12px',
+                color: isActive ? 'var(--gold-bright)' : 'var(--text-2)',
+                fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              <span style={{ color: p.color }}>{p.icon}</span> {p.l}
+            </button>
+          );
+        })}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-        <div>
-          <label>Subreddit</label>
-          <input placeholder="any subreddit, e.g. AskReddit" value={form.subreddit} onChange={(e) => setForm({ ...form, subreddit: e.target.value })} />
+      {platform !== 'reddit' && (
+        <div style={{
+          background: 'rgba(212,166,74,0.10)', border: '1px solid var(--gold)',
+          borderRadius: 'var(--radius-lg)', padding: '8px 12px', marginBottom: 14,
+          fontSize: 12, color: 'var(--gold-bright)',
+        }}>
+          ⓘ {platform} posts save to the timeline as drafts. Auto-publish lands when the {platform} adapter ships — until then post manually via Browser.
         </div>
-        <div>
-          <label>When</label>
-          <input type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />
-        </div>
-      </div>
-      <div style={{ marginTop: 12 }}>
-        <label>Title</label>
-        <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 12, marginTop: 12 }}>
-        <div>
-          <label>Type</label>
-          <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
-            <option value="self">Text</option>
-            <option value="link">Link</option>
-            <option value="image">Image/Link</option>
-          </select>
-        </div>
-        <div>
-          <label>{form.kind === 'self' ? 'Body (optional)' : 'URL'}</label>
-          {form.kind === 'self'
-            ? <input value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} />
-            : <input placeholder="https://…" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />}
-        </div>
-      </div>
+      )}
+
+      {platform === 'reddit' ? (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label>Subreddit</label>
+              <input placeholder="any subreddit, e.g. AskReddit" value={form.subreddit} onChange={(e) => setForm({ ...form, subreddit: e.target.value })} />
+            </div>
+            <div>
+              <label>When</label>
+              <input type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />
+            </div>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <label>Title</label>
+            <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 12, marginTop: 12 }}>
+            <div>
+              <label>Type</label>
+              <select value={form.kind} onChange={(e) => setForm({ ...form, kind: e.target.value })}>
+                <option value="self">Text</option>
+                <option value="link">Link</option>
+                <option value="image">Image/Link</option>
+              </select>
+            </div>
+            <div>
+              <label>{form.kind === 'self' ? 'Body (optional)' : 'URL'}</label>
+              {form.kind === 'self'
+                ? <input value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} />
+                : <input placeholder="https://…" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div>
+              <label>{platform === 'x' ? 'Tweet text' : 'Caption'}</label>
+              <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+                placeholder={platform === 'x' ? 'What\'s happening?' : 'Caption…'} />
+            </div>
+            <div>
+              <label>When</label>
+              <input type="datetime-local" value={form.when} onChange={(e) => setForm({ ...form, when: e.target.value })} />
+            </div>
+          </div>
+          {platform !== 'x' && (
+            <div style={{ marginTop: 12 }}>
+              <label>Media URL (image/video)</label>
+              <input placeholder="https://…" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value, kind: 'image' })} />
+            </div>
+          )}
+          {platform === 'x' && (
+            <div style={{ marginTop: 12 }}>
+              <label>Media URL (optional)</label>
+              <input placeholder="https://… (optional)" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value, kind: form.url ? 'image' : 'self' })} />
+            </div>
+          )}
+          <div style={{ marginTop: 12 }}>
+            <label>Notes (optional)</label>
+            <input value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })}
+              placeholder="Internal notes — not posted." />
+          </div>
+        </>
+      )}
 
       <div style={{ marginTop: 14 }}>
         <label>Accounts {targets.length > 0 && <span className="dim">({targets.length} selected)</span>}</label>
         {(() => {
           const modelMap = new Map();
-          for (const a of accounts) if (a.profile_id) {
+          for (const a of platformAccounts) if (a.profile_id) {
             const key = a.profile_id;
             if (!modelMap.has(key)) modelMap.set(key, { id: key, name: a.profile_name || `Model ${key}`, accountIds: [] });
             modelMap.get(key).accountIds.push(a.id);
@@ -1174,7 +1230,9 @@ function Composer({ token, accounts, onDone, onError }) {
           );
         })()}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, maxHeight: 130, overflowY: 'auto' }}>
-          {accounts.map((a) => {
+          {platformAccounts.length === 0 ? (
+            <span className="dim" style={{ fontSize: 11 }}>No {platform} accounts. Add one in Account Setup.</span>
+          ) : platformAccounts.map((a) => {
             const on = targets.includes(a.id);
             return (
               <button
@@ -1196,15 +1254,15 @@ function Composer({ token, accounts, onDone, onError }) {
         </div>
       )}
 
-      {eligibilityWarnings.length > 0 && (
+      {platform === 'reddit' && eligibilityWarnings.length > 0 && (
         <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 'var(--radius-lg)', background: 'rgba(180,90,90,0.08)', border: '1px solid #6e2c2c', fontSize: 12, color: '#e2a3a3' }}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>⚠ Subreddit gate may reject these accounts:</div>
           {eligibilityWarnings.map((w, i) => <div key={i} style={{ marginTop: 2 }}>{w}</div>)}
         </div>
       )}
 
-      {/* Boosting — integrated from Operations → Upvotes per the new architecture */}
-      <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 14, background: 'var(--bg-1)' }}>
+      {/* Boosting — Reddit only, integrated from Operations → Upvotes. */}
+      {platform === 'reddit' && <div style={{ marginTop: 16, border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 14, background: 'var(--bg-1)' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, textTransform: 'none', letterSpacing: 0, cursor: 'pointer', color: 'var(--text-1)', fontWeight: 600, fontSize: 13, marginBottom: 0 }}>
           <input type="checkbox" checked={boost.enabled} onChange={(e) => setBoost({ ...boost, enabled: e.target.checked })} style={{ width: 'auto' }} />
           ▲ Boost this post after it fires
@@ -1243,7 +1301,7 @@ function Composer({ token, accounts, onDone, onError }) {
               </div>
             )
         )}
-      </div>
+      </div>}
 
       <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
         <button className="primary" onClick={submit} disabled={busy}>

@@ -11,26 +11,40 @@ const FOLDERS = {
   sent: 'https://www.reddit.com/message/sent.json?raw_json=1&limit=100',
 };
 
+// Flatten a Reddit message + its replies tree into a flat array. Reddit nests
+// follow-ups under `data.replies` as another Listing; the inbox UI groups by
+// `firstMessageName` so the full back-and-forth shows in one thread.
+function flattenMessage(c, rootName) {
+  const out = [];
+  const d = c.data || {};
+  const myName = d.name;
+  const fm = d.first_message_name || rootName || myName;
+  out.push({
+    id: d.id,
+    name: d.name,
+    firstMessageName: fm,
+    kind: c.kind,
+    author: d.author,
+    dest: d.dest,
+    subject: d.subject || (d.was_comment ? d.link_title : ''),
+    body: d.body || '',
+    created: d.created_utc,
+    isNew: !!d.new,
+    wasComment: !!d.was_comment,
+    subreddit: d.subreddit || null,
+    linkTitle: d.link_title || null,
+    permalink: d.context ? `https://www.reddit.com${d.context}` : null,
+  });
+  const replyChildren = d.replies?.data?.children || [];
+  for (const r of replyChildren) out.push(...flattenMessage(r, fm));
+  return out;
+}
+
 function normalize(listing) {
   const kids = listing?.data?.children || [];
-  return kids.map((c) => {
-    const d = c.data || {};
-    return {
-      id: d.id,
-      name: d.name, // fullname e.g. t4_xxxx
-      kind: c.kind, // t4 = message, t1 = comment reply
-      author: d.author,
-      dest: d.dest,
-      subject: d.subject || (d.was_comment ? d.link_title : ''),
-      body: d.body || '',
-      created: d.created_utc,
-      isNew: !!d.new,
-      wasComment: !!d.was_comment,
-      subreddit: d.subreddit || null,
-      linkTitle: d.link_title || null,
-      permalink: d.context ? `https://www.reddit.com${d.context}` : null,
-    };
-  });
+  const out = [];
+  for (const c of kids) out.push(...flattenMessage(c, null));
+  return out;
 }
 
 // Cupid AI matcher — given the account's freshly-fetched unread messages,

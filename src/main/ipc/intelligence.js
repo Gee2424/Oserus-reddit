@@ -119,7 +119,7 @@ function register(ipcMain) {
            subscribers=excluded.subscribers, over18=excluded.over18, submission_type=excluded.submission_type,
            min_account_age_days=excluded.min_account_age_days, min_post_karma=excluded.min_post_karma,
            min_comment_karma=excluded.min_comment_karma, rules_json=excluded.rules_json,
-           description=excluded.description, fetched_at=datetime('now'), fetched_by_user_id=excluded.uid`
+           description=excluded.description, fetched_at=datetime('now'), fetched_by_user_id=excluded.fetched_by_user_id`
       );
 
       const results = []; const errors = [];
