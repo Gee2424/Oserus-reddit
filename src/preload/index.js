@@ -81,6 +81,9 @@ const api = {
   ai: {
     setApiKey: (data) => ipcRenderer.invoke('ai:setApiKey', data),
     hasApiKey: (data) => ipcRenderer.invoke('ai:hasApiKey', data),
+    setProviderKey: (data) => ipcRenderer.invoke('ai:setProviderKey', data),
+    getProviders: (data) => ipcRenderer.invoke('ai:getProviders', data),
+    setProvider: (data) => ipcRenderer.invoke('ai:setProvider', data),
     suggestPost: (data) => ipcRenderer.invoke('ai:suggestPost', data),
     improveTitle: (data) => ipcRenderer.invoke('ai:improveTitle', data),
   },
@@ -140,6 +143,7 @@ const api = {
   },
   inbox: {
     fetch: (data) => ipcRenderer.invoke('inbox:fetch', data),
+    fetchThread: (data) => ipcRenderer.invoke('inbox:fetchThread', data),
     markRead: (data) => ipcRenderer.invoke('inbox:markRead', data),
     reply: (data) => ipcRenderer.invoke('inbox:reply', data),
   },

@@ -131,6 +131,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   async function openThread(g) {
     setSelectedThreadKey(g.key);
     setReplyText('');
+    // Mark unread messages in the thread as read.
     const unreadInThread = g.items.filter((m) => m.isNew);
     for (const m of unreadInThread) {
       await window.api.inbox.markRead({ token, accountId: active.id, fullname: m.name });
@@ -139,6 +140,19 @@ export default function InboxPage({ embedded, standalone, navigate }) {
       setMessages((prev) => prev.map((x) => (g.items.find((it) => it.id === x.id) ? { ...x, isNew: false } : x)));
       setUnreadByAccount((prev) => ({ ...prev, [active.id]: Math.max(0, (prev[active.id] || 0) - unreadInThread.length) }));
     }
+    // Fetch the FULL thread (not just whatever was in the inbox snapshot).
+    // Reddit's /message/messages/{id}.json returns root + entire reply tree
+    // even when the inbox listing truncated it.
+    try {
+      const r = await window.api.inbox.fetchThread({ token, accountId: active.id, rootFullname: g.key });
+      if (r.ok && r.messages?.length) {
+        setMessages((prev) => {
+          const map = new Map(prev.map((m) => [m.id, m]));
+          for (const m of r.messages) map.set(m.id, { ...map.get(m.id), ...m });
+          return [...map.values()];
+        });
+      }
+    } catch {}
   }
 
   async function sendReply() {

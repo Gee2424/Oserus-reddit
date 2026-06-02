@@ -189,6 +189,8 @@ export default function DashboardPage({ navigate }) {
         <StatTile label="Banned Accounts" value={totals.banned}  tone="red" />
       </div>
 
+      <DashboardBlocks token={token} accounts={reddit} navigate={navigate} />
+
       <div style={actionBar}>
         <button className="ghost" onClick={toggleAll}>{selected.size === filtered.length && filtered.length ? 'Deselect' : 'Select All'}</button>
         <button className="ghost" onClick={() => navigate('profiles')}>Model Profiles</button>
@@ -337,11 +339,15 @@ export default function DashboardPage({ navigate }) {
                 <tr><td colSpan={12} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>Loading…</td></tr>
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={12} style={{ ...td, textAlign: 'center', color: 'var(--text-3)', padding: 30 }}>No accounts.</td></tr>
-              ) : filtered.map((a) => {
-                const sel = selected.has(a.id);
-                const nsfw = a.status === 'ready';
-                return (
-                  <tr key={a.id} style={{ borderTop: '1px solid var(--border)', background: sel ? 'rgba(212,166,74,0.06)' : 'transparent' }}>
+              ) : (() => {
+                // Group filtered accounts by model so each model gets a header
+                // row inside the table — replaces the duplicate model card
+                // block that used to live below the table.
+                const renderAccountRow = (a) => {
+                  const sel = selected.has(a.id);
+                  const nsfw = a.status === 'ready';
+                  return (
+                    <tr key={a.id} style={{ borderTop: '1px solid var(--border)', background: sel ? 'rgba(212,166,74,0.06)' : 'transparent' }}>
                     <td style={td}><input type="checkbox" checked={sel} onChange={() => toggle(a.id)} /></td>
                     <td style={td}>
                       <button
@@ -437,74 +443,238 @@ export default function DashboardPage({ navigate }) {
                       })()}
                     </td>
                   </tr>
-                );
-              })}
+                  );
+                };
+                const byModel = new Map();
+                for (const a of filtered) {
+                  const pid = a.profile_id;
+                  if (!byModel.has(pid)) byModel.set(pid, []);
+                  byModel.get(pid).push(a);
+                }
+                const out = [];
+                for (const [pid, accts] of byModel.entries()) {
+                  const m = models.find((mm) => mm.id === pid) || {
+                    id: pid, name: accts[0]?.profile_name || 'Unknown', accountsList: accts,
+                    live: accts.filter((x) => x.status !== 'banned').length,
+                    total: accts.length, banned: accts.filter((x) => x.status === 'banned').length,
+                    mainEmail: accts.find((x) => x.email)?.email || null,
+                  };
+                  const byPlatform = new Map();
+                  for (const x of m.accountsList) {
+                    const p = x.platform || 'reddit';
+                    if (!byPlatform.has(p)) byPlatform.set(p, []);
+                    byPlatform.get(p).push(x);
+                  }
+                  out.push(
+                    <tr key={`model-${pid}`} style={{ background: 'rgba(212,166,74,0.05)', borderTop: '2px solid var(--gold)' }}>
+                      <td colSpan={12} style={{ ...td, padding: '10px 14px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                          <button
+                            onClick={() => openAllForModel(m)}
+                            title={`Launch all ${m.total} account${m.total === 1 ? '' : 's'} in one tabbed window`}
+                            style={{
+                              width: 32, height: 32, borderRadius: '50%',
+                              background: 'linear-gradient(135deg, var(--green), var(--gold))',
+                              color: '#1a1a14', border: '1px solid var(--gold)',
+                              fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                              display: 'grid', placeItems: 'center',
+                              boxShadow: '0 2px 8px rgba(127,217,154,0.3)', flexShrink: 0, padding: 0,
+                            }}
+                          >▶</button>
+                          <Avatar name={m.name} size={32} />
+                          <div onClick={() => navigate('model', { modelId: m.id })} style={{ cursor: 'pointer', minWidth: 140 }} title={`Open ${m.name} profile`}>
+                            <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</div>
+                            <div style={{ fontSize: 10, color: '#9aa0a6', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>
+                              <span style={{ color: '#7fd99a' }}>{m.live} live</span>
+                              <span style={{ margin: '0 5px', opacity: 0.4 }}>·</span>
+                              <span>{m.total} acct{m.total === 1 ? '' : 's'}</span>
+                              {m.banned > 0 && (<><span style={{ margin: '0 5px', opacity: 0.4 }}>·</span><span style={{ color: '#e2a3a3' }}>{m.banned} banned</span></>)}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {[...byPlatform.entries()].map(([p, list]) => (
+                              <button key={p} onClick={() => openAllForModel(m)} title={`${list.length} ${p} account${list.length === 1 ? '' : 's'}`} style={{ ...platformLogoPill, background: platformColor(p) }}>
+                                <span style={{ fontWeight: 800, fontSize: 11, color: '#fff' }}>{platformShort(p)}</span>
+                                {list.length > 1 && <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', opacity: 0.9 }}>×{list.length}</span>}
+                              </button>
+                            ))}
+                          </div>
+                          <div style={{ marginLeft: 'auto', fontSize: 12, color: m.mainEmail ? 'var(--text-2)' : 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+                            {m.mainEmail || <span className="dim" style={{ fontStyle: 'italic' }}>set main email on Model Profile</span>}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                  for (const a of accts) out.push(renderAccountRow(a));
+                }
+                return out;
+              })()}
             </tbody>
           </table>
         </div>
       </div>
 
-      {models.length > 0 && (
-        <div style={{ ...modelList, marginTop: 18 }}>
-          {models.map((m) => (
-            <div key={m.id} style={modelRowCard}>
-              <button
-                onClick={(e) => { e.stopPropagation(); openAllForModel(m); }}
-                title={`Launch all ${m.total} account${m.total === 1 ? '' : 's'} in one tabbed window`}
-                style={{
-                  width: 32, height: 32, borderRadius: '50%',
-                  background: 'linear-gradient(135deg, var(--green), var(--gold))',
-                  color: '#1a1a14', border: '1px solid var(--gold)',
-                  fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                  display: 'grid', placeItems: 'center',
-                  boxShadow: '0 2px 8px rgba(127,217,154,0.3)', flexShrink: 0,
-                  padding: 0,
-                }}
-              >▶</button>
-              <Avatar name={m.name} size={36} />
-              <div
-                onClick={() => navigate('model', { modelId: m.id })}
-                style={{ cursor: 'pointer', minWidth: 140 }}
-                title={`Open ${m.name} profile`}
-              >
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</div>
-                <div style={{ fontSize: 10, color: '#9aa0a6', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>
-                  <span style={{ color: '#7fd99a' }}>{m.live} live</span>
-                  <span style={{ margin: '0 5px', opacity: 0.4 }}>·</span>
-                  <span>{m.total} acct{m.total === 1 ? '' : 's'}</span>
-                  {m.banned > 0 && (<><span style={{ margin: '0 5px', opacity: 0.4 }}>·</span><span style={{ color: '#e2a3a3' }}>{m.banned} banned</span></>)}
-                </div>
-              </div>
-              <span style={{ color: 'var(--text-3)', fontSize: 14 }}>→</span>
-              <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 6, minWidth: 0 }}>
-                {(() => {
-                  const byPlatform = new Map();
-                  for (const a of m.accountsList) {
-                    const p = a.platform || 'reddit';
-                    if (!byPlatform.has(p)) byPlatform.set(p, []);
-                    byPlatform.get(p).push(a);
-                  }
-                  return [...byPlatform.entries()].map(([p, list]) => (
-                    <button
-                      key={p}
-                      onClick={(e) => { e.stopPropagation(); openAllForModel(m); }}
-                      title={`${list.length} ${p} account${list.length === 1 ? '' : 's'}`}
-                      style={{ ...platformLogoPill, background: platformColor(p) }}
-                    >
-                      <span style={{ fontWeight: 800, fontSize: 11, color: '#fff' }}>{platformShort(p)}</span>
-                      {list.length > 1 && <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', opacity: 0.9 }}>×{list.length}</span>}
-                    </button>
-                  ));
-                })()}
-              </div>
-              <span style={{ color: 'var(--text-3)', fontSize: 14 }}>→</span>
-              <div style={{ minWidth: 180, fontSize: 12, color: m.mainEmail ? 'var(--text-2)' : 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
-                {m.mainEmail || <span className="dim" style={{ fontStyle: 'italic' }}>set main email on Model Profile</span>}
-              </div>
-            </div>
-          ))}
+    </div>
+  );
+}
+
+// Four-block operational dashboard: Alerts · Due Today · Karma Leaderboard ·
+// Action Feed. Lives between the stat tiles and the actions row. Each block
+// pulls from an existing IPC, no new backend work needed.
+function DashboardBlocks({ token, accounts, navigate }) {
+  const [events, setEvents] = useState([]);
+  const [scheduled, setScheduled] = useState([]);
+  const [karma, setKarma] = useState([]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const [e, s, k] = await Promise.all([
+        window.api.protocols?.events?.({ token, limit: 12 }).catch(() => ({ ok: false })) || { ok: false },
+        window.api.scheduled?.list?.({ token, status: 'pending' }).catch(() => ({ ok: false })) || { ok: false },
+        window.api.analytics?.summary?.({ token }).catch(() => ({ ok: false })) || { ok: false },
+      ]);
+      if (!active) return;
+      if (e.ok) setEvents(e.events || []);
+      if (s.ok) setScheduled(s.posts || []);
+      if (k.ok) setKarma(k.accounts || []);
+    })();
+    return () => { active = false; };
+  }, [token]);
+
+  // ALERTS — accounts needing a human now
+  const alerts = [];
+  for (const a of accounts) {
+    if (a.status === 'banned') alerts.push({ severity: 'high', text: `u/${a.username} is BANNED`, accountId: a.id });
+    else if (a.proxy_test_ok === 0) alerts.push({ severity: 'high', text: `u/${a.username} proxy failing`, accountId: a.id });
+    else if (a.status !== 'paused' && !a.proxy_label) alerts.push({ severity: 'med', text: `u/${a.username} has no proxy`, accountId: a.id });
+  }
+  // No activity in 72h: needs event timestamps from events feed.
+  const recentActiveIds = new Set(events.filter((e) => e.account_id).map((e) => e.account_id));
+  for (const a of accounts) {
+    if (a.status === 'banned' || a.status === 'paused') continue;
+    if (!recentActiveIds.has(a.id) && events.length > 5) {
+      // Only flag if we have enough event history to compare against.
+      // alerts.push({ severity: 'low', text: `u/${a.username} idle (no recent autopilot activity)`, accountId: a.id });
+    }
+  }
+
+  // DUE TODAY — scheduled posts firing in next 24h
+  const nowMs = Date.now();
+  const dueSoon = scheduled
+    .filter((p) => p.scheduled_for)
+    .filter((p) => {
+      const t = new Date(p.scheduled_for.replace(' ', 'T')).getTime();
+      return t >= nowMs && t < nowMs + 24 * 60 * 60 * 1000;
+    })
+    .sort((a, b) => a.scheduled_for.localeCompare(b.scheduled_for))
+    .slice(0, 8);
+
+  // KARMA LEADERBOARD — sort accounts by combined karma desc
+  const leaders = [...karma]
+    .filter((a) => (a.post_karma || 0) + (a.comment_karma || 0) > 0)
+    .sort((a, b) => ((b.post_karma || 0) + (b.comment_karma || 0)) - ((a.post_karma || 0) + (a.comment_karma || 0)))
+    .slice(0, 6);
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 18 }}>
+      {/* Alerts */}
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 14 }}>Alerts</h3>
+          <span className="muted" style={{ fontSize: 11 }}>{alerts.length} need attention</span>
         </div>
-      )}
+        {alerts.length === 0
+          ? <div className="muted" style={{ fontSize: 12 }}>Everything's healthy ✓</div>
+          : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
+              {alerts.slice(0, 10).map((al, i) => (
+                <div key={i} style={{
+                  fontSize: 12, padding: '5px 10px', borderRadius: 6,
+                  background: al.severity === 'high' ? 'rgba(226,163,163,0.08)' : 'rgba(212,166,74,0.08)',
+                  borderLeft: `3px solid ${al.severity === 'high' ? '#e2a3a3' : '#d4a64a'}`,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <span style={{ flex: 1 }}>{al.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+
+      {/* Due Today */}
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 14 }}>Due in next 24h</h3>
+          <span className="muted" style={{ fontSize: 11 }}>{dueSoon.length} scheduled</span>
+          <button className="ghost" onClick={() => navigate('automation')} style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 9px' }}>Open Scheduler</button>
+        </div>
+        {dueSoon.length === 0
+          ? <div className="muted" style={{ fontSize: 12 }}>Nothing scheduled in the next day.</div>
+          : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
+              {dueSoon.map((p) => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12, padding: '5px 8px', borderBottom: '1px dashed var(--border)' }}>
+                  <span className="mono dim" style={{ fontSize: 11 }}>{p.scheduled_for?.slice(5, 16)}</span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>r/{p.subreddit} — {p.title}</span>
+                  <span className="dim" style={{ fontSize: 11 }}>u/{p.account_username}</span>
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+
+      {/* Karma Leaderboard */}
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 14 }}>Karma leaderboard</h3>
+          <span className="muted" style={{ fontSize: 11 }}>top accounts by total karma</span>
+        </div>
+        {leaders.length === 0
+          ? <div className="muted" style={{ fontSize: 12 }}>No karma data yet.</div>
+          : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {leaders.map((a, i) => {
+                const total = (a.post_karma || 0) + (a.comment_karma || 0);
+                return (
+                  <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, padding: '5px 8px', borderBottom: '1px dashed var(--border)' }}>
+                    <span className="mono dim" style={{ width: 18 }}>{i + 1}.</span>
+                    <span style={{ flex: 1 }}>u/{a.username}</span>
+                    <span className="mono">{total.toLocaleString()}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+      </div>
+
+      {/* Action Feed */}
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 14 }}>Live action feed</h3>
+          <span className="muted" style={{ fontSize: 11 }}>last {events.length}</span>
+        </div>
+        {events.length === 0
+          ? <div className="muted" style={{ fontSize: 12 }}>No autopilot activity yet.</div>
+          : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 180, overflowY: 'auto' }}>
+              {events.slice(0, 10).map((e) => (
+                <div key={e.id} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12, padding: '4px 8px', borderBottom: '1px dashed var(--border)' }}>
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+                    background: e.status === 'posted' ? 'rgba(127,217,154,0.14)' : e.status === 'failed' ? 'rgba(226,163,163,0.14)' : 'rgba(255,255,255,0.06)',
+                    color: e.status === 'posted' ? '#7fd99a' : e.status === 'failed' ? '#e2a3a3' : 'var(--text-3)',
+                  }}>{e.status}</span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {e.subreddit ? `r/${e.subreddit} · ` : ''}{e.title || e.error || '—'}
+                  </span>
+                  <span className="dim" style={{ fontSize: 10 }}>u/{e.account_username || e.account_id}</span>
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
     </div>
   );
 }

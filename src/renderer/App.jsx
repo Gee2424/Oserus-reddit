@@ -16,6 +16,7 @@ import AnalyticsPage from './pages/Analytics.jsx';
 import ActivityPage from './pages/Activity.jsx';
 import AutopilotPage from './pages/Autopilot.jsx';
 import SchedulerProPage from './pages/SchedulerPro.jsx';
+import AutomationPage from './pages/Automation.jsx';
 import IntelligencePage from './pages/Intelligence.jsx';
 import AddAccountsPage from './pages/AddAccounts.jsx';
 import RedGifsDashboardPage from './pages/RedGifsDashboard.jsx';
@@ -79,8 +80,10 @@ function Inner() {
       case 'docs': return <DocsPage />;
       case 'analytics': return <AnalyticsPage />;
       case 'activity': return <ActivityPage />;
-      case 'autopilot': return <AutopilotPage />;
-      case 'scheduler-pro': return <SchedulerProPage initialProTab={routeParams.tab} navigate={navigate} />;
+      case 'automation': return <AutomationPage navigate={navigate} initialSection={routeParams.section} />;
+      // Legacy routes — kept so deep links from older versions still resolve.
+      case 'autopilot': return <AutomationPage navigate={navigate} initialSection="autopilot" />;
+      case 'scheduler-pro': return <AutomationPage navigate={navigate} initialSection="scheduler" />;
       case 'intel': return <IntelligencePage initialTab={routeParams.tab} />;
       case 'add-accounts': return <AddAccountsPage navigate={navigate} initialTab={routeParams.tab} />;
       default: return <DashboardPage navigate={navigate} />;

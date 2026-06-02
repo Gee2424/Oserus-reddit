@@ -20,12 +20,40 @@ export default function SettingsPage({ navigate }) {
   const [hasVoteKey, setHasVoteKey] = useState(false);
   const [voteKeyMsg, setVoteKeyMsg] = useState(null);
 
+  // Anthropic — preferred for autopilot because the system prompt is huge
+  // and prompt-caching cuts the per-call cost to ~10% of first hit.
+  const [anthropicKey, setAnthropicKey] = useState('');
+  const [providers, setProviders] = useState({ provider: 'anthropic', anthropic: { hasKey: false }, grok: { hasKey: false } });
+  const [anthropicMsg, setAnthropicMsg] = useState(null);
+
   const isAdmin = can('ai.admin');
 
   useEffect(() => {
     window.api.ai.hasApiKey({ token }).then(r => setHasApiKey(!!(r.ok && r.hasKey)));
     window.api.votes.hasApiKey({ token }).then(r => setHasVoteKey(!!(r.ok && r.hasKey)));
+    window.api.ai.getProviders({ token }).then(r => { if (r.ok) setProviders(r); });
   }, [token]);
+
+  async function saveAnthropicKey(e) {
+    e.preventDefault();
+    setAnthropicMsg(null);
+    if (!anthropicKey.trim()) { setAnthropicMsg({ kind: 'err', text: 'Paste a key first' }); return; }
+    const r = await window.api.ai.setProviderKey({ token, provider: 'anthropic', apiKey: anthropicKey.trim() });
+    if (!r.ok) { setAnthropicMsg({ kind: 'err', text: r.error }); return; }
+    setAnthropicKey('');
+    setAnthropicMsg({ kind: 'ok', text: 'Anthropic key saved and encrypted.' });
+    const p = await window.api.ai.getProviders({ token }); if (p.ok) setProviders(p);
+  }
+  async function clearAnthropicKey() {
+    if (!confirm('Remove the saved Anthropic API key?')) return;
+    await window.api.ai.setProviderKey({ token, provider: 'anthropic', apiKey: null });
+    setAnthropicMsg({ kind: 'ok', text: 'Anthropic key removed.' });
+    const p = await window.api.ai.getProviders({ token }); if (p.ok) setProviders(p);
+  }
+  async function switchProvider(next) {
+    await window.api.ai.setProvider({ token, provider: next });
+    setProviders((p) => ({ ...p, provider: next }));
+  }
 
   async function changePassword(e) {
     e.preventDefault();
@@ -126,6 +154,54 @@ export default function SettingsPage({ navigate }) {
           <span className="dim" style={{ marginLeft: 'auto', fontSize: 11 }}>Bridge service not yet shipped — placeholder.</span>
         </div>
       </div>
+
+      {isAdmin && (
+        <div className="card" style={{ marginBottom: 22, borderColor: providers.anthropic?.hasKey ? 'var(--ok)' : 'var(--border)' }}>
+          <h3 style={{ marginBottom: 6 }}>
+            Anthropic (Claude) API key {providers.anthropic?.hasKey && <span className="mono" style={{ fontSize: 11, color: 'var(--ok)', marginLeft: 8 }}>✓ configured</span>}
+            <span className="mono" style={{ fontSize: 10, marginLeft: 8, padding: '2px 6px', borderRadius: 4, background: 'rgba(122,154,90,0.15)', color: '#bdd5a3' }}>RECOMMENDED</span>
+          </h3>
+          <div className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
+            Used by the AI composer + autopilot. Prompt caching cuts the static system prompt cost to ~10% of first hit — autopilot bills are tiny at scale. Get a key at console.anthropic.com → API Keys. Stored encrypted using your OS keychain.
+          </div>
+          {anthropicMsg && (
+            <div className={anthropicMsg.kind === 'err' ? 'error-banner' : ''} style={anthropicMsg.kind === 'ok' ? styles.ok : {}}>
+              {anthropicMsg.text}
+            </div>
+          )}
+          <form onSubmit={saveAnthropicKey} style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="password"
+              placeholder={providers.anthropic?.hasKey ? '••••••••••••••••  (paste a new key to replace)' : 'sk-ant-…'}
+              value={anthropicKey}
+              onChange={(e) => setAnthropicKey(e.target.value)}
+              style={{ flex: 1 }}
+              autoComplete="off"
+            />
+            <button type="submit" className="primary">Save</button>
+            {providers.anthropic?.hasKey && <button type="button" className="danger" onClick={clearAnthropicKey}>Remove</button>}
+          </form>
+          {(providers.anthropic?.hasKey || providers.grok?.hasKey) && (
+            <div style={{ marginTop: 14, padding: 12, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Active AI provider</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => switchProvider('anthropic')}
+                  className={providers.provider === 'anthropic' ? 'primary' : 'ghost'}
+                  disabled={!providers.anthropic?.hasKey}
+                  style={{ fontSize: 12 }}
+                >Anthropic (Claude {providers.anthropic?.model?.includes('haiku') ? 'Haiku 4.5' : 'Sonnet'})</button>
+                <button
+                  onClick={() => switchProvider('grok')}
+                  className={providers.provider === 'grok' ? 'primary' : 'ghost'}
+                  disabled={!providers.grok?.hasKey}
+                  style={{ fontSize: 12 }}
+                >Grok</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {isAdmin && (
         <div className="card" style={{ marginBottom: 22, borderColor: hasApiKey ? 'var(--ok)' : 'var(--border)' }}>

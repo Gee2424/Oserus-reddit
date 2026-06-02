@@ -10,6 +10,35 @@
 const { getDb, decryptSecret } = require('../db');
 const { getSetting } = require('./settings');
 
+// Anthropic Claude — supports prompt caching for the big static system prompt
+// (example posts + comments + persona + CTAs) which gets reused 10-50x/day
+// per account. Cache hits cost ~10% of the first hit so autopilot scales.
+async function callClaude(apiKey, system, userMessage, options = {}) {
+  const model = options.model || getSetting('anthropic_model') || 'claude-haiku-4-5-20251001';
+  // Mark the system prompt as cacheable so subsequent calls hit the cache.
+  const body = {
+    model,
+    max_tokens: options.maxTokens || 1500,
+    system: [
+      { type: 'text', text: system, cache_control: { type: 'ephemeral' } },
+    ],
+    messages: [{ role: 'user', content: userMessage }],
+  };
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || `Anthropic API error: ${res.status}`);
+  // Content is an array of blocks; concat the text ones.
+  return (data.content || []).map((c) => c.type === 'text' ? c.text : '').join('') || '';
+}
+
 // Grok uses an OpenAI-compatible chat-completions API.
 async function callGrok(apiKey, system, userMessage, options = {}) {
   const body = {
@@ -33,16 +62,39 @@ async function callGrok(apiKey, system, userMessage, options = {}) {
   return data.choices?.[0]?.message?.content || '';
 }
 
+// Provider-aware dispatcher. Reads `ai_provider` setting + falls back through
+// configured keys: if the chosen provider has no key but the other does, use
+// the other. Defaults to Anthropic when both keys exist.
+async function callAI(system, userMessage, options = {}) {
+  const wanted = (options.provider || getSetting('ai_provider') || 'anthropic').toLowerCase();
+  const anthropicKey = getSetting('anthropic_api_key');
+  const grokKey = getSetting('grok_api_key');
+  const tryAnthropic = !!anthropicKey;
+  const tryGrok = !!grokKey;
+  if (wanted === 'anthropic' && tryAnthropic) {
+    return callClaude(decryptSecret(anthropicKey), system, userMessage, options);
+  }
+  if (wanted === 'grok' && tryGrok) {
+    return callGrok(decryptSecret(grokKey), system, userMessage, options);
+  }
+  // Fallback to whichever key exists.
+  if (tryAnthropic) return callClaude(decryptSecret(anthropicKey), system, userMessage, options);
+  if (tryGrok) return callGrok(decryptSecret(grokKey), system, userMessage, options);
+  throw new Error('No AI API key configured — set Anthropic or Grok in Configuration.');
+}
+
 function tryParseJson(text) {
   const cleaned = text.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/\s*```\s*$/, '').trim();
   return JSON.parse(cleaned);
 }
 
 async function generatePost({ accountId, mode, hint, targetSubreddit }) {
-  const encKey = getSetting('grok_api_key');
-  if (!encKey) throw new Error('No API key set. Admin needs to add one under Settings.');
-  const apiKey = decryptSecret(encKey);
-  if (!apiKey) throw new Error('API key could not be decrypted');
+  // We dispatch through callAI now so providers (Anthropic + Grok) are
+  // chosen by the ai_provider setting with sensible fallback. Either key is
+  // sufficient.
+  if (!getSetting('anthropic_api_key') && !getSetting('grok_api_key')) {
+    throw new Error('No AI API key set. Add Anthropic or Grok in Configuration.');
+  }
 
   const account = getDb()
     .prepare(
@@ -225,7 +277,7 @@ Generate 3 post ideas.`;
     }
   } catch {}
 
-  const text = await callGrok(apiKey, system, userMsg);
+  const text = await callAI(system, userMsg);
   try {
     const parsed = tryParseJson(text);
     return { ok: true, mode: isSfw ? 'sfw' : 'nsfw', suggestions: parsed.suggestions || [] };
@@ -234,4 +286,4 @@ Generate 3 post ideas.`;
   }
 }
 
-module.exports = { generatePost, callGrok, tryParseJson, getSetting };
+module.exports = { generatePost, callGrok, callClaude, callAI, tryParseJson, getSetting };

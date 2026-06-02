@@ -1,7 +1,7 @@
 const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
 const { requirePermission } = require('../permissions');
-const { generatePost, callGrok } = require('../services/postgen');
+const { generatePost, callGrok, callAI } = require('../services/postgen');
 const { getSetting, setSetting } = require('../services/settings');
 
 function tryParseJson(text) {
@@ -10,6 +10,8 @@ function tryParseJson(text) {
 }
 
 function register(ipcMain) {
+  // Legacy: matches the existing UI that passes one key. Defaults to Grok so
+  // older callers still work. New UI uses ai:setProviderKey with a provider.
   ipcMain.handle('ai:setApiKey', (_e, { token, apiKey }) => {
     try {
       const user = userFromToken(token);
@@ -33,6 +35,42 @@ function register(ipcMain) {
     }
   });
 
+  // Multi-provider: provider ∈ {'anthropic','grok'}. apiKey=null clears.
+  ipcMain.handle('ai:setProviderKey', (_e, { token, provider, apiKey }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'ai.admin');
+      const key = provider === 'anthropic' ? 'anthropic_api_key' : 'grok_api_key';
+      setSetting(key, apiKey ? encryptSecret(apiKey) : null);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('ai:getProviders', (_e, { token }) => {
+    try {
+      if (!userFromToken(token)) throw new Error('Not authenticated');
+      return {
+        ok: true,
+        provider: getSetting('ai_provider') || 'anthropic',
+        anthropic: { hasKey: !!getSetting('anthropic_api_key'), model: getSetting('anthropic_model') || 'claude-haiku-4-5-20251001' },
+        grok: { hasKey: !!getSetting('grok_api_key'), model: getSetting('grok_model') || 'grok-2-latest' },
+      };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('ai:setProvider', (_e, { token, provider, anthropicModel, grokModel }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'ai.admin');
+      if (provider) setSetting('ai_provider', provider);
+      if (anthropicModel) setSetting('anthropic_model', anthropicModel);
+      if (grokModel) setSetting('grok_model', grokModel);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
   // --- SUGGEST POST ---
   // mode: 'sfw' uses the global warmup subreddits list (engagement posts).
   // mode: 'nsfw' uses the model's promo subreddits list.
@@ -51,9 +89,9 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      const encKey = getSetting('grok_api_key');
-      if (!encKey) throw new Error('No API key set');
-      const apiKey = decryptSecret(encKey);
+      if (!getSetting('anthropic_api_key') && !getSetting('grok_api_key')) {
+        throw new Error('No AI API key set');
+      }
 
       const account = getDb()
         .prepare(
@@ -76,7 +114,7 @@ Each variant under 300 chars.`;
 Current title: "${currentTitle}"
 Give 3 rewrites with varied angles.`;
 
-      const text = await callGrok(apiKey, system, userMsg, { maxTokens: 600 });
+      const text = await callAI(system, userMsg, { maxTokens: 600 });
       try {
         const parsed = tryParseJson(text);
         return { ok: true, variants: parsed.variants || [] };

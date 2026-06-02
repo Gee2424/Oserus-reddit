@@ -151,6 +151,28 @@ function register(ipcMain) {
     }
   });
 
+  // Fetch a full conversation by root message fullname. Reddit's inbox listing
+  // truncates to the latest few messages per thread; this endpoint returns the
+  // entire back-and-forth from the root + replies tree.
+  ipcMain.handle('inbox:fetchThread', async (_e, { token, accountId, rootFullname }) => {
+    try {
+      if (!userFromToken(token)) throw new Error('Not authenticated');
+      if (!accountId) throw new Error('No account selected');
+      if (!rootFullname) throw new Error('rootFullname required');
+      const acct = partitionFor(accountId);
+      if (!acct) throw new Error('Account not found');
+      // Reddit's /message/messages/{id}.json wants the bare id (no t4_ prefix).
+      const bare = String(rootFullname).replace(/^t\d+_/, '');
+      const url = `https://www.reddit.com/message/messages/${encodeURIComponent(bare)}.json?raw_json=1`;
+      const listing = await request(acct.partition, url);
+      const messages = normalize(listing);
+      return { ok: true, messages, username: acct.username };
+    } catch (err) {
+      if (err.message === 'NOT_LOGGED_IN') return { ok: false, notLoggedIn: true, error: 'Not logged in.' };
+      return { ok: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('inbox:reply', async (_e, { token, accountId, parentFullname, text }) => {
     try {
       const user = userFromToken(token);

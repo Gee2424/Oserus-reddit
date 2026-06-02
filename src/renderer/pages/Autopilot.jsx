@@ -155,6 +155,7 @@ export default function AutopilotPage() {
         </div>
       </div>
 
+      {canManage && <AdminSetupPanel token={token} />}
       {err && <Banner kind="err">{err}</Banner>}
       {msg && <Banner kind="ok">{msg}</Banner>}
 
@@ -553,6 +554,161 @@ function ExampleLibrary({ token }) {
     </div>
   );
 }
+
+// Admin-only setup panel — warmup subreddit pool + live status snapshot for
+// every account. One screen so the admin can manage the autopilot's
+// global inputs and see who's healthy / banned / paused at a glance.
+function AdminSetupPanel({ token }) {
+  const [warmupSubs, setWarmupSubs] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [newSub, setNewSub] = useState({ name: '', vibe: '', description: '' });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [open, setOpen] = useState(true);
+
+  const load = useCallback(async () => {
+    const [s, a] = await Promise.all([
+      window.api.subs.listWarmup({ token }),
+      window.api.accounts.listForUser({ token }),
+    ]);
+    if (s.ok) setWarmupSubs(s.subs || []);
+    if (a.ok) setAccounts(a.accounts || []);
+  }, [token]);
+  useEffect(() => { load(); }, [load]);
+
+  async function addSub() {
+    if (!newSub.name.trim()) return;
+    setBusy(true); setErr(null);
+    const clean = newSub.name.trim().replace(/^\/?r\//i, '').replace(/\/.*$/, '');
+    const r = await window.api.subs.createWarmup({ token, name: clean, vibe: newSub.vibe || null, description: newSub.description || null });
+    setBusy(false);
+    if (r.ok) { setNewSub({ name: '', vibe: '', description: '' }); load(); }
+    else setErr(r.error);
+  }
+  async function delSub(id) {
+    await window.api.subs.deleteWarmup({ token, id });
+    load();
+  }
+
+  // Aggregate counts so the admin sees the funnel at a glance.
+  const counts = accounts.reduce((m, a) => {
+    const k = a.status || 'unknown';
+    m[k] = (m[k] || 0) + 1;
+    return m;
+  }, {});
+  const byPlatform = accounts.reduce((m, a) => {
+    const k = a.platform || 'reddit';
+    m[k] = (m[k] || 0) + 1;
+    return m;
+  }, {});
+
+  return (
+    <div className="card" style={{ padding: 18, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <h3 style={{ margin: 0 }}>Admin setup</h3>
+        <span className="muted" style={{ fontSize: 11 }}>warm-up pool + agency-wide account snapshot</span>
+        <button className="ghost" style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => setOpen((v) => !v)}>
+          {open ? '− Collapse' : '+ Expand'}
+        </button>
+      </div>
+
+      {open && (
+        <>
+          {err && <Banner kind="err">{err}</Banner>}
+
+          {/* Status snapshot tiles */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 14 }}>
+            {[
+              { l: 'Warming', k: 'warming', tone: '#d4a64a' },
+              { l: 'Ready',   k: 'ready',   tone: '#7fd99a' },
+              { l: 'Paused',  k: 'paused',  tone: '#9aa0a6' },
+              { l: 'Banned',  k: 'banned',  tone: '#e2a3a3' },
+            ].map((s) => (
+              <div key={s.k} style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
+                <div style={{ fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>{s.l}</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: s.tone, marginTop: 4 }}>{counts[s.k] || 0}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            {Object.entries(byPlatform).map(([p, n]) => (
+              <span key={p} className="mono" style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: 'var(--bg-1)', border: '1px solid var(--border)', color: 'var(--text-2)' }}>
+                {p}: {n}
+              </span>
+            ))}
+          </div>
+
+          {/* Warmup subreddit pool */}
+          <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+              Warm-up subreddit pool <span className="muted" style={{ fontWeight: 400, fontSize: 11 }}>({warmupSubs.length}) — autopilot picks from here for warming-status accounts</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr auto', gap: 8 }}>
+              <input placeholder="subreddit name" value={newSub.name} onChange={(e) => setNewSub({ ...newSub, name: e.target.value })} />
+              <input placeholder="vibe (e.g. ask, chat, niche)" value={newSub.vibe} onChange={(e) => setNewSub({ ...newSub, vibe: e.target.value })} />
+              <input placeholder="description (optional)" value={newSub.description} onChange={(e) => setNewSub({ ...newSub, description: e.target.value })} />
+              <button className="primary" onClick={addSub} disabled={busy || !newSub.name.trim()}>+ Add</button>
+            </div>
+            <div style={{ marginTop: 10, maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {warmupSubs.length === 0
+                ? <div className="muted" style={{ fontSize: 12 }}>No warm-up subs yet. Add a few mainstream subs (AskReddit, casualconversation, etc.).</div>
+                : warmupSubs.map((s) => (
+                    <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, padding: '5px 10px', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 6 }}>
+                      <span className="mono" style={{ minWidth: 160, color: 'var(--text-1)' }}>r/{s.name}</span>
+                      {s.vibe && <span className="dim" style={{ fontSize: 11 }}>{s.vibe}</span>}
+                      {s.description && <span className="muted" style={{ fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.description}</span>}
+                      <button className="ghost" onClick={() => delSub(s.id)} style={{ marginLeft: 'auto', fontSize: 11, padding: '2px 8px' }}>×</button>
+                    </div>
+                  ))}
+            </div>
+          </div>
+
+          {/* All-account status table */}
+          <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+              Agency-wide account status <span className="muted" style={{ fontWeight: 400, fontSize: 11 }}>({accounts.length} total)</span>
+            </div>
+            <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-1)', position: 'sticky', top: 0 }}>
+                    <th style={statusTh}>Platform</th>
+                    <th style={statusTh}>Account</th>
+                    <th style={statusTh}>Model</th>
+                    <th style={statusTh}>Status</th>
+                    <th style={statusTh}>Proxy</th>
+                    <th style={statusTh}>Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {accounts.map((a) => (
+                    <tr key={a.id} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={statusTd} className="mono">{a.platform || 'reddit'}</td>
+                      <td style={statusTd}>{a.username}</td>
+                      <td style={statusTd}>{a.profile_name || '—'}</td>
+                      <td style={statusTd}>
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999,
+                          textTransform: 'uppercase', letterSpacing: '0.04em',
+                          background: a.status === 'banned' ? 'rgba(226,163,163,0.14)' : a.status === 'ready' ? 'rgba(127,217,154,0.14)' : a.status === 'paused' ? 'rgba(154,160,166,0.14)' : 'rgba(212,166,74,0.14)',
+                          color: a.status === 'banned' ? '#e2a3a3' : a.status === 'ready' ? '#7fd99a' : a.status === 'paused' ? '#9aa0a6' : '#d4a64a',
+                        }}>{a.status}</span>
+                      </td>
+                      <td style={statusTd} className="mono dim">{a.proxy_label || '—'}</td>
+                      <td style={statusTd} className="mono dim">{a.created_at?.slice(0, 10) || ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+const statusTh = { textAlign: 'left', padding: '8px 10px', fontSize: 10, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em' };
+const statusTd = { padding: '7px 10px', color: 'var(--text-1)' };
 
 // Platform filter pills — used in Example library + Engagement to narrow the
 // account picker so each platform's setup is easier to find.
