@@ -197,6 +197,15 @@ export default function AutopilotPage() {
             <span style={{ ...pill, ...(cloud.backend === 'supabase' ? { background: 'rgba(122,154,90,0.15)', color: '#bdd5a3' } : { background: 'rgba(255,255,255,0.06)', color: 'var(--text-3)' }) }}>
               {cloud.backend === 'supabase' ? 'Cloud (shared)' : 'Local only'}
             </span>
+            <span style={{ ...pill, background: 'rgba(60,110,180,0.15)', color: '#9fc0ea' }}>
+              Scaffold · further build coming
+            </span>
+          </div>
+          <div className="muted" style={{ fontSize: 11, marginBottom: 10, lineHeight: 1.5, fontStyle: 'italic' }}>
+            Placeholder for the multi-VA workflow — presence, per-account
+            ownership leasing, per-VA quotas, and a "who's on which model"
+            view will land in a later batch. The local↔cloud switch below is
+            wired and works today.
           </div>
           <div className="muted" style={{ fontSize: 12, marginBottom: 14, lineHeight: 1.6 }}>
             Local only: each PC tracks its own posts — VAs can't see each other's activity.

@@ -134,11 +134,11 @@ export default function DashboardPage({ navigate }) {
   }, [accounts]);
 
   async function openAllForModel(model) {
-    // One pre-cookied Chrome window per linked account. Cookies, UA, and
-    // proxy are wired by prepareSessionForAccount so the user lands logged in.
-    for (const a of model.accountsList) {
-      await window.api.windows.openAccountBrowser({ accountId: a.id });
-    }
+    // Single tabbed launcher window per model. Cookies / UA / proxy are
+    // pre-wired on the main side via prepareSessionForAccount, and the
+    // launcher route mounts one <webview> tab per linked account. The
+    // window is locked per model — re-clicking focuses the existing one.
+    await window.api.windows.openModelLauncher({ profileId: model.id });
   }
 
   const filtered = useMemo(() => {
@@ -185,13 +185,19 @@ export default function DashboardPage({ navigate }) {
         <div style={{ marginLeft: 'auto' }}><PopOutButton route="dashboard" title="Dashboard" /></div>
       </div>
 
+      <div style={statRow}>
+        <StatTile label="Total Accounts"  value={totals.total}   tone="blue" />
+        <StatTile label="Live Accounts"   value={totals.live}    tone="green" />
+        <StatTile label="Banned Accounts" value={totals.banned}  tone="red" />
+      </div>
+
       {models.length > 0 && (
         <div style={modelList}>
           {models.map((m) => (
             <div key={m.id} style={modelRowCard}>
               <button
                 onClick={(e) => { e.stopPropagation(); openAllForModel(m); }}
-                title={`Launch all ${m.total} account${m.total === 1 ? '' : 's'} in browsers`}
+                title={`Launch all ${m.total} account${m.total === 1 ? '' : 's'} in one tabbed window`}
                 style={{
                   width: 32, height: 32, borderRadius: '50%',
                   background: 'linear-gradient(135deg, var(--green), var(--gold))',
@@ -228,10 +234,7 @@ export default function DashboardPage({ navigate }) {
                   return [...byPlatform.entries()].map(([p, list]) => (
                     <button
                       key={p}
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        for (const a of list) await window.api.windows.openAccountBrowser({ accountId: a.id });
-                      }}
+                      onClick={(e) => { e.stopPropagation(); openAllForModel(m); }}
                       title={`${list.length} ${p} account${list.length === 1 ? '' : 's'}`}
                       style={{ ...platformLogoPill, background: platformColor(p) }}
                     >
@@ -249,12 +252,6 @@ export default function DashboardPage({ navigate }) {
           ))}
         </div>
       )}
-
-      <div style={statRow}>
-        <StatTile label="Total Accounts"  value={totals.total}   tone="blue" />
-        <StatTile label="Live Accounts"   value={totals.live}    tone="green" />
-        <StatTile label="Banned Accounts" value={totals.banned}  tone="red" />
-      </div>
 
       <div style={actionBar}>
         <button className="ghost" onClick={toggleAll}>{selected.size === filtered.length && filtered.length ? 'Deselect' : 'Select All'}</button>

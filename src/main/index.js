@@ -193,7 +193,13 @@ function openPopout(routeKey, opts = {}) {
       webviewTag: true,
     },
   });
-  const hash = `popout=${encodeURIComponent(key)}`;
+  // Build hash with optional extra params so the renderer can pick them up
+  // (used by the model-launcher popout to know which model to show).
+  const params = opts.params || {};
+  const extra = Object.entries(params)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&');
+  const hash = `popout=${encodeURIComponent(key)}${extra ? `&${extra}` : ''}`;
   if (isDev) {
     win.loadURL(`http://localhost:5173/#${hash}`);
   } else {
@@ -204,8 +210,35 @@ function openPopout(routeKey, opts = {}) {
   return { ok: true };
 }
 
-ipcMain.handle('window:openPopout', (_e, { route, title, width, height }) => {
-  return openPopout(route, { title, width, height });
+ipcMain.handle('window:openPopout', (_e, { route, title, width, height, params }) => {
+  return openPopout(route, { title, width, height, params });
+});
+
+// Per-model launcher — one tabbed window per model. If a launcher for this
+// modelId is already open, focus it instead of opening a duplicate. Different
+// models open in parallel windows.
+ipcMain.handle('window:openModelLauncher', async (_e, { profileId }) => {
+  if (!profileId) return { ok: false, error: 'profileId required' };
+  const db = getDb();
+  let profile;
+  try { profile = db.prepare('SELECT id, name FROM model_profiles WHERE id = ?').get(profileId); } catch {}
+  if (!profile) return { ok: false, error: 'Model not found' };
+  // Pre-warm every linked account's session partition so cookies + UA +
+  // proxy are wired before the renderer mounts its <webview> tabs.
+  let accounts = [];
+  try {
+    accounts = db.prepare(
+      "SELECT id FROM reddit_accounts WHERE profile_id = ? AND status != 'banned'"
+    ).all(profileId);
+  } catch {}
+  for (const a of accounts) {
+    try { await prepareSessionForAccount(a.id); } catch {}
+  }
+  return openPopout(`model-launcher-${profileId}`, {
+    title: `${profile.name} · Launcher`,
+    width: 1280, height: 860,
+    params: { route: 'model-launcher', modelId: String(profileId) },
+  });
 });
 
 // Open a real browser window pre-bound to an account's persistent session
@@ -289,49 +322,94 @@ ipcMain.handle('window:openAccountBrowser', async (_e, { accountId, url }) => {
     },
   });
 
-  // Autofill: when the page finishes loading, look for a login form and
-  // populate the username + password fields. Platform-aware so we pick the
-  // right selectors per site. Runs on every load (incl. redirects) so it
-  // catches the actual login page after Reddit/X bounce through OAuth.
+  // Autofill — populate username + password on every login form we can find.
+  // Reddit, X, Instagram, TikTok, RedGIFs all render their fields async (and
+  // often inside React-controlled inputs), so we:
+  //   1. Try once on did-finish-load
+  //   2. Retry on a 250ms interval for 10 seconds
+  //   3. MutationObserver for the same 10 seconds in case fields appear later
+  // setVal goes through the prototype setter so React/Vue/etc. accept the
+  // change event and don't immediately overwrite the value.
   const password = acct.password_encrypted ? decryptSecret(acct.password_encrypted) : '';
   if (acct.username && password) {
     const safeUser = JSON.stringify(acct.username);
     const safePass = JSON.stringify(password);
-    win.webContents.on('did-finish-load', () => {
+    const inject = () => {
       const js = `
         (() => {
-          try {
-            const u = ${safeUser};
-            const p = ${safePass};
-            const setVal = (el, v) => {
-              if (!el) return false;
-              const proto = Object.getPrototypeOf(el);
-              const desc = Object.getOwnPropertyDescriptor(proto, 'value');
-              if (desc && desc.set) desc.set.call(el, v); else el.value = v;
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
-              return true;
-            };
-            const userSel = [
-              'input[name="username"]', 'input[autocomplete="username"]',
-              'input[name="text"]',     // X
-              'input[name="email"]',    // some IG variants
-              'input[type="email"]',
-              'input[name="loginfmt"]',
-            ];
-            const passSel = [
-              'input[name="password"]', 'input[autocomplete="current-password"]',
-              'input[type="password"]',
-            ];
+          if (window.__oserusAutofillActive) return;
+          window.__oserusAutofillActive = true;
+          const u = ${safeUser};
+          const p = ${safePass};
+          const setVal = (el, v) => {
+            if (!el || el.value === v) return false;
+            const proto = Object.getPrototypeOf(el);
+            const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+            if (desc && desc.set) desc.set.call(el, v); else el.value = v;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          };
+          // Broad selector lists — covers Reddit (new + old), X (login + flow
+          // text input), Instagram, TikTok, RedGIFs, generic OAuth, Apple ID.
+          const userSel = [
+            'input[name="username"]', 'input[autocomplete="username"]',
+            'input[name="text"]',                        // X
+            'input[name="email"]',                       // IG variants, RedGIFs, generic
+            'input[type="email"]',
+            'input[name="loginfmt"]',                    // Microsoft
+            'input[autocomplete="email"]',
+            'input[id*="login"][type="text"]',
+            'input[placeholder*="sername" i]',
+            'input[placeholder*="mail" i]',
+            'input[data-testid="ocfEnterTextTextInput"]', // X flow
+          ];
+          const passSel = [
+            'input[name="password"]', 'input[autocomplete="current-password"]',
+            'input[type="password"]',
+            'input[placeholder*="assword" i]',
+          ];
+          let filled = { user: false, pass: false };
+          const tryFill = () => {
             let uEl = null, pEl = null;
-            for (const s of userSel) { uEl = document.querySelector(s); if (uEl) break; }
-            for (const s of passSel) { pEl = document.querySelector(s); if (pEl) break; }
-            if (uEl) setVal(uEl, u);
-            if (pEl) setVal(pEl, p);
-          } catch (e) { /* ignore */ }
+            for (const s of userSel) {
+              uEl = Array.from(document.querySelectorAll(s)).find((el) => el.offsetParent !== null && !el.disabled && !el.readOnly);
+              if (uEl) break;
+            }
+            for (const s of passSel) {
+              pEl = Array.from(document.querySelectorAll(s)).find((el) => el.offsetParent !== null && !el.disabled && !el.readOnly);
+              if (pEl) break;
+            }
+            if (uEl && !filled.user) { setVal(uEl, u); filled.user = true; }
+            if (pEl && !filled.pass) { setVal(pEl, p); filled.pass = true; }
+            return filled.user && filled.pass;
+          };
+          if (tryFill()) return;
+          // Retry every 250ms for 10s OR until both fields are filled.
+          const start = Date.now();
+          const t = setInterval(() => {
+            if (tryFill() || Date.now() - start > 10000) clearInterval(t);
+          }, 250);
+          // Also watch DOM mutations for the same window — async-rendered
+          // forms (Reddit modal, IG SPA) commonly miss the interval.
+          try {
+            const mo = new MutationObserver(() => { tryFill(); });
+            mo.observe(document.documentElement, { childList: true, subtree: true });
+            setTimeout(() => mo.disconnect(), 10000);
+          } catch (e) {}
         })();
       `;
       win.webContents.executeJavaScript(js).catch(() => {});
+    };
+    win.webContents.on('did-finish-load', () => {
+      // Reset the in-page flag so re-injection works after each nav.
+      win.webContents.executeJavaScript('window.__oserusAutofillActive = false').catch(() => {});
+      inject();
+    });
+    // Also re-inject on in-page navigations (Reddit modal opens, X step 2).
+    win.webContents.on('did-navigate-in-page', () => {
+      win.webContents.executeJavaScript('window.__oserusAutofillActive = false').catch(() => {});
+      inject();
     });
   }
 

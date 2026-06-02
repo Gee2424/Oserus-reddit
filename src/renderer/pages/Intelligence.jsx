@@ -103,12 +103,12 @@ export default function IntelligencePage({ initialTab }) {
       <div className="title-block">
         <div>
           <div className="eyebrow">Research</div>
-          <h1>Reddit Intelligence</h1>
+          <h1>Intelligence</h1>
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
             Scrape subreddit requirements (subscribers, karma/age gates, rules) using a logged-in account.
           </div>
         </div>
-        <div style={{ marginLeft: 'auto' }}><PopOutButton route="intel" title="Reddit Intelligence" /></div>
+        <div style={{ marginLeft: 'auto' }}><PopOutButton route="intel" title="Intelligence" /></div>
       </div>
 
       <div style={{ background: 'rgba(60,110,180,0.10)', border: '1px solid #2c4a6e', borderRadius: 'var(--radius-lg)', padding: '10px 14px', marginBottom: 18, fontSize: 13, color: '#9fc0ea' }}>

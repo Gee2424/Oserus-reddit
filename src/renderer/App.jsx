@@ -6,6 +6,7 @@ import LoginPage from './pages/Login.jsx';
 import Shell from './components/Shell.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
 import UnifiedBrowser from './pages/UnifiedBrowser.jsx';
+import ModelLauncher from './pages/ModelLauncher.jsx';
 import ProfilesPage from './pages/Profiles.jsx';
 import ModelDetailPage from './pages/ModelDetail.jsx';
 import TeamPage from './pages/Team.jsx';
@@ -21,18 +22,28 @@ import RedGifsDashboardPage from './pages/RedGifsDashboard.jsx';
 import RedditApiPage from './pages/RedditApi.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
-// A pop-out window loads the renderer with #popout=<route>. Detect it and
-// render a minimal standalone shell (no sidebar) for that one module.
-function getPopoutRoute() {
-  const m = (window.location.hash || '').match(/popout=([^&]+)/);
-  return m ? decodeURIComponent(m[1]) : null;
+// A pop-out window loads the renderer with #popout=<route>&k=v&k=v.
+// Detect it, parse extra hash params, and render a minimal standalone shell
+// (no sidebar) for that one module.
+function getPopoutInfo() {
+  const hash = (window.location.hash || '').replace(/^#/, '');
+  if (!hash) return null;
+  const out = {};
+  for (const pair of hash.split('&')) {
+    const [k, v] = pair.split('=');
+    if (k) out[decodeURIComponent(k)] = v ? decodeURIComponent(v) : '';
+  }
+  if (!out.popout) return null;
+  return { route: out.popout, params: out };
 }
 
 function Inner() {
   const { user, loading } = useAuth();
   const [route, setRoute] = useState('dashboard');
   const [routeParams, setRouteParams] = useState({});
-  const popoutRoute = getPopoutRoute();
+  const popoutInfo = getPopoutInfo();
+  const popoutRoute = popoutInfo?.route;
+  const popoutParams = popoutInfo?.params || {};
 
   if (loading) {
     return <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
@@ -80,6 +91,11 @@ function Inner() {
   // Standalone pop-out: just the module + a slim pinnable titlebar.
   if (popoutRoute) {
     const popPage = (() => {
+      // Per-model launcher (one tabbed window per model) — popout key is
+      // model-launcher-<id>, hash carries modelId explicitly.
+      if (popoutInfo?.params?.route === 'model-launcher') {
+        return <ModelLauncher modelId={popoutInfo.params.modelId} />;
+      }
       switch (popoutRoute) {
         case 'inbox': return <InboxPage embedded standalone />;
         case 'scheduler-pro': return <SchedulerProPage />;
