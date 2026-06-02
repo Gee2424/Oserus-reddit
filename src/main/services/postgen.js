@@ -189,6 +189,24 @@ Generate 3 post ideas.`;
     }
   } catch {}
 
+  // Example comments: pairs of (parent post) + (this account's reply). Teaches
+  // the generator how this account FORMS opinions on something it reads, not
+  // just surface style — what it focuses on, how it argues, when it gets
+  // playful or blunt.
+  try {
+    const exComments = getDb().prepare(
+      'SELECT parent_title, parent_body, subreddit, comment_body FROM account_example_comments WHERE account_id = ? ORDER BY RANDOM() LIMIT 6'
+    ).all(account.id);
+    if (exComments.length) {
+      const block = exComments.map((e, i) => {
+        const sub = e.subreddit ? `r/${e.subreddit} — ` : '';
+        const parent = `${sub}post: "${e.parent_title}"${e.parent_body ? '\n     ' + String(e.parent_body).slice(0, 200) : ''}`;
+        return `${i + 1}. ${parent}\n     this account replied: "${String(e.comment_body).slice(0, 400)}"`;
+      }).join('\n');
+      system += `\n\nHow this account forms opinions / replies (study the parent → reply pairs; mirror the angle, focus, and bluntness/playfulness this account uses — never copy the reply verbatim):\n${block}`;
+    }
+  } catch {}
+
   // Autopilot self-topic-discovery: pull a handful of trending titles from
   // the model's promo subs so the generator can find its own subjects.
   // postgen marks them used so we don't recycle the same title twice in a row.

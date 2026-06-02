@@ -7,9 +7,10 @@ import PopOutButton from '../components/PopOutButton.jsx';
 const INNER_TABS = [
   { k: 'requirements', l: 'Requirements',  d: 'Karma/age gates & rules' },
   { k: 'compat',       l: 'Compatibility', d: 'Which subs qualify for an account' },
-  { k: 'scraper',      l: 'Scraper',       d: 'Hot · Top · Rising · New · Users · Mods · Flairs' },
-  { k: 'research',     l: 'Research',      d: 'Trending words & best posting times' },
-  { k: 'plan',         l: 'Plan',          d: 'Pick findings → Grok-synthesized content plan saved to docs' },
+  // Scraper + Research + Plan rolled into one workflow: scrape posts/users/
+  // mods/flairs, analyze them for trending words + posting times, then
+  // synthesize the plan with Grok. All in one tab so you can flow.
+  { k: 'discover',     l: 'Discover',      d: 'Scraper · Research · Plan in one workflow' },
 ];
 
 function fmt(n) { return n == null ? '—' : n.toLocaleString(); }
@@ -139,14 +140,14 @@ export default function IntelligencePage({ initialTab }) {
       {tab === 'compat' && (
         <CompatibilityPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} />
       )}
-      {tab === 'scraper' && (
-        <ScraperPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
-      )}
-      {tab === 'research' && (
-        <ResearchPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
-      )}
-      {tab === 'plan' && (
-        <PlanPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
+      {tab === 'discover' && (
+        <>
+          <ScraperPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
+          <div style={{ height: 18 }} />
+          <ResearchPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
+          <div style={{ height: 18 }} />
+          <PlanPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
+        </>
       )}
 
       {tab === 'requirements' && (<>

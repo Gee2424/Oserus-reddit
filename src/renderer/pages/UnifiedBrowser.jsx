@@ -1,12 +1,63 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { useAuth } from '../lib/auth.jsx';
+import ModelLauncher from './ModelLauncher.jsx';
 
-// Minimal Browser entry. Per the new architecture: every actual browsing
-// happens via Model Profile → ▶ on a model row (which hands the URLs off to
-// Opera GX / the OS default browser). This page just nudges the user there.
+// Browser page = the inline model launcher. ▶ on a model row anywhere in the
+// app routes here with { modelId }; we render the tabbed multi-webview
+// surface right in the page (no popout). When opened bare, lists models so
+// you can pick one.
+export default function UnifiedBrowser({ navigate, modelId: initialModelId }) {
+  const { token } = useAuth();
+  const [activeId, setActiveId] = useState(initialModelId ? Number(initialModelId) : null);
+  const [models, setModels] = useState([]);
 
-export default function UnifiedBrowser({ navigate }) {
-  async function openReddit() {
-    await window.api.windows.openExternalTabs({ urls: ['https://www.reddit.com/'] });
+  useEffect(() => {
+    if (initialModelId) setActiveId(Number(initialModelId));
+  }, [initialModelId]);
+
+  useEffect(() => {
+    (async () => {
+      const r = await window.api.profiles.list({ token });
+      if (r.ok) setModels(r.profiles || []);
+    })();
+  }, [token]);
+
+  // When a model is active, pre-warm every linked account's session partition
+  // before mounting the launcher so each webview tab lands logged in.
+  useEffect(() => {
+    if (!activeId) return;
+    (async () => {
+      const r = await window.api.accounts.listForProfile({ token, profileId: activeId });
+      if (!r.ok) return;
+      for (const a of (r.accounts || [])) {
+        if (a.status === 'banned') continue;
+        try { await window.api.session.prepareForAccount({ accountId: a.id }); } catch {}
+      }
+    })();
+  }, [activeId, token]);
+
+  if (activeId) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)', margin: -24 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '8px 14px', borderBottom: '1px solid var(--border)',
+          background: 'var(--bg-1)',
+        }}>
+          <button className="ghost" onClick={() => setActiveId(null)} style={{ fontSize: 12 }}>← Models</button>
+          <select
+            value={activeId}
+            onChange={(e) => setActiveId(Number(e.target.value))}
+            style={{ background: 'transparent', color: 'var(--text-1)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 13 }}
+          >
+            {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </div>
+        <div style={{ flex: 1, minHeight: 0 }}>
+          <ModelLauncher modelId={activeId} />
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -16,41 +67,51 @@ export default function UnifiedBrowser({ navigate }) {
           <div className="eyebrow">Workspace</div>
           <h1>Browser</h1>
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Open accounts from Model Profile — every linked platform launches
-            in your external browser, pre-tabbed.
+            Pick a model — every linked account opens in a tab right here. ▶
+            on a model row anywhere else jumps straight to this view.
           </div>
         </div>
       </div>
 
-      <div style={{
-        marginTop: 40, padding: '60px 30px', textAlign: 'center',
-        background: 'var(--bg-elev)', border: '1px solid var(--border)',
-        borderRadius: 'var(--radius-lg)',
-      }}>
-        <button
-          onClick={openReddit}
-          title="Open Reddit in your browser"
-          style={{
-            width: 96, height: 96, borderRadius: '50%',
-            background: 'linear-gradient(135deg, var(--green), var(--gold))',
-            color: '#1a1a14', border: '1px solid var(--gold)',
-            fontSize: 36, fontWeight: 800, cursor: 'pointer',
-            display: 'grid', placeItems: 'center',
-            boxShadow: '0 8px 30px rgba(127,217,154,0.35)',
-            margin: '0 auto 20px',
-          }}
-        >▶</button>
-        <h2 style={{ marginBottom: 8 }}>Pick a model to start</h2>
-        <div className="muted" style={{ fontSize: 13, maxWidth: 480, margin: '0 auto 22px', lineHeight: 1.6 }}>
-          The browser opens externally (Opera GX if installed, otherwise your
-          default). Head to <strong style={{ color: 'var(--text-1)' }}>Model Profiles</strong> to add accounts
-          or pick a model to launch all of its linked platforms at once.
-        </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+      {models.length === 0 ? (
+        <div style={{
+          marginTop: 40, padding: '40px 30px', textAlign: 'center',
+          background: 'var(--bg-elev)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-lg)',
+        }}>
+          <h2 style={{ marginBottom: 8 }}>No models yet</h2>
+          <div className="muted" style={{ fontSize: 13, marginBottom: 16 }}>
+            Add a model and link accounts to launch them here.
+          </div>
           {navigate && <button className="primary" onClick={() => navigate('profiles')}>Model Profiles</button>}
-          {navigate && <button className="ghost" onClick={() => navigate('dashboard')}>Dashboard</button>}
         </div>
-      </div>
+      ) : (
+        <div style={{ marginTop: 18, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+          {models.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => setActiveId(m.id)}
+              style={{
+                background: 'var(--bg-elev)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-lg)', padding: 18, cursor: 'pointer',
+                textAlign: 'left', color: 'var(--text-1)',
+                display: 'flex', alignItems: 'center', gap: 12,
+              }}
+            >
+              <div style={{
+                width: 42, height: 42, borderRadius: '50%',
+                background: 'linear-gradient(135deg, var(--green), var(--gold))',
+                color: '#1a1a14', display: 'grid', placeItems: 'center',
+                fontWeight: 800, fontSize: 14,
+              }}>▶</div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>{m.name}</div>
+                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>Launch in this view</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

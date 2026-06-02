@@ -78,6 +78,36 @@ function register(ipcMain) {
     } catch (err) { return { ok: false, error: err.message }; }
   });
 
+  ipcMain.handle('examples:listComments', (_e, { token, accountId }) => {
+    try {
+      if (!userFromToken(token)) throw new Error('Not authenticated');
+      const rows = getDb().prepare(
+        'SELECT id, parent_title, parent_body, parent_url, subreddit, comment_body, created_at FROM account_example_comments WHERE account_id = ? ORDER BY created_at DESC'
+      ).all(accountId);
+      return { ok: true, comments: rows };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('examples:addComment', (_e, { token, accountId, parentTitle, parentBody, parentUrl, subreddit, commentBody }) => {
+    try {
+      if (!userFromToken(token)) throw new Error('Not authenticated');
+      if (!parentTitle || !parentTitle.trim()) throw new Error('Parent post title required');
+      if (!commentBody || !commentBody.trim()) throw new Error('Comment body required');
+      const r = getDb().prepare(
+        'INSERT INTO account_example_comments (account_id, parent_title, parent_body, parent_url, subreddit, comment_body) VALUES (?,?,?,?,?,?)'
+      ).run(accountId, parentTitle.trim(), parentBody || null, parentUrl || null, subreddit || null, commentBody.trim());
+      return { ok: true, id: r.lastInsertRowid };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('examples:deleteComment', (_e, { token, id }) => {
+    try {
+      if (!userFromToken(token)) throw new Error('Not authenticated');
+      getDb().prepare('DELETE FROM account_example_comments WHERE id = ?').run(id);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
   ipcMain.handle('examples:readImage', (_e, { token, id }) => {
     try {
       if (!userFromToken(token)) throw new Error('Not authenticated');

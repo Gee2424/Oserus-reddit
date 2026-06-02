@@ -133,12 +133,10 @@ export default function DashboardPage({ navigate }) {
     return [...m.values()].sort((a, b) => b.total - a.total);
   }, [accounts]);
 
-  async function openAllForModel(model) {
-    // Single tabbed launcher window per model. Cookies / UA / proxy are
-    // pre-wired on the main side via prepareSessionForAccount, and the
-    // launcher route mounts one <webview> tab per linked account. The
-    // window is locked per model — re-clicking focuses the existing one.
-    await window.api.windows.openModelLauncher({ profileId: model.id });
+  function openAllForModel(model) {
+    // Browser page now hosts the tabbed launcher inline, so ▶ on a model row
+    // just routes there with this model selected — no popout window.
+    navigate('browser', { modelId: model.id });
   }
 
   const filtered = useMemo(() => {
@@ -190,68 +188,6 @@ export default function DashboardPage({ navigate }) {
         <StatTile label="Live Accounts"   value={totals.live}    tone="green" />
         <StatTile label="Banned Accounts" value={totals.banned}  tone="red" />
       </div>
-
-      {models.length > 0 && (
-        <div style={modelList}>
-          {models.map((m) => (
-            <div key={m.id} style={modelRowCard}>
-              <button
-                onClick={(e) => { e.stopPropagation(); openAllForModel(m); }}
-                title={`Launch all ${m.total} account${m.total === 1 ? '' : 's'} in one tabbed window`}
-                style={{
-                  width: 32, height: 32, borderRadius: '50%',
-                  background: 'linear-gradient(135deg, var(--green), var(--gold))',
-                  color: '#1a1a14', border: '1px solid var(--gold)',
-                  fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                  display: 'grid', placeItems: 'center',
-                  boxShadow: '0 2px 8px rgba(127,217,154,0.3)', flexShrink: 0,
-                  padding: 0,
-                }}
-              >▶</button>
-              <Avatar name={m.name} size={36} />
-              <div
-                onClick={() => navigate('model', { modelId: m.id })}
-                style={{ cursor: 'pointer', minWidth: 140 }}
-                title={`Open ${m.name} profile`}
-              >
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</div>
-                <div style={{ fontSize: 10, color: '#9aa0a6', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>
-                  <span style={{ color: '#7fd99a' }}>{m.live} live</span>
-                  <span style={{ margin: '0 5px', opacity: 0.4 }}>·</span>
-                  <span>{m.total} acct{m.total === 1 ? '' : 's'}</span>
-                  {m.banned > 0 && (<><span style={{ margin: '0 5px', opacity: 0.4 }}>·</span><span style={{ color: '#e2a3a3' }}>{m.banned} banned</span></>)}
-                </div>
-              </div>
-              <span style={{ color: 'var(--text-3)', fontSize: 14 }}>→</span>
-              <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 6, minWidth: 0 }}>
-                {(() => {
-                  const byPlatform = new Map();
-                  for (const a of m.accountsList) {
-                    const p = a.platform || 'reddit';
-                    if (!byPlatform.has(p)) byPlatform.set(p, []);
-                    byPlatform.get(p).push(a);
-                  }
-                  return [...byPlatform.entries()].map(([p, list]) => (
-                    <button
-                      key={p}
-                      onClick={(e) => { e.stopPropagation(); openAllForModel(m); }}
-                      title={`${list.length} ${p} account${list.length === 1 ? '' : 's'}`}
-                      style={{ ...platformLogoPill, background: platformColor(p) }}
-                    >
-                      <span style={{ fontWeight: 800, fontSize: 11, color: '#fff' }}>{platformShort(p)}</span>
-                      {list.length > 1 && <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', opacity: 0.9 }}>×{list.length}</span>}
-                    </button>
-                  ));
-                })()}
-              </div>
-              <span style={{ color: 'var(--text-3)', fontSize: 14 }}>→</span>
-              <div style={{ minWidth: 180, fontSize: 12, color: m.mainEmail ? 'var(--text-2)' : 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
-                {m.mainEmail || <span className="dim" style={{ fontStyle: 'italic' }}>set main email on Model Profile</span>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
 
       <div style={actionBar}>
         <button className="ghost" onClick={toggleAll}>{selected.size === filtered.length && filtered.length ? 'Deselect' : 'Select All'}</button>
@@ -507,6 +443,68 @@ export default function DashboardPage({ navigate }) {
           </table>
         </div>
       </div>
+
+      {models.length > 0 && (
+        <div style={{ ...modelList, marginTop: 18 }}>
+          {models.map((m) => (
+            <div key={m.id} style={modelRowCard}>
+              <button
+                onClick={(e) => { e.stopPropagation(); openAllForModel(m); }}
+                title={`Launch all ${m.total} account${m.total === 1 ? '' : 's'} in one tabbed window`}
+                style={{
+                  width: 32, height: 32, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, var(--green), var(--gold))',
+                  color: '#1a1a14', border: '1px solid var(--gold)',
+                  fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                  display: 'grid', placeItems: 'center',
+                  boxShadow: '0 2px 8px rgba(127,217,154,0.3)', flexShrink: 0,
+                  padding: 0,
+                }}
+              >▶</button>
+              <Avatar name={m.name} size={36} />
+              <div
+                onClick={() => navigate('model', { modelId: m.id })}
+                style={{ cursor: 'pointer', minWidth: 140 }}
+                title={`Open ${m.name} profile`}
+              >
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</div>
+                <div style={{ fontSize: 10, color: '#9aa0a6', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>
+                  <span style={{ color: '#7fd99a' }}>{m.live} live</span>
+                  <span style={{ margin: '0 5px', opacity: 0.4 }}>·</span>
+                  <span>{m.total} acct{m.total === 1 ? '' : 's'}</span>
+                  {m.banned > 0 && (<><span style={{ margin: '0 5px', opacity: 0.4 }}>·</span><span style={{ color: '#e2a3a3' }}>{m.banned} banned</span></>)}
+                </div>
+              </div>
+              <span style={{ color: 'var(--text-3)', fontSize: 14 }}>→</span>
+              <div style={{ flex: 1, display: 'flex', flexWrap: 'wrap', gap: 6, minWidth: 0 }}>
+                {(() => {
+                  const byPlatform = new Map();
+                  for (const a of m.accountsList) {
+                    const p = a.platform || 'reddit';
+                    if (!byPlatform.has(p)) byPlatform.set(p, []);
+                    byPlatform.get(p).push(a);
+                  }
+                  return [...byPlatform.entries()].map(([p, list]) => (
+                    <button
+                      key={p}
+                      onClick={(e) => { e.stopPropagation(); openAllForModel(m); }}
+                      title={`${list.length} ${p} account${list.length === 1 ? '' : 's'}`}
+                      style={{ ...platformLogoPill, background: platformColor(p) }}
+                    >
+                      <span style={{ fontWeight: 800, fontSize: 11, color: '#fff' }}>{platformShort(p)}</span>
+                      {list.length > 1 && <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', opacity: 0.9 }}>×{list.length}</span>}
+                    </button>
+                  ));
+                })()}
+              </div>
+              <span style={{ color: 'var(--text-3)', fontSize: 14 }}>→</span>
+              <div style={{ minWidth: 180, fontSize: 12, color: m.mainEmail ? 'var(--text-2)' : 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+                {m.mainEmail || <span className="dim" style={{ fontStyle: 'italic' }}>set main email on Model Profile</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -339,10 +339,13 @@ export default function AutopilotPage() {
 
 function ExampleLibrary({ token }) {
   const [accounts, setAccounts] = useState([]);
+  const [platformFilter, setPlatformFilter] = useState('all');
   const [accountId, setAccountId] = useState('');
   const [posts, setPosts] = useState([]);
   const [images, setImages] = useState([]);
+  const [comments, setComments] = useState([]);
   const [draft, setDraft] = useState({ title: '', body: '', subreddit: '' });
+  const [commentDraft, setCommentDraft] = useState({ parentTitle: '', parentBody: '', parentUrl: '', subreddit: '', commentBody: '' });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -356,14 +359,28 @@ function ExampleLibrary({ token }) {
     });
   }, [token]);
 
+  // Visible accounts respect the platform filter.
+  const visibleAccounts = (platformFilter === 'all')
+    ? accounts
+    : accounts.filter((a) => (a.platform || 'reddit') === platformFilter);
+
+  useEffect(() => {
+    // If the filter hides the current account, pick the first visible one.
+    if (!visibleAccounts.find((a) => String(a.id) === String(accountId))) {
+      setAccountId(visibleAccounts[0] ? String(visibleAccounts[0].id) : '');
+    }
+  }, [platformFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const loadFor = useCallback(async (id) => {
-    if (!id) { setPosts([]); setImages([]); return; }
-    const [p, i] = await Promise.all([
+    if (!id) { setPosts([]); setImages([]); setComments([]); return; }
+    const [p, i, c] = await Promise.all([
       window.api.examples.listPosts({ token, accountId: Number(id) }),
       window.api.examples.listImages({ token, accountId: Number(id) }),
+      window.api.examples.listComments({ token, accountId: Number(id) }),
     ]);
     if (p.ok) setPosts(p.posts || []);
     if (i.ok) setImages(i.images || []);
+    if (c.ok) setComments(c.comments || []);
   }, [token]);
 
   useEffect(() => { loadFor(accountId); }, [accountId, loadFor]);
@@ -395,6 +412,21 @@ function ExampleLibrary({ token }) {
     await window.api.examples.deleteImage({ token, id });
     loadFor(accountId);
   }
+  async function addComment() {
+    if (!accountId) return;
+    if (!commentDraft.parentTitle.trim() || !commentDraft.commentBody.trim()) {
+      setErr('Parent post title and your reply are required.'); return;
+    }
+    setBusy(true);
+    const r = await window.api.examples.addComment({ token, accountId: Number(accountId), ...commentDraft });
+    setBusy(false);
+    if (r.ok) { setCommentDraft({ parentTitle: '', parentBody: '', parentUrl: '', subreddit: '', commentBody: '' }); loadFor(accountId); }
+    else setErr(r.error);
+  }
+  async function delComment(id) {
+    await window.api.examples.deleteComment({ token, id });
+    loadFor(accountId);
+  }
 
   return (
     <div className="card" style={{ padding: 18, marginBottom: 18 }}>
@@ -402,11 +434,12 @@ function ExampleLibrary({ token }) {
         <h3 style={{ margin: 0 }}>Example library</h3>
         <span className="muted" style={{ fontSize: 11 }}>per account — autopilot mirrors these when generating new posts</span>
       </div>
+      <PlatformFilter value={platformFilter} onChange={setPlatformFilter} />
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
         <label style={{ fontSize: 12, margin: 0 }}>Account</label>
-        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ minWidth: 280 }}>
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ minWidth: 320 }}>
           <option value="">— pick an account —</option>
-          {accounts.map((a) => (
+          {visibleAccounts.map((a) => (
             <option key={a.id} value={a.id}>
               {(a.platform || 'reddit')} · {a.username}{a.profile_name ? ` · ${a.profile_name}` : ''}
             </option>
@@ -417,7 +450,7 @@ function ExampleLibrary({ token }) {
       {err && <Banner kind="err">{err}</Banner>}
 
       {accountId && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 18 }}>
           {/* Example posts */}
           <div>
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Example posts ({posts.length})</div>
@@ -472,8 +505,88 @@ function ExampleLibrary({ token }) {
                   ))}
             </div>
           </div>
+
+          {/* Example comments — pairs of (parent post) + (this account's reply)
+              so autopilot learns how this voice forms opinions, not just style. */}
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Example comments ({comments.length})</div>
+            <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>
+              Paste the post + your reply. Autopilot reads both so it learns the angle this account takes.
+            </div>
+            <input placeholder="Parent post title" value={commentDraft.parentTitle}
+              onChange={(e) => setCommentDraft({ ...commentDraft, parentTitle: e.target.value })} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
+              <input placeholder="r/subreddit (optional)" value={commentDraft.subreddit}
+                onChange={(e) => setCommentDraft({ ...commentDraft, subreddit: e.target.value.replace(/^r\//i, '') })} />
+              <input placeholder="Post URL (optional)" value={commentDraft.parentUrl}
+                onChange={(e) => setCommentDraft({ ...commentDraft, parentUrl: e.target.value })} />
+            </div>
+            <textarea placeholder="Parent post body (optional)" value={commentDraft.parentBody}
+              onChange={(e) => setCommentDraft({ ...commentDraft, parentBody: e.target.value })}
+              style={{ minHeight: 50, width: '100%', fontSize: 12, marginTop: 6 }} />
+            <textarea placeholder="Your reply (required)" value={commentDraft.commentBody}
+              onChange={(e) => setCommentDraft({ ...commentDraft, commentBody: e.target.value })}
+              style={{ minHeight: 60, width: '100%', fontSize: 13, marginTop: 6 }} />
+            <div style={{ marginTop: 8 }}>
+              <button className="primary" onClick={addComment} disabled={busy}>+ Add example comment</button>
+            </div>
+            <div style={{ marginTop: 12, maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {comments.length === 0
+                ? <div className="muted" style={{ fontSize: 12 }}>No example comments yet.</div>
+                : comments.map((c) => (
+                    <div key={c.id} style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                        {c.subreddit && <span className="mono dim" style={{ fontSize: 11 }}>r/{c.subreddit}</span>}
+                        <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{c.parent_title}</span>
+                        <button className="ghost" onClick={() => delComment(c.id)} style={{ fontSize: 11, padding: '2px 8px' }}>×</button>
+                      </div>
+                      {c.parent_body && <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>{String(c.parent_body).slice(0, 140)}</div>}
+                      <div style={{ fontSize: 12, marginTop: 6, padding: '6px 8px', background: 'var(--bg-elev)', borderRadius: 6, whiteSpace: 'pre-wrap' }}>
+                        ↳ {c.comment_body}
+                      </div>
+                    </div>
+                  ))}
+            </div>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Platform filter pills — used in Example library + Engagement to narrow the
+// account picker so each platform's setup is easier to find.
+function PlatformFilter({ value, onChange }) {
+  const opts = [
+    { v: 'all', l: 'All', c: '#999' },
+    { v: 'reddit', l: 'Reddit', c: '#ff4500' },
+    { v: 'x', l: 'X', c: '#fff' },
+    { v: 'instagram', l: 'Instagram', c: '#e2497d' },
+    { v: 'tiktok', l: 'TikTok', c: '#69c9d0' },
+    { v: 'redgifs', l: 'RedGIFs', c: '#d63d3d' },
+  ];
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+      {opts.map((o) => {
+        const active = value === o.v;
+        return (
+          <button
+            key={o.v}
+            onClick={() => onChange(o.v)}
+            style={{
+              background: active ? 'rgba(255,255,255,0.06)' : 'transparent',
+              border: `1px solid ${active ? o.c : 'var(--border)'}`,
+              borderRadius: 999, padding: '4px 11px',
+              color: active ? '#fff' : 'var(--text-2)',
+              fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: o.c }} />
+            {o.l}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -493,6 +606,7 @@ function ImageThumb({ token, id }) {
 
 function EngagementPanel({ token }) {
   const [accounts, setAccounts] = useState([]);
+  const [platformFilter, setPlatformFilter] = useState('all');
   const [accountId, setAccountId] = useState('');
   const [proto, setProto] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -511,6 +625,15 @@ function EngagementPanel({ token }) {
       }
     });
   }, [token]);
+
+  const visibleAccounts = (platformFilter === 'all')
+    ? accounts
+    : accounts.filter((a) => (a.platform || 'reddit') === platformFilter);
+  useEffect(() => {
+    if (!visibleAccounts.find((a) => String(a.id) === String(accountId))) {
+      setAccountId(visibleAccounts[0] ? String(visibleAccounts[0].id) : '');
+    }
+  }, [platformFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = useCallback(async (id) => {
     if (!id) { setProto(null); setSessions([]); return; }
@@ -567,11 +690,12 @@ function EngagementPanel({ token }) {
       <div className="muted" style={{ fontSize: 11, marginBottom: 14, lineHeight: 1.5 }}>
         Opens a hidden browser on this account's session and runs a session you'd never tell from a real user — scrolls a random amount, likes a fraction of posts, follows a fraction (filtered to your follow-list if set), watches some reels in full and skips others. Selectors are best-effort; platforms change markup, so verify with a dry run before relying on it.
       </div>
+      <PlatformFilter value={platformFilter} onChange={setPlatformFilter} />
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
         <label style={{ fontSize: 12, margin: 0 }}>Account</label>
         <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ minWidth: 320 }}>
           <option value="">— pick an account —</option>
-          {accounts.map((a) => (
+          {visibleAccounts.map((a) => (
             <option key={a.id} value={a.id}>
               {(a.platform || 'reddit')} · {a.username}{a.profile_name ? ` · ${a.profile_name}` : ''}
             </option>

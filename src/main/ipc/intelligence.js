@@ -50,10 +50,29 @@ function normalizePost(c) {
   };
 }
 
+// Normalize whatever the user typed into a bare subreddit name. Accepts:
+//   "pics"
+//   "r/pics"
+//   "/r/pics"
+//   "https://www.reddit.com/r/pics/"
+//   "https://old.reddit.com/r/pics/top/?t=week"
+// Returns just "pics" or '' if it can't extract one.
+function cleanSub(input) {
+  if (!input) return '';
+  let s = String(input).trim();
+  // Try URL extraction first.
+  const m = s.match(/reddit\.com\/r\/([^/?#]+)/i);
+  if (m) return m[1];
+  // Strip leading slashes + r/ prefix, then take the first path segment.
+  s = s.replace(/^https?:\/\//i, '').replace(/^[^/]*\//, '');
+  s = s.replace(/^\/?r\//i, '').replace(/^@/, '');
+  return s.split(/[/?#]/)[0].trim();
+}
+
 // Reddit exposes karma/age gates inconsistently; pull what's available from
 // about.json + about/rules.json and the post-requirements endpoint.
 async function fetchOne(partition, name) {
-  const clean = String(name).replace(/^\/?r\//i, '').trim();
+  const clean = cleanSub(name);
   if (!clean) return null;
   const about = await request(partition, `https://www.reddit.com/r/${clean}/about.json?raw_json=1`);
   const d = about?.data || {};
@@ -63,16 +82,37 @@ async function fetchOne(partition, name) {
     rules = (r?.rules || []).map((x) => ({ short: x.short_name, desc: x.description }));
   } catch { /* some subs hide rules */ }
 
-  // Post requirements endpoint (karma/age gates), best-effort.
-  let minAge = null, minPost = null, minComment = null;
-  try {
-    const req = await request(partition, `https://oauth.reddit.com/api/v1/${clean}/post_requirements.json`);
-    if (req) {
-      minAge = req.account_age_min != null ? Math.round(req.account_age_min / 86400) : null;
-      minPost = req.post_karma_min ?? null;
-      minComment = req.comment_karma_min ?? null;
-    }
-  } catch { /* requires oauth scope; fine to skip */ }
+  // Post requirements — try the cookied path (works for logged-in users on the
+  // www.reddit.com domain), then the OAuth path as a fallback.
+  let minAge = null, minPost = null, minComment = null, otherReqs = {};
+  for (const url of [
+    `https://www.reddit.com/r/${clean}/about/post_requirements.json?raw_json=1`,
+    `https://oauth.reddit.com/api/v1/${clean}/post_requirements.json`,
+  ]) {
+    try {
+      const req = await request(partition, url);
+      if (req && typeof req === 'object') {
+        minAge = req.account_age_min != null ? Math.round(req.account_age_min / 86400) : minAge;
+        minPost = req.post_karma_min ?? minPost;
+        minComment = req.comment_karma_min ?? minComment;
+        otherReqs = {
+          title_required_strings: req.title_required_strings || [],
+          title_blacklisted_strings: req.title_blacklisted_strings || [],
+          body_required_strings: req.body_required_strings || [],
+          body_blacklisted_strings: req.body_blacklisted_strings || [],
+          domain_whitelist: req.domain_whitelist || [],
+          domain_blacklist: req.domain_blacklist || [],
+          link_repost_age_days: req.link_repost_age_days ?? null,
+          title_text_min_length: req.title_text_min_length ?? null,
+          title_text_max_length: req.title_text_max_length ?? null,
+          body_text_min_length: req.body_text_min_length ?? null,
+          body_text_max_length: req.body_text_max_length ?? null,
+          is_flair_required: !!req.is_flair_required,
+        };
+        if (minAge != null || minPost != null || minComment != null) break;
+      }
+    } catch { /* try next */ }
+  }
 
   return {
     name: clean,
@@ -82,7 +122,7 @@ async function fetchOne(partition, name) {
     min_account_age_days: minAge,
     min_post_karma: minPost,
     min_comment_karma: minComment,
-    rules_json: JSON.stringify(rules),
+    rules_json: JSON.stringify({ rules, ...otherReqs }),
     description: d.public_description || d.title || null,
   };
 }
@@ -159,7 +199,7 @@ function register(ipcMain) {
       if (!user) throw new Error('Not authenticated');
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
-      const sub = String(subreddit || '').replace(/^\/?r\//i, '').trim();
+      const sub = cleanSub(subreddit);
       if (!sub) throw new Error('Subreddit required');
       const sortKey = ['hot', 'top', 'rising', 'new'].includes(sort) ? sort : 'hot';
       const lim = Math.min(Math.max(Number(limit) || 25, 1), 100);
@@ -229,7 +269,7 @@ function register(ipcMain) {
       if (!user) throw new Error('Not authenticated');
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
-      const sub = String(subreddit || '').replace(/^\/?r\//i, '').trim();
+      const sub = cleanSub(subreddit);
       if (!sub) throw new Error('Subreddit required');
       const data = await request(acct.partition, `https://www.reddit.com/r/${sub}/about/moderators.json?raw_json=1`);
       const mods = (data?.data?.children || []).map((c) => ({
@@ -293,13 +333,33 @@ function register(ipcMain) {
       if (!user) throw new Error('Not authenticated');
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
-      const sub = String(subreddit || '').replace(/^\/?r\//i, '').trim();
+      const sub = cleanSub(subreddit);
       if (!sub) throw new Error('Subreddit required');
-      const data = await request(acct.partition, `https://www.reddit.com/r/${sub}/api/link_flair_v2.json?raw_json=1`);
-      const flairs = Array.isArray(data) ? data.map((f) => ({
-        id: f.id, text: f.text, type: f.type, mod_only: f.mod_only,
-        text_editable: f.text_editable, background_color: f.background_color, text_color: f.text_color,
-      })) : [];
+      // Public flair list — link_flair_v2 requires mod scope on most subs.
+      // The widgets endpoint exposes the post-flair widget without mod perms.
+      let flairs = [];
+      try {
+        const data = await request(acct.partition, `https://www.reddit.com/r/${sub}/api/link_flair_v2.json?raw_json=1`);
+        if (Array.isArray(data)) {
+          flairs = data.map((f) => ({
+            id: f.id, text: f.text, type: f.type, mod_only: f.mod_only,
+            text_editable: f.text_editable, background_color: f.background_color, text_color: f.text_color,
+          }));
+        }
+      } catch {}
+      if (!flairs.length) {
+        try {
+          const w = await request(acct.partition, `https://www.reddit.com/r/${sub}/api/widgets.json?raw_json=1`);
+          const items = Object.values(w?.items || {});
+          const flairWidget = items.find((it) => it && it.kind === 'post-flair');
+          if (flairWidget && Array.isArray(flairWidget.templates)) {
+            flairs = flairWidget.templates.map((t) => ({
+              id: t.id, text: t.text || '', type: t.type || 'text',
+              background_color: t.background_color || null, text_color: t.text_color || null,
+            }));
+          }
+        } catch {}
+      }
       return { ok: true, flairs };
     } catch (err) {
       if (err.message === 'NOT_LOGGED_IN') return { ok: false, error: 'Scraper account is not logged in.' };

@@ -190,6 +190,21 @@ function initDatabase() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Per-account example comments: pairs (the post the comment was made on)
+    -- + (the comment text). Autopilot's reply/comment generator reads BOTH
+    -- the parent and the example reply so it learns how this account forms
+    -- opinions instead of just copying surface style.
+    CREATE TABLE IF NOT EXISTS account_example_comments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+      parent_title TEXT NOT NULL,
+      parent_body TEXT,
+      parent_url TEXT,
+      subreddit TEXT,
+      comment_body TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Engagement protocol per account — human-like scroll/like/follow runs on
     -- IG / TikTok / X (also available for Reddit). The runner opens a hidden
     -- BrowserWindow on the account's session and executes platform scripts

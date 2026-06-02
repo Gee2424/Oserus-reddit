@@ -60,7 +60,7 @@ function Inner() {
   const page = (() => {
     switch (route) {
       case 'dashboard': return <DashboardPage navigate={navigate} />;
-      case 'browser': return <UnifiedBrowser navigate={navigate} defaultPlatform={routeParams.platform} />;
+      case 'browser': return <UnifiedBrowser navigate={navigate} modelId={routeParams.modelId} defaultPlatform={routeParams.platform} />;
       case 'reddit': return <UnifiedBrowser navigate={navigate} defaultPlatform="reddit" />;
       case 'redgifs': return <RedGifsDashboardPage navigate={navigate} />;
       case 'redgifs-browse': return <UnifiedBrowser navigate={navigate} defaultPlatform="redgifs" />;
