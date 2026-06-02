@@ -145,6 +145,12 @@ function register(ipcMain) {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       if (!accountId) throw new Error('Pick a scraper account');
+      // Re-apply the account's UA + proxy on its partitioned session before the
+      // scrape so this works without the renderer remembering to prep first.
+      try {
+        const main = require('../index');
+        if (main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
+      } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Account not found');
       ensureTable();
@@ -168,7 +174,12 @@ function register(ipcMain) {
           const data = await fetchOne(acct.partition, n);
           if (data) { upsert.run({ ...data, uid: user.id }); results.push(data.name); }
         } catch (e) {
-          errors.push(`r/${n}: ${e.message === 'NOT_LOGGED_IN' ? 'scraper account not logged in' : e.message}`);
+          const label = cleanSub(n) || n;
+          let reason = e.message === 'NOT_LOGGED_IN' ? 'scraper account not logged in' : e.message;
+          if (/tunnel|proxy|ECONN|ENOTFOUND|certificate|EAI_AGAIN/i.test(reason)) {
+            reason = `proxy/network failure (${reason}) — check this account's proxy under Configuration → Proxies`;
+          }
+          errors.push(`r/${label}: ${reason}`);
         }
       }
       return { ok: true, fetched: results.length, results, errors };
@@ -197,6 +208,10 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
+      try {
+        const main = require('../index');
+        if (accountId && main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
+      } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
       const sub = cleanSub(subreddit);
@@ -231,6 +246,10 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
+      try {
+        const main = require('../index');
+        if (accountId && main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
+      } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
       const u = String(username || '').replace(/^u\//i, '').replace(/^@/, '').trim();
@@ -267,6 +286,10 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
+      try {
+        const main = require('../index');
+        if (accountId && main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
+      } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
       const sub = cleanSub(subreddit);
@@ -292,11 +315,10 @@ function register(ipcMain) {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       if (!Array.isArray(findings) || !findings.length) throw new Error('No findings selected');
-      const { callGrok, getSetting } = require('../services/postgen');
-      const { decryptSecret } = require('../db');
-      const enc = getSetting('grok_api_key');
-      const apiKey = enc ? decryptSecret(enc) : null;
-      if (!apiKey) throw new Error('Grok API key not configured — set it in Configuration first');
+      const { callAI, getSetting } = require('../services/postgen');
+      if (!getSetting('anthropic_api_key') && !getSetting('grok_api_key')) {
+        throw new Error('No AI API key configured — set Anthropic or Grok in Configuration first');
+      }
       let profile = null;
       if (profileId) {
         try { profile = getDb().prepare('SELECT * FROM model_profiles WHERE id = ?').get(profileId); } catch {}
@@ -312,7 +334,7 @@ function register(ipcMain) {
         `Selected findings (top performing posts):`,
         ...findings.map((f, i) => `${i + 1}. [r/${f.subreddit || '?'}] ${f.title || ''} · ${f.ups || 0} ups · ${f.num_comments || 0} comments`),
       ].filter(Boolean).join('\n');
-      const text = await callGrok(apiKey, system, userMsg, { maxTokens: 1200 });
+      const text = await callAI(system, userMsg, { maxTokens: 1200 });
       if (save && profileId) {
         try {
           getDb().prepare(
@@ -331,6 +353,10 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
+      try {
+        const main = require('../index');
+        if (accountId && main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
+      } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
       const sub = cleanSub(subreddit);

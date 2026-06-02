@@ -788,11 +788,21 @@ function AISettings({ token, onMsg, onError }) {
     customCtas: [], // [{ platform, url }]
   });
   const [hasKey, setHasKey] = useState(false);
+  const [providerLabel, setProviderLabel] = useState('AI');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     window.api.aiconfig.get({ token }).then((r) => { if (r.ok && r.config) setCfg((c) => ({ ...c, ...r.config })); });
     window.api.ai.hasApiKey({ token }).then((r) => setHasKey(!!(r.ok && r.hasKey)));
+    window.api.ai.getProviders?.({ token }).then((r) => {
+      if (!r?.ok) return;
+      const active = r.provider === 'grok' && r.grok?.hasKey ? 'Grok'
+                   : r.provider === 'anthropic' && r.anthropic?.hasKey ? 'Anthropic (Claude)'
+                   : r.anthropic?.hasKey ? 'Anthropic (Claude)'
+                   : r.grok?.hasKey ? 'Grok'
+                   : 'AI';
+      setProviderLabel(active);
+    });
   }, [token]);
 
   async function save() {
@@ -808,7 +818,7 @@ function AISettings({ token, onMsg, onError }) {
     <div className="card bordered-glow" style={{ padding: 18, marginBottom: 18 }}>
       <h3 style={{ marginTop: 0, marginBottom: 4 }}>AI Settings</h3>
       <div style={{ fontSize: 12, color: hasKey ? '#bdd5a3' : 'var(--gold)', marginBottom: 14 }}>
-        {hasKey ? '✓ Grok API is configured and ready to use.' : '⚠ No Grok key yet — add one in Configuration.'}
+        {hasKey ? `✓ ${providerLabel} is configured and ready to use.` : '⚠ No AI key yet — add Anthropic (recommended) or Grok in Configuration.'}
       </div>
 
       <label>AI mode</label>

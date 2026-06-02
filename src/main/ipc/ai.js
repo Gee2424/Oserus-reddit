@@ -28,8 +28,10 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      const v = getSetting('grok_api_key');
-      return { ok: true, hasKey: !!v };
+      // True when EITHER provider is configured — Composer / Ideas / Scheduler
+      // AI gates read this; Anthropic-only users should pass.
+      const v = !!getSetting('grok_api_key') || !!getSetting('anthropic_api_key');
+      return { ok: true, hasKey: v };
     } catch (err) {
       return { ok: false, error: err.message };
     }
