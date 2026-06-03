@@ -324,7 +324,9 @@ export default function ModelLauncher({ modelId }) {
             key={a.id}
             ref={(el) => { if (el) webviewRefs.current[a.id] = el; }}
             partition={`persist:${a.partition_key}`}
-            src={urls[a.id] || PLATFORM_MAP[a.platform || 'reddit']?.home || 'about:blank'}
+            src={visited[a.id]
+              ? (urls[a.id] || PLATFORM_MAP[a.platform || 'reddit']?.home || 'about:blank')
+              : 'about:blank'}
             style={{
               position: 'absolute', inset: 0,
               display: a.id === activeId ? 'flex' : 'none',
