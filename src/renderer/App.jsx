@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './lib/auth.jsx';
 import { PermissionsProvider } from './lib/permissions.jsx';
 import { ActiveAccountProvider } from './lib/activeAccount.jsx';
+import { InboxLiveProvider } from './lib/inboxLive.jsx';
 import LoginPage from './pages/Login.jsx';
 import Shell from './components/Shell.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
@@ -131,8 +132,10 @@ function Inner() {
   return (
     <PermissionsProvider>
       <ActiveAccountProvider>
-        <Shell route={route} navigate={navigate}>{page}</Shell>
-        <UpdateBanner />
+        <InboxLiveProvider>
+          <Shell route={route} navigate={navigate}>{page}</Shell>
+          <UpdateBanner />
+        </InboxLiveProvider>
       </ActiveAccountProvider>
     </PermissionsProvider>
   );

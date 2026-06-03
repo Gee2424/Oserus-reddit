@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
+import { useInboxLive } from '../lib/inboxLive.jsx';
 import { PLATFORMS, platformColor } from '../lib/platforms.js';
 
 const FOLDERS = [
@@ -40,18 +41,16 @@ function hueOf(name) {
 export default function InboxPage({ embedded, standalone, navigate }) {
   const { token } = useAuth();
   const { forPlatform } = useActiveAccount();
+  const inboxLive = useInboxLive();
   const [platform, setPlatform] = useState('reddit');
   const { active, accounts: platformAccounts, setActive } = forPlatform(platform);
 
   const [folder, setFolder] = useState('all');
-  const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [notLoggedIn, setNotLoggedIn] = useState(false);
   const [selectedThreadKey, setSelectedThreadKey] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
-  const [unreadByAccount, setUnreadByAccount] = useState({}); // { [accountId]: count }
   const [templates, setTemplates] = useState([]);
   const [showTemplates, setShowTemplates] = useState(false);
 
@@ -67,19 +66,23 @@ export default function InboxPage({ embedded, standalone, navigate }) {
 
   const isLive = INBOX_LIVE[platform];
 
+  // Messages + unread counts come from the root-level InboxLiveProvider
+  // (poll runs even when this page is unmounted). On page mount we still
+  // kick a refresh for the active account so the UI is current.
+  const messages = (inboxLive.byAccount?.[active?.id]?.messages) || [];
+  const unreadByAccount = inboxLive.unreadByAccount || {};
+  const loading = !!inboxLive.loading?.[active?.id];
+  function setMessages(updater) {
+    if (!active) return;
+    inboxLive.patchMessages(active.id, typeof updater === 'function' ? updater : () => updater);
+  }
+  function setUnreadByAccount() { /* owned by InboxLiveProvider */ }
   const load = useCallback(async () => {
-    if (!active || !isLive) { setMessages([]); return; }
-    setLoading(true); setErr(null); setNotLoggedIn(false);
-    await window.api.session.prepareForAccount({ accountId: active.id });
-    const res = await window.api.inbox.fetch({ token, accountId: active.id, folder });
-    setLoading(false);
-    if (res.ok) {
-      setMessages(res.messages || []);
-      const u = (res.messages || []).filter((m) => m.isNew).length;
-      setUnreadByAccount((prev) => ({ ...prev, [active.id]: u }));
-    } else if (res.notLoggedIn) { setNotLoggedIn(true); setMessages([]); }
-    else setErr(res.error);
-  }, [active?.id, folder, token, isLive]);
+    if (!active || !isLive) return;
+    setErr(null); setNotLoggedIn(false);
+    try { await inboxLive.refresh(active.id, folder); }
+    catch (e) { setErr(e?.message || String(e)); }
+  }, [active?.id, folder, isLive, inboxLive]);
 
   useEffect(() => { load(); setSelectedThreadKey(null); }, [load]);
   // When the user leaves a thread (closes selection or switches platforms),
@@ -100,20 +103,9 @@ export default function InboxPage({ embedded, standalone, navigate }) {
     return () => clearInterval(id);
   }, [load, active, isLive, selectedThreadKey]);
 
-  useEffect(() => {
-    if (!isLive || !platformAccounts || platformAccounts.length <= 1) return;
-    let cancelled = false;
-    (async () => {
-      for (const a of platformAccounts) {
-        if (cancelled || a.id === active?.id) continue;
-        await window.api.session.prepareForAccount({ accountId: a.id });
-        const r = await window.api.inbox.fetch({ token, accountId: a.id, folder: 'unread' });
-        if (cancelled) return;
-        if (r.ok) setUnreadByAccount((prev) => ({ ...prev, [a.id]: (r.messages || []).length }));
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [platformAccounts, active?.id, token, isLive]);
+  // Cross-account unread polling now lives in InboxLiveProvider so it keeps
+  // running even when this page is unmounted (Dashboard / Scheduler / etc).
+  // No local fetch needed here.
 
   // Group messages into conversation threads. Reddit returns nested `replies`
   // so each message has a `firstMessageName` pointing at the root — we group
@@ -234,11 +226,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
             <button className="ghost" onClick={load} disabled={loading || !isLive}>↻ Refresh Account</button>
             <button className="ghost" disabled={!isLive} onClick={async () => {
-              for (const a of platformAccounts) {
-                await window.api.session.prepareForAccount({ accountId: a.id });
-                const r = await window.api.inbox.fetch({ token, accountId: a.id, folder: 'unread' });
-                if (r.ok) setUnreadByAccount((p) => ({ ...p, [a.id]: (r.messages || []).length }));
-              }
+              for (const a of platformAccounts) await inboxLive.refresh(a.id, 'unread');
             }}>↻ Refresh All Accounts</button>
             {navigate && <button className="ghost" onClick={() => navigate('add-accounts', { tab: 'proxies' })}>⚙ Proxies</button>}
             {!standalone && <button className="ghost" onClick={popOut}>⧉ Pop out</button>}

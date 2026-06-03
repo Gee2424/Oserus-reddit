@@ -124,9 +124,12 @@ function register(ipcMain) {
 
     const accounts = getDb()
       .prepare(
-        `SELECT a.*, p.label AS proxy_label, p.kind AS proxy_kind
+        `SELECT a.*,
+                COALESCE(a.proxy_id, mp.proxy_id) AS effective_proxy_id,
+                p.label AS proxy_label, p.kind AS proxy_kind
          FROM reddit_accounts a
-         LEFT JOIN proxies p ON p.id = a.proxy_id
+         LEFT JOIN model_profiles mp ON mp.id = a.profile_id
+         LEFT JOIN proxies p ON p.id = COALESCE(a.proxy_id, mp.proxy_id)
          WHERE a.profile_id = ? ${platformClause}
          ORDER BY a.platform, a.status, a.username`
       )
@@ -156,14 +159,18 @@ function register(ipcMain) {
     }
     const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
+    // Effective proxy = account-level proxy (if set) OR fallback to the model
+    // profile's proxy. Without the fallback, the Dashboard reports 'NO PROXY'
+    // for accounts whose model has a proxy assigned at the model level.
     const accounts = getDb()
       .prepare(
         `SELECT a.*, p.name AS profile_name, p.main_email AS profile_main_email,
+                COALESCE(a.proxy_id, p.proxy_id) AS effective_proxy_id,
                 px.label AS proxy_label, px.kind AS proxy_kind,
                 px.last_test_ok AS proxy_test_ok, px.last_test_error AS proxy_test_error
          FROM reddit_accounts a
          JOIN model_profiles p ON p.id = a.profile_id
-         LEFT JOIN proxies px ON px.id = a.proxy_id
+         LEFT JOIN proxies px ON px.id = COALESCE(a.proxy_id, p.proxy_id)
          ${whereClause}
          ORDER BY p.name, a.platform, a.status, a.username`
       )
