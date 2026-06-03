@@ -36,6 +36,15 @@ export default function UnifiedBrowser({ navigate, modelId: initialModelId }) {
     })();
   }, [activeId, token]);
 
+  // Pop-out: opens the launcher for the current model in its own BrowserWindow
+  // via window:openModelLauncher. The popout is keyed by model id so a second
+  // click just focuses the existing window. While popped out the user can keep
+  // navigating the main workspace; the popout stays alive until they close it.
+  async function popOutActive() {
+    if (!activeId) return;
+    await window.api.windows.openModelLauncher({ profileId: Number(activeId) });
+  }
+
   if (activeId) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 60px)', margin: -24 }}>
@@ -52,6 +61,12 @@ export default function UnifiedBrowser({ navigate, modelId: initialModelId }) {
           >
             {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
+          <button
+            className="ghost"
+            onClick={popOutActive}
+            style={{ marginLeft: 'auto', fontSize: 12 }}
+            title="Open this model's launcher in its own window — keeps running while you use the rest of the app"
+          >⧉ Pop out</button>
         </div>
         <div style={{ flex: 1, minHeight: 0 }}>
           <ModelLauncher modelId={activeId} />

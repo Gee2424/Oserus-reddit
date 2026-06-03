@@ -42,6 +42,15 @@ function Inner() {
   const { user, loading } = useAuth();
   const [route, setRoute] = useState('dashboard');
   const [routeParams, setRouteParams] = useState({});
+  // Force a re-parse of the hash whenever it changes so popouts can switch
+  // routes / modelId in-place (e.g. ModelLauncher's model picker) without a
+  // full page reload that would destroy every webview.
+  const [, forceHash] = React.useState(0);
+  React.useEffect(() => {
+    const onHash = () => forceHash((n) => n + 1);
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
   const popoutInfo = getPopoutInfo();
   const popoutRoute = popoutInfo?.route;
   const popoutParams = popoutInfo?.params || {};

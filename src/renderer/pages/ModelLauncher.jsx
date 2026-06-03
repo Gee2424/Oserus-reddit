@@ -109,6 +109,9 @@ export default function ModelLauncher({ modelId }) {
   const [profile, setProfile] = useState(null);
   const [accounts, setAccounts] = useState([]);
   const [activeId, setActiveId] = useState(null);
+  // All models — populated in popout windows so the user can switch model
+  // without going back to the main app.
+  const [allModels, setAllModels] = useState([]);
   const [urls, setUrls] = useState({});           // accountId → current URL
   // Tabs only get mounted once the user has visited them. Saves the cost of
   // spinning up a Chromium process per account on first paint.
@@ -140,11 +143,31 @@ export default function ModelLauncher({ modelId }) {
       }
       const profiles = await window.api.profiles.list({ token });
       if (profiles.ok) {
-        const p = (profiles.profiles || []).find((x) => x.id === Number(modelId));
+        const all = profiles.profiles || [];
+        setAllModels(all);
+        const p = all.find((x) => x.id === Number(modelId));
         if (p) setProfile(p);
       }
     })();
   }, [modelId, token]);
+
+  // In a popout the URL hash is the source of truth for modelId. Switching
+  // models updates the hash so a reload lands on the same model.
+  function switchModel(nextId) {
+    if (!nextId || Number(nextId) === Number(modelId)) return;
+    try {
+      const hash = (window.location.hash || '').replace(/^#/, '');
+      const params = new URLSearchParams(hash);
+      params.set('modelId', String(nextId));
+      const next = '#' + params.toString();
+      // pushState + hashchange so App.jsx re-parses without a full reload
+      // (a full reload would destroy every webview and re-mount Chromium).
+      window.history.replaceState(null, '', next);
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    } catch {
+      window.location.reload();
+    }
+  }
 
   // Attach a dom-ready hook to every webview tab so it autofills credentials
   // the first time the login form appears on that tab. Runs after navigation
@@ -219,7 +242,21 @@ export default function ModelLauncher({ modelId }) {
         padding: '10px 14px', borderBottom: '1px solid #1f1f21',
         display: 'flex', alignItems: 'center', gap: 12, background: '#0f0f10',
       }}>
-        <div style={{ fontSize: 14, fontWeight: 700 }}>{profile ? profile.name : 'Loading…'}</div>
+        {allModels.length > 1 ? (
+          <select
+            value={modelId || ''}
+            onChange={(e) => switchModel(e.target.value)}
+            style={{
+              background: '#1a1a1c', color: '#fff', border: '1px solid #2a2a2c',
+              borderRadius: 6, padding: '4px 10px', fontSize: 13, fontWeight: 700,
+            }}
+            title="Switch model — keeps this window, swaps the tabs"
+          >
+            {allModels.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        ) : (
+          <div style={{ fontSize: 14, fontWeight: 700 }}>{profile ? profile.name : 'Loading…'}</div>
+        )}
         <div style={{ color: '#818384', fontSize: 11 }}>· {accounts.length} account{accounts.length === 1 ? '' : 's'}</div>
         <div style={{ flex: 1 }} />
         {active && (
