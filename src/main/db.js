@@ -268,6 +268,17 @@ function initDatabase() {
       last_run_at TEXT
     );
 
+    -- Editable per-job system prompts for the autopilot AI. NULL profile_id
+    -- is the global default for that job; a row with a profile_id overrides
+    -- for that model only. job ∈ ('post_sfw','post_nsfw','comment').
+    CREATE TABLE IF NOT EXISTS autopilot_prompts (
+      job TEXT NOT NULL,
+      profile_id INTEGER REFERENCES model_profiles(id) ON DELETE CASCADE,
+      prompt TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (job, profile_id)
+    );
+
     -- One row per auto-comment session for the log.
     CREATE TABLE IF NOT EXISTS auto_comment_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

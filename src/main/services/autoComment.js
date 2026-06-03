@@ -7,8 +7,8 @@ const { getDb } = require('../db');
 const { partitionFor, request, modhashFor } = require('./redditSession');
 
 async function callAIWrap(system, user) {
-  const { callAI } = require('./postgen');
-  return callAI(system, user, { maxTokens: 600 });
+  const { callAutopilotAI } = require('./postgen');
+  return callAutopilotAI(system, user, { maxTokens: 600 });
 }
 
 async function pickPostFromSub(partition, sub) {
@@ -42,7 +42,7 @@ async function runOnce(accountId, { dryRun = false } = {}) {
   if (!subs.length) return { ok: false, error: 'No target subs configured' };
 
   const acct = db.prepare(
-    `SELECT a.id, a.username, a.partition_key, p.name AS profile_name, p.brand_voice
+    `SELECT a.id, a.username, a.partition_key, a.profile_id, p.name AS profile_name, p.brand_voice
        FROM reddit_accounts a
        JOIN model_profiles p ON p.id = a.profile_id
       WHERE a.id = ?`
@@ -88,13 +88,20 @@ async function runOnce(accountId, { dryRun = false } = {}) {
     ).all(accountId);
   } catch {}
 
-  const system = [
-    `You are this Reddit user: u/${acct.username}.`,
-    acct.brand_voice ? `Voice: ${acct.brand_voice}` : '',
-    'Write ONE comment reply for the post below. Match the tone and angle of the example replies — concise, casual, real-person. No marketing, no promo, no AI tells. 1-4 sentences.',
-    examples.length ? '\nHow this account usually replies:\n' + examples.map((e, i) => `${i + 1}. PARENT: "${e.parent_title}"${e.parent_body ? ' / ' + String(e.parent_body).slice(0, 160) : ''}\n   YOUR REPLY: "${String(e.comment_body).slice(0, 300)}"`).join('\n') : '',
-    '\nOutput ONLY the comment text. No quotes, no preface, no signature.',
-  ].filter(Boolean).join('\n');
+  // Resolve the editable comment-template (per-model override → global → default)
+  // and interpolate {{vars}}. Examples are appended after as a static block.
+  const { resolveAutopilotPrompt, interpolatePrompt } = require('./postgen');
+  const tmpl = resolveAutopilotPrompt('comment', acct.profile_id);
+  const base = interpolatePrompt(tmpl, {
+    username: acct.username,
+    brand_voice: acct.brand_voice || '',
+    brand_voice_line: acct.brand_voice ? `Voice: ${acct.brand_voice}` : '',
+    model_name: acct.profile_name || '',
+  });
+  const examplesBlock = examples.length
+    ? '\n\nHow this account usually replies:\n' + examples.map((e, i) => `${i + 1}. PARENT: "${e.parent_title}"${e.parent_body ? ' / ' + String(e.parent_body).slice(0, 160) : ''}\n   YOUR REPLY: "${String(e.comment_body).slice(0, 300)}"`).join('\n')
+    : '';
+  const system = base + examplesBlock;
 
   const top = thread.comments.map((c) => `- u/${c.author} (${c.score}↑): ${String(c.body).slice(0, 220)}`).join('\n');
   const userMsg = `Subreddit: r/${sub}\nPost title: "${post.title}"\n${(thread.post?.selftext || post.selftext) ? `Post body: ${String(thread.post?.selftext || post.selftext).slice(0, 600)}\n` : ''}${top ? `\nExisting top replies:\n${top}\n` : ''}\nWrite your one-comment reply now.`;

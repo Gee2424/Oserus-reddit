@@ -86,6 +86,101 @@ function register(ipcMain) {
     }
   });
 
+  // --- AUTOPILOT AI: dedicated Anthropic key + editable per-job prompt library ---
+  // The autopilot key is separate from the main Anthropic key so agencies can
+  // bill autopilot to its own workspace. Fail-closed: no fallback to the main
+  // key if this one isn't set.
+  ipcMain.handle('autopilot:getConfig', (_e, { token }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      return {
+        ok: true,
+        hasKey: !!getSetting('autopilot_anthropic_api_key'),
+        model: getSetting('autopilot_anthropic_model') || 'claude-haiku-4-5',
+      };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('autopilot:setKey', (_e, { token, apiKey }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'ai.admin');
+      setSetting('autopilot_anthropic_api_key', apiKey ? encryptSecret(apiKey) : null);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('autopilot:setModel', (_e, { token, model }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'ai.admin');
+      setSetting('autopilot_anthropic_model', model || 'claude-haiku-4-5');
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  // Returns the editor state: defaults (read-only, for the "Reset" button) and
+  // every override row. Renderer groups by job + profile.
+  ipcMain.handle('autopilot:getPrompts', (_e, { token }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      const { DEFAULT_AUTOPILOT_PROMPTS } = require('../services/postgen');
+      const overrides = getDb().prepare(
+        'SELECT job, profile_id, prompt, updated_at FROM autopilot_prompts ORDER BY job, profile_id'
+      ).all();
+      const profiles = getDb().prepare(
+        'SELECT id, name FROM model_profiles ORDER BY name'
+      ).all();
+      return { ok: true, defaults: DEFAULT_AUTOPILOT_PROMPTS, overrides, profiles };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('autopilot:setPrompt', (_e, { token, job, profileId, prompt }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'ai.admin');
+      const allowed = ['post_sfw', 'post_nsfw', 'comment'];
+      if (!allowed.includes(job)) throw new Error('Unknown job');
+      const text = String(prompt || '').trim();
+      if (!text) throw new Error('Prompt cannot be empty');
+      const pid = profileId || null;
+      // Composite PRIMARY KEY (job, profile_id) — but SQLite treats NULL in a
+      // PK column as distinct, so we DELETE then INSERT to keep upsert semantics
+      // for the global-default row.
+      const db = getDb();
+      if (pid == null) {
+        db.prepare('DELETE FROM autopilot_prompts WHERE job = ? AND profile_id IS NULL').run(job);
+        db.prepare('INSERT INTO autopilot_prompts (job, profile_id, prompt) VALUES (?, NULL, ?)').run(job, text);
+      } else {
+        db.prepare(
+          `INSERT INTO autopilot_prompts (job, profile_id, prompt) VALUES (?, ?, ?)
+           ON CONFLICT(job, profile_id) DO UPDATE SET prompt = excluded.prompt, updated_at = datetime('now')`
+        ).run(job, pid, text);
+      }
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('autopilot:deletePrompt', (_e, { token, job, profileId }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'ai.admin');
+      const db = getDb();
+      if (profileId == null) {
+        db.prepare('DELETE FROM autopilot_prompts WHERE job = ? AND profile_id IS NULL').run(job);
+      } else {
+        db.prepare('DELETE FROM autopilot_prompts WHERE job = ? AND profile_id = ?').run(job, profileId);
+      }
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
   // --- IMPROVE TITLE ---
   ipcMain.handle('ai:improveTitle', async (_e, { token, accountId, currentTitle, subreddit, mode }) => {
     try {

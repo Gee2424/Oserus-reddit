@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import { Tag } from '../components/ui.jsx';
 import ProxiesPanel from '../components/ProxiesPanel.jsx';
+import AutopilotAIPanel from '../components/AutopilotAIPanel.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 
 export default function SettingsPage({ navigate }) {
@@ -202,6 +203,8 @@ export default function SettingsPage({ navigate }) {
           )}
         </div>
       )}
+
+      {isAdmin && <AutopilotAIPanel token={token} />}
 
       {isAdmin && (
         <div className="card" style={{ marginBottom: 22, borderColor: hasApiKey ? 'var(--ok)' : 'var(--border)' }}>

@@ -87,6 +87,14 @@ const api = {
     suggestPost: (data) => ipcRenderer.invoke('ai:suggestPost', data),
     improveTitle: (data) => ipcRenderer.invoke('ai:improveTitle', data),
   },
+  autopilotAI: {
+    getConfig: (data) => ipcRenderer.invoke('autopilot:getConfig', data),
+    setKey: (data) => ipcRenderer.invoke('autopilot:setKey', data),
+    setModel: (data) => ipcRenderer.invoke('autopilot:setModel', data),
+    getPrompts: (data) => ipcRenderer.invoke('autopilot:getPrompts', data),
+    setPrompt: (data) => ipcRenderer.invoke('autopilot:setPrompt', data),
+    deletePrompt: (data) => ipcRenderer.invoke('autopilot:deletePrompt', data),
+  },
   subs: {
     listWarmup: (data) => ipcRenderer.invoke('subs:listWarmup', data),
     createWarmup: (data) => ipcRenderer.invoke('subs:createWarmup', data),

@@ -88,16 +88,111 @@ async function callAI(system, userMessage, options = {}) {
   throw new Error('No AI API key configured — set Anthropic or Grok in Configuration.');
 }
 
+// Autopilot-only Claude call. Uses a SEPARATE Anthropic key
+// (`autopilot_anthropic_api_key`) so agencies can isolate autopilot spend on a
+// dedicated workspace. Fails closed when the key is missing — no fallback to
+// the main Anthropic key, by user choice.
+async function callAutopilotAI(system, userMessage, options = {}) {
+  const encKey = getSetting('autopilot_anthropic_api_key');
+  if (!encKey) {
+    throw new Error('Autopilot AI key not configured. Set it in Settings → Autopilot AI.');
+  }
+  const { decryptSecret } = require('../db');
+  const model = options.model || getSetting('autopilot_anthropic_model') || 'claude-haiku-4-5';
+  return callClaude(decryptSecret(encKey), system, userMessage, { ...options, model });
+}
+
+// Default system-prompt templates for each autopilot job. These get used when
+// no row exists in `autopilot_prompts` for the (job, profile_id) pair. The
+// editor in Settings → Autopilot AI lets admins copy these into editable
+// overrides — global or per-model.
+const DEFAULT_AUTOPILOT_PROMPTS = {
+  post_sfw: `You generate Reddit post ideas for a brand-new account that is warming up by posting in mainstream, non-promotional subreddits. The account is run by a person (not a marketer) who wants to engage genuinely with these communities, build comment karma, and look like a normal Redditor.
+
+Output STRICTLY valid JSON with no markdown, no preamble, no code fences:
+{
+  "suggestions": [
+    {
+      "subreddit": "exact_subreddit_name",
+      "title": "the post title (under 300 chars)",
+      "body": "post body if it's a text post (can be empty string for link/image posts)",
+      "kind": "self" | "link" | "image",
+      "rationale": "one sentence on why this fits the sub"
+    }
+  ]
+}
+
+Rules:
+- {{subreddit_rule}}
+- Titles must sound like a real person wrote them: lowercase okay, typos rarely okay, casual phrasing. Avoid corporate or AI-flavored phrases.
+- ABSOLUTELY NO mention of OnlyFans, the model's brand, "DM me", links to external sites, or anything promotional. This is pure community engagement.
+- No sexual content. No flirting. This is the warm-up phase.
+- Vary the post types: a question, a story/observation, a confession, etc.
+- Match the vibe of the chosen subreddit.
+
+Give 3 suggestions{{target_clause}}.`,
+
+  post_nsfw: `You generate Reddit post ideas for an OnlyFans model's established promotional account.
+
+Output STRICTLY valid JSON with no markdown, no preamble, no code fences:
+{
+  "suggestions": [
+    {
+      "subreddit": "exact_subreddit_name",
+      "title": "the post title (under 300 chars)",
+      "image_direction": "what the image should show (1-2 sentences, no nudity descriptions — just composition, mood, lighting)",
+      "rationale": "one sentence on why this combo works"
+    }
+  ]
+}
+
+Rules:
+- {{subreddit_rule}}
+- Titles should feel like a real human wrote them: casual, sometimes a question, sometimes a teasing statement. Avoid AI-flavored phrasing.
+- Image direction describes composition and mood only — what the model is wearing/doing/where she's looking. Do NOT describe nudity or sexual acts; the user (the VA) will produce the actual content.
+- Vary angle across the 3 suggestions: one playful, one direct, one teasing/curious.
+
+Give 3 suggestions{{target_clause}}.`,
+
+  comment: `You are this Reddit user: u/{{username}}.
+{{brand_voice_line}}
+Write ONE comment reply for the post below. Match the tone and angle of the example replies — concise, casual, real-person. No marketing, no promo, no AI tells. 1-4 sentences.
+
+Output ONLY the comment text. No quotes, no preface, no signature.`,
+};
+
+function interpolatePrompt(template, vars) {
+  return String(template || '').replace(/\{\{(\w+)\}\}/g, (_, k) => (vars[k] != null ? String(vars[k]) : ''));
+}
+
+// Resolve the active prompt for a job: per-model override > global override >
+// hardcoded default. Returns the raw template string (with {{vars}}).
+function resolveAutopilotPrompt(job, profileId) {
+  try {
+    const db = getDb();
+    if (profileId) {
+      const row = db.prepare('SELECT prompt FROM autopilot_prompts WHERE job = ? AND profile_id = ?').get(job, profileId);
+      if (row && row.prompt) return row.prompt;
+    }
+    const global = db.prepare('SELECT prompt FROM autopilot_prompts WHERE job = ? AND profile_id IS NULL').get(job);
+    if (global && global.prompt) return global.prompt;
+  } catch {}
+  return DEFAULT_AUTOPILOT_PROMPTS[job] || '';
+}
+
 function tryParseJson(text) {
   const cleaned = text.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/\s*```\s*$/, '').trim();
   return JSON.parse(cleaned);
 }
 
-async function generatePost({ accountId, mode, hint, targetSubreddit }) {
-  // We dispatch through callAI now so providers (Anthropic + Grok) are
-  // chosen by the ai_provider setting with sensible fallback. Either key is
-  // sufficient.
-  if (!getSetting('anthropic_api_key') && !getSetting('grok_api_key')) {
+async function generatePost({ accountId, mode, hint, targetSubreddit, autopilot = false }) {
+  // Manual VA flow uses callAI (main Anthropic or Grok key). Autopilot flow
+  // uses callAutopilotAI (dedicated autopilot_anthropic_api_key, fail-closed).
+  if (autopilot) {
+    if (!getSetting('autopilot_anthropic_api_key')) {
+      throw new Error('Autopilot AI key not configured. Set it in Settings → Autopilot AI.');
+    }
+  } else if (!getSetting('anthropic_api_key') && !getSetting('grok_api_key')) {
     throw new Error('No AI API key set. Add Anthropic or Grok in Configuration.');
   }
 
@@ -145,9 +240,32 @@ async function generatePost({ accountId, mode, hint, targetSubreddit }) {
   const cleanTarget = targetSubreddit ? String(targetSubreddit).replace(/^\/?r\//i, '').trim() : null;
   const targetOnList = cleanTarget && candidates.some((c) => c.name.toLowerCase() === cleanTarget.toLowerCase());
 
+  // {{vars}} for prompt-template interpolation. subreddit_rule + target_clause
+  // are derived from cleanTarget/targetOnList so the template can stay generic.
+  const subredditRule = cleanTarget && !targetOnList
+    ? `Write ALL suggestions for r/${cleanTarget} specifically (the user picked this subreddit even though it isn't on the saved list).`
+    : 'Pick the subreddit ONLY from the list provided. Use the exact name.';
+  const targetClause = cleanTarget && !targetOnList
+    ? ` for r/${cleanTarget}`
+    : ', each targeting a DIFFERENT subreddit when possible';
+  const promptVars = {
+    username: account.username,
+    model_name: account.profile_name || '',
+    niche: account.niche || '',
+    brand_voice: account.brand_voice || '',
+    target_subreddit: cleanTarget || '',
+    hint: hint || '',
+    subreddit_rule: subredditRule,
+    target_clause: targetClause,
+  };
+
   let system, userMsg;
   if (isSfw) {
-    system = `You generate Reddit post ideas for a brand-new account that is warming up by posting in mainstream, non-promotional subreddits. The account is run by a person (not a marketer) who wants to engage genuinely with these communities, build comment karma, and look like a normal Redditor.
+    // Autopilot uses the editable template; manual VA path keeps the hardcoded
+    // prompt so behavior stays identical when no override exists.
+    system = autopilot
+      ? interpolatePrompt(resolveAutopilotPrompt('post_sfw', account.profile_id), promptVars)
+      : `You generate Reddit post ideas for a brand-new account that is warming up by posting in mainstream, non-promotional subreddits. The account is run by a person (not a marketer) who wants to engage genuinely with these communities, build comment karma, and look like a normal Redditor.
 
 Output STRICTLY valid JSON with no markdown, no preamble, no code fences:
 {
@@ -163,16 +281,14 @@ Output STRICTLY valid JSON with no markdown, no preamble, no code fences:
 }
 
 Rules:
-- ${cleanTarget && !targetOnList
-      ? `Write ALL suggestions for r/${cleanTarget} specifically (the user picked this subreddit even though it isn't on the saved list).`
-      : 'Pick the subreddit ONLY from the list provided. Use the exact name.'}
+- ${subredditRule}
 - Titles must sound like a real person wrote them: lowercase okay, typos rarely okay, casual phrasing. Avoid corporate or AI-flavored phrases.
 - ABSOLUTELY NO mention of OnlyFans, the model's brand, "DM me", links to external sites, or anything promotional. This is pure community engagement.
 - No sexual content. No flirting. This is the warm-up phase.
 - Vary the post types: a question, a story/observation, a confession, etc.
 - Match the vibe of the chosen subreddit.
 
-Give 3 suggestions${cleanTarget && !targetOnList ? ` for r/${cleanTarget}` : ', each targeting a DIFFERENT subreddit when possible'}.`;
+Give 3 suggestions${targetClause}.`;
 
     userMsg = `Reddit username: u/${account.username}
 Account status: ${account.status} (warming up — building karma in mainstream subs)
@@ -186,7 +302,9 @@ ${cleanTarget && targetOnList ? `\nFocus on r/${cleanTarget} if it's appropriate
 
 Generate 3 post ideas.`;
   } else {
-    system = `You generate Reddit post ideas for an OnlyFans model's established promotional account.
+    system = autopilot
+      ? interpolatePrompt(resolveAutopilotPrompt('post_nsfw', account.profile_id), promptVars)
+      : `You generate Reddit post ideas for an OnlyFans model's established promotional account.
 
 Output STRICTLY valid JSON with no markdown, no preamble, no code fences:
 {
@@ -282,7 +400,9 @@ Generate 3 post ideas.`;
     }
   } catch {}
 
-  const text = await callAI(system, userMsg);
+  const text = autopilot
+    ? await callAutopilotAI(system, userMsg)
+    : await callAI(system, userMsg);
   try {
     const parsed = tryParseJson(text);
     return { ok: true, mode: isSfw ? 'sfw' : 'nsfw', suggestions: parsed.suggestions || [] };
@@ -291,4 +411,8 @@ Generate 3 post ideas.`;
   }
 }
 
-module.exports = { generatePost, callGrok, callClaude, callAI, tryParseJson, getSetting };
+module.exports = {
+  generatePost, callGrok, callClaude, callAI, callAutopilotAI,
+  tryParseJson, getSetting,
+  resolveAutopilotPrompt, interpolatePrompt, DEFAULT_AUTOPILOT_PROMPTS,
+};

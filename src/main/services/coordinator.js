@@ -51,7 +51,7 @@ async function generatePostFor(account) {
   // Reuse the AI service's post generator. Warming accounts → SFW warm-up
   // content from the global warm-up subs; ready accounts → promo.
   const mode = account.status === 'ready' ? 'nsfw' : 'sfw';
-  const res = await generatePost({ accountId: account.id, mode });
+  const res = await generatePost({ accountId: account.id, mode, autopilot: true });
   if (!res.ok || !res.suggestions || !res.suggestions.length) return null;
   const pick = res.suggestions[0];
   return {
@@ -198,7 +198,7 @@ async function runDueScheduled() {
       let kind = post.kind || 'self';
       if (post.auto_generate && !title) {
         try {
-          const g = await generatePost({ accountId: post.account_id, mode: 'sfw', targetSubreddit: post.subreddit });
+          const g = await generatePost({ accountId: post.account_id, mode: 'sfw', targetSubreddit: post.subreddit, autopilot: true });
           const pick = (g.suggestions || [])[0];
           if (pick) {
             title = pick.title || '';
