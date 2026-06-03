@@ -60,8 +60,8 @@ export default function SchedulerProPage({ initialProTab, navigate }) {
   const [dragOverDay, setDragOverDay] = useState(null); // YYYY-MM-DD highlighted as drop target
   // Scheduler now lands directly on the merged composer + AI settings view.
   // Configure/Run/Monitor/Replenish tiles still navigate from the row above.
-  const [showCompose, setShowCompose] = useState(true);
-  const [showAI, setShowAI] = useState(true);
+  // Composer + AI Settings are always-visible sections of the page now —
+  // no toggles. They live inline as one merged workspace.
 
   const load = useCallback(async () => {
     const res = await window.api.scheduled.list({
@@ -143,10 +143,6 @@ export default function SchedulerProPage({ initialProTab, navigate }) {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <PopOutButton route="scheduler-pro" title="Scheduler" />
-          {mode === 'advanced' && <button className="ghost" onClick={() => setShowAI((v) => !v)}>{showAI ? 'Close AI' : '✦ AI Settings'}</button>}
-          <button className="primary" onClick={() => setShowCompose((v) => !v)}>
-            {showCompose ? 'Close' : '+ Schedule posts'}
-          </button>
         </div>
       </div>
 
@@ -174,16 +170,15 @@ export default function SchedulerProPage({ initialProTab, navigate }) {
 
       {(mode === 'basic' || proTab === 'configure') ? <>
 
-      {showAI && <AISettings token={token} onMsg={setMsg} onError={setErr} />}
-
-      {showCompose && (
-        <Composer
+      {/* Merged workspace: Composer + AI Settings always visible, no toggles. */}
+      <Composer
           token={token}
           accounts={accounts}
-          onDone={() => { setShowCompose(false); load(); setMsg('Scheduled.'); }}
+          onDone={() => { load(); setMsg('Scheduled.'); }}
           onError={setErr}
         />
-      )}
+
+      <AISettings token={token} onMsg={setMsg} onError={setErr} />
 
       {/* Refresh control (filter row + Timeline view removed — Columns only) */}
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
