@@ -249,17 +249,20 @@ export default function ModelLauncher({ modelId }) {
         )}
       </div>
 
-      {/* Webview surface — LAZY mount: only tabs the user has visited get
-          mounted (each webview = a full Chromium process; mounting all 5-25
-          at once was making the page unusable). Once visited, a tab stays
-          mounted so cookies persist and switching back is instant. */}
+      {/* Webview surface — all tabs mount into the React tree (so refs / cookies
+          stay stable across switches), but only tabs the user has VISITED
+          actually load a URL. Unvisited tabs sit at about:blank, which means
+          no Chromium process spins up until you click that tab. That's the
+          perf win without the mount/unmount churn that broke the launcher. */}
       <div style={{ flex: 1, position: 'relative' }}>
-        {accounts.filter((a) => visited[a.id]).map((a) => (
+        {accounts.map((a) => (
           <webview
             key={a.id}
             ref={(el) => { if (el) webviewRefs.current[a.id] = el; }}
             partition={`persist:${a.partition_key}`}
-            src={urls[a.id] || PLATFORM_MAP[a.platform || 'reddit']?.home || 'about:blank'}
+            src={visited[a.id]
+              ? (urls[a.id] || PLATFORM_MAP[a.platform || 'reddit']?.home || 'about:blank')
+              : 'about:blank'}
             style={{
               position: 'absolute', inset: 0,
               display: a.id === activeId ? 'flex' : 'none',
