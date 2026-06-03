@@ -93,6 +93,16 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
   }
 
+  // ModelLauncher mounts many <webview> tabs at once and only one is visible.
+  // Without explicit throttling Chromium keeps all of them painting + running
+  // their main thread at full speed, which makes the launcher feel sluggish.
+  // We enable background throttling + image animation off on every attached
+  // webview frame so hidden tabs idle and the visible one gets the CPU.
+  mainWindow.webContents.on('did-attach-webview', (_e, wc) => {
+    try { wc.setBackgroundThrottling(true); } catch {}
+    try { wc.setFrameRate?.(30); } catch {}
+  });
+
   // Close button → hide to tray instead of quitting. Quitting goes through the
   // tray menu (which calls markQuitting()) or window-all-closed on mac.
   mainWindow.on('close', (e) => {

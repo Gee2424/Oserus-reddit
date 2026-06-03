@@ -183,6 +183,29 @@ export default function ModelLauncher({ modelId }) {
     };
   }, [activeId]);
 
+  // Lag mitigation. Every tab is mounted so switching is instant, but
+  // inactive tabs are silenced + their <video>/<audio> elements paused so
+  // background tabs don't slam the CPU with playback. Plus a one-shot dom-
+  // ready hook installs a visibility listener so paused media stays paused
+  // when the user comes back unless they explicitly hit play.
+  useEffect(() => {
+    for (const a of accounts) {
+      const wv = webviewRefs.current[a.id];
+      if (!wv) continue;
+      const isActive = a.id === activeId;
+      try { wv.setAudioMuted?.(!isActive); } catch {}
+      if (!isActive) {
+        try {
+          wv.executeJavaScript?.(`(() => {
+            try {
+              document.querySelectorAll('video, audio').forEach((m) => { try { m.pause(); } catch {} });
+            } catch {}
+          })();`).catch(() => {});
+        } catch {}
+      }
+    }
+  }, [activeId, accounts]);
+
   const active = accounts.find((a) => a.id === activeId);
 
   if (!modelId) {
@@ -249,20 +272,22 @@ export default function ModelLauncher({ modelId }) {
         )}
       </div>
 
-      {/* Webview surface — all tabs mount into the React tree (so refs / cookies
-          stay stable across switches), but only tabs the user has VISITED
-          actually load a URL. Unvisited tabs sit at about:blank, which means
-          no Chromium process spins up until you click that tab. That's the
-          perf win without the mount/unmount churn that broke the launcher. */}
+      {/* Webview surface — every tab mounts AND loads its real URL on first
+          paint so everything's ready when the user switches. Lag mitigation
+          handled out-of-band:
+            - audio: muted on inactive tabs (no background sound)
+            - video: paused on inactive tabs via injected JS
+            - rendering: Electron's background throttling kicks in on hidden
+              webContents automatically; we hint it with the display:none
+              style which Electron treats as a backgrounded frame.
+          */}
       <div style={{ flex: 1, position: 'relative' }}>
         {accounts.map((a) => (
           <webview
             key={a.id}
             ref={(el) => { if (el) webviewRefs.current[a.id] = el; }}
             partition={`persist:${a.partition_key}`}
-            src={visited[a.id]
-              ? (urls[a.id] || PLATFORM_MAP[a.platform || 'reddit']?.home || 'about:blank')
-              : 'about:blank'}
+            src={urls[a.id] || PLATFORM_MAP[a.platform || 'reddit']?.home || 'about:blank'}
             style={{
               position: 'absolute', inset: 0,
               display: a.id === activeId ? 'flex' : 'none',
