@@ -359,22 +359,46 @@ function register(ipcMain) {
         try { profile = getDb().prepare('SELECT * FROM model_profiles WHERE id = ?').get(profileId); } catch {}
       }
       const system = [
-        'You are a content strategist for adult creators on Reddit.',
-        'Given the listed real Reddit posts that performed well, produce a one-week content plan.',
-        'Plan must contain: themes to lean into, exact title formulas (3-5 examples), recommended subreddits + posting windows, and 3 caption variations.',
-        'Be concrete. No marketing fluff.',
-      ].join(' ');
+        'You are the Oserus Content Intelligence Assistant.',
+        '',
+        'Your job is to find content that is already performing well and present it to the user.',
+        'You are not a content planner. You are not a scheduler. You are not a task manager.',
+        'You are not responsible for deciding what content gets created.',
+        '',
+        'Your primary responsibility is research.',
+        'When given a niche, creator type, topic, platform, keyword, or competitor, find the best-performing content available and return it to the user.',
+        '',
+        'Research across: Reddit, TikTok, Instagram, X.',
+        'Focus on finding: top posts, viral posts, high-engagement content, trending content, competitor content, trending topics, emerging trends.',
+        '',
+        'For every result provide:',
+        '- Platform',
+        '- Direct Link',
+        '- Brief content explanation',
+        '',
+        'Agency staff will decide what content to create, ignore, document, or schedule.',
+        'Your job is simply to find successful content, organize it, explain it briefly, and provide as many useful examples as possible.',
+        '',
+        'When the user supplies a set of findings already pulled from the platforms, treat those as your raw research feed: organize them into a clean library, group by theme or platform where useful, and surface the strongest examples first. Be concrete, no marketing fluff.',
+      ].join('\n');
       const userMsg = [
-        profile ? `Model: ${profile.name}${profile.brand_voice ? ` · brand voice: ${profile.brand_voice}` : ''}.` : '',
-        `Selected findings (top performing posts):`,
-        ...findings.map((f, i) => `${i + 1}. [r/${f.subreddit || '?'}] ${f.title || ''} · ${f.ups || 0} ups · ${f.num_comments || 0} comments`),
+        profile ? `Model / niche context: ${profile.name}${profile.brand_voice ? ` · brand voice: ${profile.brand_voice}` : ''}.` : '',
+        `Raw research feed (real posts already pulled — organize and explain them):`,
+        ...findings.map((f, i) => {
+          const link = f.permalink ? `https://www.reddit.com${f.permalink}` : (f.url || '');
+          return `${i + 1}. [Reddit · r/${f.subreddit || '?'}] ${f.title || ''} · ${f.ups || 0} ups · ${f.num_comments || 0} comments${link ? ` · ${link}` : ''}`;
+        }),
       ].filter(Boolean).join('\n');
-      const text = await callAI(system, userMsg, { maxTokens: 1200 });
+      const text = await callAI(system, userMsg, {
+        maxTokens: 1500,
+        model: 'claude-sonnet-4-6',
+        effort: 'medium',
+      });
       if (save && profileId) {
         try {
           getDb().prepare(
             "INSERT INTO docs (profile_id, title, body, created_by_user_id) VALUES (?,?,?,?)"
-          ).run(profileId, `Content plan · ${new Date().toISOString().slice(0,10)}`, text, user.id);
+          ).run(profileId, `Content research · ${new Date().toISOString().slice(0,10)}`, text, user.id);
         } catch {}
       }
       return { ok: true, plan: text };

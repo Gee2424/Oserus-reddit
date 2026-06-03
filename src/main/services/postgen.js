@@ -14,7 +14,7 @@ const { getSetting } = require('./settings');
 // (example posts + comments + persona + CTAs) which gets reused 10-50x/day
 // per account. Cache hits cost ~10% of the first hit so autopilot scales.
 async function callClaude(apiKey, system, userMessage, options = {}) {
-  const model = options.model || getSetting('anthropic_model') || 'claude-haiku-4-5-20251001';
+  const model = options.model || getSetting('anthropic_model') || 'claude-haiku-4-5';
   // Mark the system prompt as cacheable so subsequent calls hit the cache.
   const body = {
     model,
@@ -24,6 +24,11 @@ async function callClaude(apiKey, system, userMessage, options = {}) {
     ],
     messages: [{ role: 'user', content: userMessage }],
   };
+  // Sonnet 4.6 / Opus 4.6+ accept an extended-thinking effort hint. Haiku
+  // doesn't — only attach when caller asks AND model isn't haiku.
+  if (options.effort && !/haiku/i.test(model)) {
+    body.output_config = { effort: options.effort };
+  }
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {

@@ -55,7 +55,7 @@ function register(ipcMain) {
       return {
         ok: true,
         provider: getSetting('ai_provider') || 'anthropic',
-        anthropic: { hasKey: !!getSetting('anthropic_api_key'), model: getSetting('anthropic_model') || 'claude-haiku-4-5-20251001' },
+        anthropic: { hasKey: !!getSetting('anthropic_api_key'), model: getSetting('anthropic_model') || 'claude-haiku-4-5' },
         grok: { hasKey: !!getSetting('grok_api_key'), model: getSetting('grok_model') || 'grok-2-latest' },
       };
     } catch (err) { return { ok: false, error: err.message }; }
