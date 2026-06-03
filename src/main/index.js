@@ -138,22 +138,44 @@ async function prepareSessionForAccount(accountId) {
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
   );
 
-  // Apply proxy. Electron uses Chromium-style proxy rules.
+  // Apply proxy. Electron's proxy story is finicky — three things matter:
+  //   1. Register the 'login' handler BEFORE setProxy so the first 407
+  //      Proxy-Auth-Required challenge gets answered. If we register after,
+  //      the initial CONNECT can fail with ERR_TUNNEL_CONNECTION_FAILED.
+  //   2. proxyBypassRules: '<-loopback>' (Chromium-speak for "DO route
+  //      loopback through the proxy") was wrong — it forced local renderer
+  //      fetches into the tunnel which on some providers fails the handshake.
+  //      Default bypass is fine; localhost stays local, everything else
+  //      routes through the proxy.
+  //   3. For SOCKS5, Electron does NOT consume creds from the proxy URL —
+  //      auth has to come through the login event. Same handler covers
+  //      HTTP/HTTPS too, so one path works for every scheme.
   if (account.proxy_host && account.proxy_port) {
     const scheme = account.proxy_kind === 'socks5' ? 'socks5' : (account.proxy_kind === 'https' ? 'https' : 'http');
     const rules = `${scheme}://${account.proxy_host}:${account.proxy_port}`;
-    await sess.setProxy({ proxyRules: rules, proxyBypassRules: '<-loopback>' });
 
-    // Auth-via-proxy: capture the 'login' event to pass username/password
+    // Wire login handler first (idempotent — replace any prior handler).
+    sess.removeAllListeners('login');
     if (account.proxy_username) {
       const password = decryptSecret(account.proxy_pw_enc) || '';
-      sess.removeAllListeners('login');
-      sess.on('login', (_event, _details, _authInfo, callback) => {
-        callback(account.proxy_username, password);
+      sess.on('login', (event, _details, authInfo, callback) => {
+        // Only answer proxy challenges, not site logins.
+        if (authInfo && authInfo.isProxy) {
+          event.preventDefault();
+          callback(account.proxy_username, password);
+        }
       });
     }
+
+    try {
+      await sess.setProxy({ proxyRules: rules, proxyBypassRules: 'localhost,127.0.0.1' });
+    } catch (e) {
+      elog.error('[proxy] setProxy failed', { accountId, host: account.proxy_host, port: account.proxy_port, error: e?.message });
+      return { ok: false, error: `Proxy config rejected: ${e?.message || e}` };
+    }
   } else {
-    // No proxy assigned — clear any prior proxy on this partition
+    // No proxy assigned — clear any prior proxy + login handler on this partition.
+    sess.removeAllListeners('login');
     await sess.setProxy({ proxyRules: '' });
   }
 
@@ -565,6 +587,36 @@ ipcMain.handle('app:version', () => ({ version: app.getVersion() }));
 
 ipcMain.handle('updater:installNow', () => {
   quitAndInstall();
+});
+
+// App-level proxy-auth fallback. Some partitions (and webcontents loaded
+// before prepareSessionForAccount runs) miss the session-scoped 'login' wire.
+// This handler answers any proxy challenge by looking up the partition the
+// challenged webContents belongs to and pulling that account's proxy creds
+// straight from the DB.
+app.on('login', (event, webContents, _details, authInfo, callback) => {
+  if (!authInfo || !authInfo.isProxy) return;
+  try {
+    const wcPartition = webContents?.session?.getStoragePath?.() || '';
+    // Identify the account by matching its partition_key in the storage path.
+    const db = getDb();
+    const acc = db.prepare(
+      `SELECT a.proxy_username, px.password_encrypted AS pw_enc
+         FROM reddit_accounts a
+         LEFT JOIN proxies px ON px.id = a.proxy_id
+        WHERE a.proxy_id IS NOT NULL
+          AND ? LIKE '%' || a.partition_key || '%'
+        LIMIT 1`
+    ).get(wcPartition);
+    if (acc && acc.proxy_username) {
+      event.preventDefault();
+      const pw = acc.pw_enc ? decryptSecret(acc.pw_enc) : '';
+      callback(acc.proxy_username, pw || '');
+      return;
+    }
+  } catch (e) {
+    elog.warn('[proxy] app-level login lookup failed', e?.message);
+  }
 });
 
 app.whenReady().then(() => {
