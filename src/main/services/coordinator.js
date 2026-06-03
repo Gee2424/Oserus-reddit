@@ -30,6 +30,7 @@ let lastRun = null;
 let lastSummary = null;
 let engagementTimer = null;
 let topicTimer = null;
+let autoCommentTimer = null;
 
 function isEnabled() {
   return getSetting('autopilot_enabled') === '1';
@@ -470,12 +471,18 @@ function start() {
   // Reddit topic discovery — pulls /hot from each model's promo subs every 4h.
   const { topicTick } = require('./topicDiscovery');
   topicTimer = setInterval(() => topicTick().catch(() => {}), 4 * 60 * 60 * 1000);
+  // Auto-comment loop: picks one due account every 3 min, reads a sub +
+  // post + top comments, drafts a reply via the AI provider seeded with
+  // account_example_comments, posts via /api/comment.
+  const { autoCommentTick } = require('./autoComment');
+  autoCommentTimer = setInterval(() => autoCommentTick().catch(() => {}), 3 * 60 * 1000);
   setTimeout(() => runDueScheduled().catch(() => {}), 15 * 1000);
   setTimeout(autoTestProxies, 90 * 1000); // first run a bit after boot
   setTimeout(() => refreshKarmaSnapshots().catch(() => {}), 3 * 60 * 1000);
   setTimeout(tick, 60 * 1000);
   setTimeout(() => engagementTick().catch(() => {}), 2 * 60 * 1000);
   setTimeout(() => topicTick().catch(() => {}), 5 * 60 * 1000);
+  setTimeout(() => autoCommentTick().catch(() => {}), 4 * 60 * 1000);
 }
 
 function stop() {
@@ -486,6 +493,7 @@ function stop() {
   if (karmaTimer) { clearInterval(karmaTimer); karmaTimer = null; }
   if (engagementTimer) { clearInterval(engagementTimer); engagementTimer = null; }
   if (topicTimer) { clearInterval(topicTimer); topicTimer = null; }
+  if (autoCommentTimer) { clearInterval(autoCommentTimer); autoCommentTimer = null; }
 }
 
 function status() {

@@ -166,6 +166,7 @@ const api = {
   },
   intel: {
     list: (data) => ipcRenderer.invoke('intel:list', data),
+    listTopics: (data) => ipcRenderer.invoke('intel:listTopics', data),
     fetch: (data) => ipcRenderer.invoke('intel:fetch', data),
     delete: (data) => ipcRenderer.invoke('intel:delete', data),
     scrapePosts:  (data) => ipcRenderer.invoke('intel:scrapePosts', data),
@@ -218,6 +219,12 @@ const api = {
     set:      (data) => ipcRenderer.invoke('engagement:set', data),
     runNow:   (data) => ipcRenderer.invoke('engagement:runNow', data),
     sessions: (data) => ipcRenderer.invoke('engagement:sessions', data),
+  },
+  autoComment: {
+    get:    (data) => ipcRenderer.invoke('autoComment:get', data),
+    set:    (data) => ipcRenderer.invoke('autoComment:set', data),
+    runNow: (data) => ipcRenderer.invoke('autoComment:runNow', data),
+    runs:   (data) => ipcRenderer.invoke('autoComment:runs', data),
   },
   windows: {
     openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),

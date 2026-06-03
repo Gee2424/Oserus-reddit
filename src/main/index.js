@@ -62,6 +62,7 @@ const registerRedgifsHandlers = require('./ipc/redgifs');
 const registerMessagingHandlers = require('./ipc/messaging');
 const registerExamplesHandlers = require('./ipc/examples');
 const registerEngagementHandlers = require('./ipc/engagement');
+const registerAutoCommentHandlers = require('./ipc/autoComment');
 const coordinator = require('./services/coordinator');
 
 const isDev = !app.isPackaged;
@@ -646,6 +647,7 @@ app.whenReady().then(() => {
   registerMessagingHandlers(ipcMain);
   registerExamplesHandlers(ipcMain);
   registerEngagementHandlers(ipcMain);
+  registerAutoCommentHandlers(ipcMain);
 
   createWindow();
 

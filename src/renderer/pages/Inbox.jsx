@@ -77,14 +77,23 @@ export default function InboxPage({ embedded, standalone, navigate }) {
     inboxLive.patchMessages(active.id, typeof updater === 'function' ? updater : () => updater);
   }
   function setUnreadByAccount() { /* owned by InboxLiveProvider */ }
+  // Pin the refresh function in a ref so this callback doesn't reseed every
+  // time the InboxLiveProvider state changes (which would re-trigger the
+  // load effect and thrash the API).
+  const refreshRef = useRef(inboxLive.refresh);
+  refreshRef.current = inboxLive.refresh;
   const load = useCallback(async () => {
     if (!active || !isLive) return;
     setErr(null); setNotLoggedIn(false);
-    try { await inboxLive.refresh(active.id, folder); }
+    try { await refreshRef.current(active.id, folder); }
     catch (e) { setErr(e?.message || String(e)); }
-  }, [active?.id, folder, isLive, inboxLive]);
+  }, [active?.id, folder, isLive]);
 
-  useEffect(() => { load(); setSelectedThreadKey(null); }, [load]);
+  // On active-account change (or platform / folder change): fire load()
+  // immediately so the view doesn't show empty until the next 60s tick.
+  // We key on active?.id so clicking a different account in the rail
+  // triggers the fetch right away.
+  useEffect(() => { load(); setSelectedThreadKey(null); }, [load, active?.id]);
   // When the user leaves a thread (closes selection or switches platforms),
   // re-fetch so the conversation list reflects the latest state.
   const lastSelectedRef = useRef(null);

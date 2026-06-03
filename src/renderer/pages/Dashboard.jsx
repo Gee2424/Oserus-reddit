@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { Avatar, Tag, StatusPill, StatTile } from '../components/ui.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
 import { platformColor, platformShort } from '../lib/platforms.js';
+import { useInboxLive } from '../lib/inboxLive.jsx';
 
 function fmt(n) { return n == null ? '—' : n.toLocaleString(); }
 function ageFromIso(s) {
@@ -546,19 +547,23 @@ function DashboardBlocks({ token, accounts, navigate }) {
   const [events, setEvents] = useState([]);
   const [scheduled, setScheduled] = useState([]);
   const [karma, setKarma] = useState([]);
+  const [trending, setTrending] = useState([]);
+  const inboxLive = useInboxLive();
 
   useEffect(() => {
     let active = true;
     (async () => {
-      const [e, s, k] = await Promise.all([
+      const [e, s, k, t] = await Promise.all([
         window.api.protocols?.events?.({ token, limit: 12 }).catch(() => ({ ok: false })) || { ok: false },
         window.api.scheduled?.list?.({ token, status: 'pending' }).catch(() => ({ ok: false })) || { ok: false },
         window.api.analytics?.summary?.({ token }).catch(() => ({ ok: false })) || { ok: false },
+        window.api.intel?.listTopics?.({ token, limit: 10 }).catch(() => ({ ok: false })) || { ok: false },
       ]);
       if (!active) return;
       if (e.ok) setEvents(e.events || []);
       if (s.ok) setScheduled(s.posts || []);
       if (k.ok) setKarma(k.accounts || []);
+      if (t.ok) setTrending(t.topics || []);
     })();
     return () => { active = false; };
   }, [token]);
@@ -596,6 +601,43 @@ function DashboardBlocks({ token, accounts, navigate }) {
     .filter((a) => (a.post_karma || 0) + (a.comment_karma || 0) > 0)
     .sort((a, b) => ((b.post_karma || 0) + (b.comment_karma || 0)) - ((a.post_karma || 0) + (a.comment_karma || 0)))
     .slice(0, 6);
+
+  // DM PREVIEWS — newest unread across every reddit account, pulled from the
+  // inbox-live provider so they update without the user being on the inbox
+  // page.
+  const newestUnread = (() => {
+    const all = [];
+    for (const a of accounts) {
+      const msgs = inboxLive.byAccount?.[a.id]?.messages || [];
+      for (const m of msgs) if (m.isNew) all.push({ ...m, accountUsername: a.username });
+    }
+    return all.sort((a, b) => (b.created || 0) - (a.created || 0)).slice(0, 3);
+  })();
+  const totalUnread = Object.values(inboxLive.unreadByAccount || {}).reduce((s, n) => s + (n || 0), 0);
+
+  // PROXY HEALTH — alive vs dead vs untested across all reddit accounts.
+  const proxyHealth = (() => {
+    let alive = 0, dead = 0, untested = 0, noProxy = 0;
+    for (const a of accounts) {
+      if (!a.proxy_label) { noProxy++; continue; }
+      if (a.proxy_test_ok === 1) alive++;
+      else if (a.proxy_test_ok === 0) dead++;
+      else untested++;
+    }
+    return { alive, dead, untested, noProxy };
+  })();
+
+  // EMPTY SCHEDULE ALERT — accounts with no pending posts in the next 3 days.
+  const emptySchedule = (() => {
+    const threshold = nowMs + 3 * 24 * 60 * 60 * 1000;
+    const withScheduled = new Set();
+    for (const p of scheduled) {
+      if (!p.scheduled_for) continue;
+      const t = new Date(p.scheduled_for.replace(' ', 'T')).getTime();
+      if (t < threshold) withScheduled.add(p.account_id);
+    }
+    return accounts.filter((a) => a.status !== 'banned' && a.status !== 'paused' && !withScheduled.has(a.id));
+  })();
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 18 }}>
@@ -695,6 +737,134 @@ function DashboardBlocks({ token, accounts, navigate }) {
             </div>
           )}
       </div>
+
+      {/* DM Previews */}
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 14 }}>Unread DMs</h3>
+          <span className="muted" style={{ fontSize: 11 }}>{totalUnread} total</span>
+          <button className="ghost" onClick={() => navigate('inbox')} style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 9px' }}>Open Inbox</button>
+        </div>
+        {newestUnread.length === 0
+          ? <div className="muted" style={{ fontSize: 12 }}>No unread DMs.</div>
+          : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {newestUnread.map((m) => (
+                <div key={`${m.accountUsername}-${m.id}`} style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 8px', borderRadius: 6, background: 'rgba(127,217,154,0.06)' }}>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>{m.author}</span>
+                    <span className="dim" style={{ fontSize: 10 }}>→ u/{m.accountUsername}</span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.body || m.subject || '—'}</div>
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+
+      {/* Proxy Health */}
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 14 }}>Proxy health</h3>
+          <button className="ghost" onClick={() => navigate('add-accounts', { tab: 'proxies' })} style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 9px' }}>Manage</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(70px, 1fr))', gap: 8 }}>
+          <ProxyTile label="Alive" value={proxyHealth.alive} tone="#7fd99a" />
+          <ProxyTile label="Dead" value={proxyHealth.dead} tone="#e2a3a3" />
+          <ProxyTile label="Untested" value={proxyHealth.untested} tone="#d4a64a" />
+          <ProxyTile label="None" value={proxyHealth.noProxy} tone="#9aa0a6" />
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <button
+            className="ghost"
+            style={{ width: '100%', fontSize: 12 }}
+            onClick={async () => { try { await window.api.proxies.testAll({ token }); } catch {} }}
+          >↻ Test all proxies</button>
+        </div>
+      </div>
+
+      {/* Empty Schedule Alert */}
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 14 }}>Empty schedule (3d)</h3>
+          <span className="muted" style={{ fontSize: 11 }}>{emptySchedule.length} accounts</span>
+        </div>
+        {emptySchedule.length === 0
+          ? <div className="muted" style={{ fontSize: 12 }}>Every active account has content queued ✓</div>
+          : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 180, overflowY: 'auto' }}>
+              {emptySchedule.slice(0, 10).map((a) => (
+                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '4px 8px', borderBottom: '1px dashed var(--border)' }}>
+                  <span style={{ flex: 1 }}>u/{a.username}</span>
+                  <span className="dim" style={{ fontSize: 10 }}>{a.profile_name || ''}</span>
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+
+      {/* Trending Topics */}
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 14 }}>Trending in your subs</h3>
+          <span className="muted" style={{ fontSize: 11 }}>{trending.length} candidates</span>
+        </div>
+        {trending.length === 0
+          ? <div className="muted" style={{ fontSize: 12 }}>Topic discovery hasn't run yet — autopilot pulls these every 4h.</div>
+          : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 180, overflowY: 'auto' }}>
+              {trending.slice(0, 8).map((t) => (
+                <div key={t.id} style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 12, padding: '4px 8px', borderBottom: '1px dashed var(--border)' }}>
+                  <span className="mono dim" style={{ fontSize: 10 }}>r/{t.subreddit}</span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                  {t.score != null && <span className="dim" style={{ fontSize: 10 }}>{t.score}↑</span>}
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+
+      {/* Quick Actions */}
+      <div className="card" style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <h3 style={{ margin: 0, fontSize: 14 }}>Quick actions</h3>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button
+            className="ghost"
+            style={{ fontSize: 12, justifyContent: 'flex-start' }}
+            onClick={async () => { try { const r = await window.api.autopilot?.runNow?.({ token, dryRun: false }); if (!r?.ok) alert(r?.error || 'Autopilot run failed'); } catch {} }}
+          >▶ Run autopilot pass now</button>
+          <button
+            className="ghost"
+            style={{ fontSize: 12, justifyContent: 'flex-start' }}
+            onClick={async () => { try { await window.api.proxies.testAll({ token }); } catch {} }}
+          >↻ Test all proxies</button>
+          <button
+            className="ghost"
+            style={{ fontSize: 12, justifyContent: 'flex-start' }}
+            onClick={async () => {
+              for (const a of accounts) {
+                try { await window.api.session?.prepareForAccount?.({ accountId: a.id }); } catch {}
+              }
+            }}
+          >↻ Refresh all DM inboxes</button>
+          <button
+            className="ghost"
+            style={{ fontSize: 12, justifyContent: 'flex-start' }}
+            onClick={() => navigate('automation', { section: 'scheduler' })}
+          >◷ Open Scheduler</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProxyTile({ label, value, tone }) {
+  return (
+    <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+      <div style={{ fontSize: 9, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: tone, marginTop: 2 }}>{value}</div>
     </div>
   );
 }

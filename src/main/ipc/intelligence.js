@@ -140,6 +140,28 @@ function register(ipcMain) {
     }
   });
 
+  // List recent topic candidates that the autopilot topic-discovery loop has
+  // collected. Used by the Dashboard 'Trending in your subs' block.
+  ipcMain.handle('intel:listTopics', (_e, { token, limit }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      const lim = Math.max(1, Math.min(50, Number(limit) || 10));
+      let rows = [];
+      try {
+        rows = getDb().prepare(
+          `SELECT id, profile_id, subreddit, title, score, num_comments, url, discovered_at
+             FROM reddit_topic_candidates
+            ORDER BY discovered_at DESC, score DESC
+            LIMIT ?`
+        ).all(lim);
+      } catch { /* table not yet created — return empty */ }
+      return { ok: true, topics: rows };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   ipcMain.handle('intel:fetch', async (_e, { token, accountId, subreddits }) => {
     try {
       const user = userFromToken(token);

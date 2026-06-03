@@ -244,6 +244,10 @@ export default function AutopilotPage() {
       {/* Human-like engagement (scroll/like/follow) for IG / TikTok / X / Reddit. */}
       <EngagementPanel token={token} />
 
+      {/* Auto-comment loop — reads posts from configured subs, generates a
+          reply seeded with example_comments, posts via /api/comment. */}
+      <AutoCommentPanel token={token} />
+
       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 18 }}>
         {/* Protocol editor */}
         <div className="card" style={{ padding: 18 }}>
@@ -966,4 +970,176 @@ function statusPill(s) {
   if (s === 'posted') return { background: 'rgba(122,154,90,0.15)', color: '#bdd5a3' };
   if (s === 'failed') return { background: 'rgba(180,90,90,0.15)', color: '#e2a3a3' };
   return { background: 'rgba(255,255,255,0.06)', color: 'var(--text-3)' };
+}
+
+function AutoCommentPanel({ token }) {
+  const [accounts, setAccounts] = useState([]);
+  const [platformFilter, setPlatformFilter] = useState('all');
+  const [accountId, setAccountId] = useState('');
+  const [proto, setProto] = useState(null);
+  const [runs, setRuns] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [msg, setMsg] = useState(null);
+  const [subsText, setSubsText] = useState('');
+
+  useEffect(() => {
+    window.api.accounts.listForUser({ token }).then((r) => {
+      if (r.ok) {
+        const list = (r.accounts || []).filter((a) => (a.platform || 'reddit') === 'reddit');
+        setAccounts(list);
+        if (!accountId && list.length) setAccountId(String(list[0].id));
+      }
+    });
+  }, [token]);
+
+  const visibleAccounts = (platformFilter === 'all')
+    ? accounts
+    : accounts.filter((a) => (a.platform || 'reddit') === platformFilter);
+
+  useEffect(() => {
+    if (!visibleAccounts.find((a) => String(a.id) === String(accountId))) {
+      setAccountId(visibleAccounts[0] ? String(visibleAccounts[0].id) : '');
+    }
+  }, [platformFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const load = useCallback(async (id) => {
+    if (!id) { setProto(null); setRuns([]); return; }
+    const [p, r] = await Promise.all([
+      window.api.autoComment.get({ token, accountId: Number(id) }),
+      window.api.autoComment.runs({ token, accountId: Number(id), limit: 10 }),
+    ]);
+    if (p.ok) {
+      setProto(p.protocol);
+      try { setSubsText((JSON.parse(p.protocol.target_subs_json || '[]') || []).join(', ')); }
+      catch { setSubsText(''); }
+    }
+    if (r.ok) setRuns(r.runs || []);
+  }, [token]);
+
+  useEffect(() => { load(accountId); }, [accountId, load]);
+
+  async function save() {
+    if (!proto) return;
+    setBusy(true); setErr(null);
+    const subs = subsText.split(/[,\n]/).map((s) => s.trim().replace(/^r\//i, '')).filter(Boolean);
+    const r = await window.api.autoComment.set({
+      token, accountId: Number(accountId),
+      patch: { ...proto, target_subs_json: JSON.stringify(subs) },
+    });
+    setBusy(false);
+    if (r.ok) { setProto(r.protocol); setMsg('Saved.'); }
+    else setErr(r.error);
+  }
+  async function runNow(dryRun) {
+    setBusy(true); setErr(null);
+    const r = await window.api.autoComment.runNow({ token, accountId: Number(accountId), dryRun });
+    setBusy(false);
+    if (r.ok) {
+      setMsg(dryRun
+        ? `Dry-run reply ready: "${(r.comment || '').slice(0, 80)}..."`
+        : `Posted: r/${r.post ? '' : ''}${(r.post?.title || '').slice(0, 60)}`);
+      load(accountId);
+    } else setErr(r.error);
+  }
+  useEffect(() => { if (!msg && !err) return; const t = setTimeout(() => { setMsg(null); setErr(null); }, 5000); return () => clearTimeout(t); }, [msg, err]);
+
+  return (
+    <div className="card" style={{ padding: 18, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+        <h3 style={{ margin: 0 }}>Auto-comment</h3>
+        <span className="muted" style={{ fontSize: 11 }}>
+          read sub → pick post → reply in this account's voice (Reddit)
+        </span>
+      </div>
+      <div className="muted" style={{ fontSize: 11, marginBottom: 14, lineHeight: 1.5 }}>
+        Autopilot picks a random target sub, reads a hot post + the top comments for context, drafts a reply using your saved Example comments as the voice template, and posts via /api/comment. Daily rate is spaced through the day with ±jitter so it doesn't read as a bot.
+      </div>
+      <PlatformFilter value={platformFilter} onChange={setPlatformFilter} />
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
+        <label style={{ fontSize: 12, margin: 0 }}>Account</label>
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ minWidth: 320 }}>
+          <option value="">— pick an account —</option>
+          {visibleAccounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {(a.platform || 'reddit')} · {a.username}{a.profile_name ? ` · ${a.profile_name}` : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {err && <Banner kind="err">{err}</Banner>}
+      {msg && <Banner kind="ok">{msg}</Banner>}
+
+      {proto && accountId && (
+        <>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}>
+            <input type="checkbox" checked={!!proto.enabled} onChange={(e) => setProto({ ...proto, enabled: e.target.checked ? 1 : 0 })} style={{ width: 'auto' }} />
+            <span style={{ fontWeight: 600 }}>Auto-comment enabled for this account</span>
+          </label>
+
+          <div style={{ marginBottom: 12 }}>
+            <label>Target subs (comma or newline, no r/)</label>
+            <textarea
+              rows={3}
+              value={subsText}
+              onChange={(e) => setSubsText(e.target.value)}
+              placeholder="askreddit, casualconversation, mildlyinteresting"
+              style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label>Comments per day</label>
+              <input type="number" min={1} max={48} value={proto.comments_per_day} onChange={(e) => setProto({ ...proto, comments_per_day: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label>Session min (min)</label>
+              <input type="number" min={1} value={proto.session_minutes_min} onChange={(e) => setProto({ ...proto, session_minutes_min: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label>Session max (min)</label>
+              <input type="number" min={1} value={proto.session_minutes_max} onChange={(e) => setProto({ ...proto, session_minutes_max: Number(e.target.value) })} />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button className="primary" onClick={save} disabled={busy}>Save protocol</button>
+            <button className="ghost" onClick={() => runNow(true)} disabled={busy}>Dry run (draft only)</button>
+            <button className="ghost" onClick={() => runNow(false)} disabled={busy}>Run one now</button>
+            <span className="muted" style={{ marginLeft: 'auto', fontSize: 11 }}>
+              {proto.last_run_at ? `Last run ${new Date(proto.last_run_at.replace(' ', 'T') + 'Z').toLocaleString()}` : 'Never run'}
+            </span>
+          </div>
+
+          <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Recent runs</div>
+            {runs.length === 0
+              ? <div className="muted" style={{ fontSize: 12 }}>No runs yet.</div>
+              : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {runs.map((r) => (
+                    <div key={r.id} style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 8px', borderBottom: '1px dashed var(--border)', fontSize: 12 }}>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+                          background: r.status === 'posted' ? 'rgba(127,217,154,0.14)' : r.status === 'failed' ? 'rgba(226,163,163,0.14)' : 'rgba(212,166,74,0.14)',
+                          color: r.status === 'posted' ? '#7fd99a' : r.status === 'failed' ? '#e2a3a3' : '#d4a64a',
+                        }}>{r.status}</span>
+                        <span className="mono dim" style={{ fontSize: 11 }}>r/{r.subreddit}</span>
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.post_title}</span>
+                        <span className="dim" style={{ fontSize: 10 }}>{r.created_at}</span>
+                      </div>
+                      {r.comment_text && <div className="muted" style={{ fontSize: 11, marginLeft: 36, marginTop: 2, whiteSpace: 'pre-wrap' }}>↳ {r.comment_text.slice(0, 200)}</div>}
+                      {r.error && <div style={{ color: '#e2a3a3', fontSize: 10, marginLeft: 36 }}>{r.error}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }

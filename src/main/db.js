@@ -253,6 +253,33 @@ function initDatabase() {
       used_at TEXT,
       UNIQUE(profile_id, subreddit, title)
     );
+
+    -- Per-account auto-comment protocol. autopilot picks posts from
+    -- target_subs_json, reads the post body + existing top comments,
+    -- generates a reply via the AI provider seeded with this account's
+    -- account_example_comments, and submits via /api/comment.
+    CREATE TABLE IF NOT EXISTS auto_comment_protocols (
+      account_id INTEGER PRIMARY KEY REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      target_subs_json TEXT,            -- ['askreddit','casualconversation',...]
+      comments_per_day INTEGER NOT NULL DEFAULT 5,
+      session_minutes_min INTEGER NOT NULL DEFAULT 4,
+      session_minutes_max INTEGER NOT NULL DEFAULT 10,
+      last_run_at TEXT
+    );
+
+    -- One row per auto-comment session for the log.
+    CREATE TABLE IF NOT EXISTS auto_comment_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+      subreddit TEXT,
+      post_id TEXT,
+      post_title TEXT,
+      comment_text TEXT,
+      status TEXT,           -- 'posted' | 'skipped' | 'failed'
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migration: if users.role constraint is the old ('admin','creator') one, rebuild the table.
