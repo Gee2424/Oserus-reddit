@@ -142,6 +142,19 @@ function register(ipcMain) {
 
   // List recent topic candidates that the autopilot topic-discovery loop has
   // collected. Used by the Dashboard 'Trending in your subs' block.
+  // Discover adapter for non-Reddit platforms — opens a hidden BrowserWindow
+  // on the account's session and scrapes the platform's search/hashtag page.
+  ipcMain.handle('intel:discoverScrape', async (_e, { token, accountId, platform, keyword }) => {
+    try {
+      if (!userFromToken(token)) throw new Error('Not authenticated');
+      if (!accountId) throw new Error('Pick a scraper account');
+      if (!platform) throw new Error('Platform required');
+      const { scrape } = require('../services/discover');
+      const res = await scrape({ accountId, platform, keyword });
+      return res;
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
   ipcMain.handle('intel:listTopics', (_e, { token, limit }) => {
     try {
       const user = userFromToken(token);

@@ -167,6 +167,7 @@ const api = {
   intel: {
     list: (data) => ipcRenderer.invoke('intel:list', data),
     listTopics: (data) => ipcRenderer.invoke('intel:listTopics', data),
+    discoverScrape: (data) => ipcRenderer.invoke('intel:discoverScrape', data),
     fetch: (data) => ipcRenderer.invoke('intel:fetch', data),
     delete: (data) => ipcRenderer.invoke('intel:delete', data),
     scrapePosts:  (data) => ipcRenderer.invoke('intel:scrapePosts', data),

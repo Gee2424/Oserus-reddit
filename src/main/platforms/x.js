@@ -1,0 +1,91 @@
+// X (Twitter) adapter — text + image-URL tweets via browser automation.
+//
+// X has no public posting API for cookied sessions. We drive the compose UI
+// in a hidden BrowserWindow on the account's session: fill the tweet text,
+// hit Post, wait for the success transition (URL changes or the dialog
+// closes). Image posts where the caller supplies a hosted URL are appended
+// to the text — X will unfurl as a card. Native media upload (file dialog)
+// stays out of scope here; that needs a different pipeline.
+//
+// Selectors are best-effort and X churns them; failures bubble up cleanly
+// instead of silently false-positive.
+
+const { BrowserWindow } = require('electron');
+const { getDb } = require('../db');
+
+async function submitPost({ accountId, title, body, kind, url }) {
+  const db = getDb();
+  const acct = db.prepare(
+    'SELECT id, username, partition_key FROM reddit_accounts WHERE id = ?'
+  ).get(accountId);
+  if (!acct) return { ok: false, error: 'Account not found' };
+
+  // The composed text. X enforces 280 chars; we trim if needed but warn.
+  let text = (title || '').trim();
+  if (body && body.trim()) text += (text ? '\n\n' : '') + body.trim();
+  if ((kind === 'link' || kind === 'image') && url) text += (text ? '\n' : '') + url.trim();
+  if (!text) return { ok: false, error: 'Empty tweet text' };
+  if (text.length > 280) text = text.slice(0, 277) + '…';
+
+  try {
+    const main = require('../index');
+    if (main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
+  } catch {}
+
+  const partition = `persist:${acct.partition_key}`;
+  const win = new BrowserWindow({
+    width: 1200, height: 820,
+    show: false,
+    webPreferences: { partition, contextIsolation: true, nodeIntegration: false },
+  });
+
+  let result = { ok: false, error: 'Unknown failure' };
+  try {
+    await win.loadURL('https://x.com/compose/post');
+    // Let the SPA hydrate the composer.
+    await new Promise((r) => setTimeout(r, 5000));
+
+    // Type the text into the composer. X uses a contenteditable div, so we
+    // dispatch input events the React tree actually listens to (beforeinput
+    // + keydown/up wouldn't be enough for the controlled state).
+    const typeScript = `(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      let composer = null;
+      for (let i = 0; i < 20; i++) {
+        composer = document.querySelector('[data-testid="tweetTextarea_0"]');
+        if (composer) break;
+        await wait(300);
+      }
+      if (!composer) return { ok: false, error: 'composer not found' };
+      composer.focus();
+      // Use execCommand for X's draftjs-based composer; it's still the only
+      // path that produces the right input events on contenteditables.
+      document.execCommand('insertText', false, ${JSON.stringify(text)});
+      await wait(400);
+      // Click Post.
+      const postBtn = document.querySelector('[data-testid="tweetButton"]')
+                  || document.querySelector('[data-testid="tweetButtonInline"]');
+      if (!postBtn) return { ok: false, error: 'post button not found' };
+      if (postBtn.getAttribute('aria-disabled') === 'true') return { ok: false, error: 'post button disabled' };
+      postBtn.click();
+      // Wait for the dialog to close / URL to change.
+      const startUrl = location.href;
+      for (let i = 0; i < 40; i++) {
+        await wait(250);
+        const stillThere = document.querySelector('[data-testid="tweetButton"], [data-testid="tweetButtonInline"]');
+        if (!stillThere || location.href !== startUrl) return { ok: true };
+      }
+      return { ok: false, error: 'no confirmation after click' };
+    })()`;
+    result = await win.webContents.executeJavaScript(typeScript);
+  } catch (e) {
+    result = { ok: false, error: e.message };
+  } finally {
+    try { win.destroy(); } catch {}
+  }
+
+  if (!result || !result.ok) return { ok: false, error: result?.error || 'submit failed' };
+  return { ok: true, id: null }; // X doesn't give us the tweet id from this path
+}
+
+module.exports = { id: 'x', configured: true, submitPost };

@@ -972,21 +972,35 @@ function UnifiedDiscoverPanel({ token, accountId, accounts, onAccount, onMsg, on
   }, [token]);
 
   async function run() {
-    if (platform !== 'reddit') { onError(`${platform} adapter not wired yet — Reddit is live, others land next batch.`); return; }
     if (!accountId) { onError('Pick a scraper account first.'); return; }
-    if (!subreddit.trim()) { onError('Enter a subreddit.'); return; }
+    const term = (platform === 'reddit' ? subreddit : (subreddit || query)).trim();
+    if (!term) { onError(platform === 'reddit' ? 'Enter a subreddit.' : 'Enter a hashtag / handle / keyword.'); return; }
     setBusy(true); setPosts([]); setAnalysis(null); setPlan(null);
     try {
       setStage('scraping');
-      const r = await window.api.intel.scrapePosts({
-        token, accountId: Number(accountId),
-        subreddit: subreddit.trim(), sort, t: tWindow,
-        limit: Number(limit) || 50, query: query.trim() || undefined,
-      });
+      let r;
+      if (platform === 'reddit') {
+        r = await window.api.intel.scrapePosts({
+          token, accountId: Number(accountId),
+          subreddit: subreddit.trim(), sort, t: tWindow,
+          limit: Number(limit) || 50, query: query.trim() || undefined,
+        });
+      } else {
+        // X / Instagram / TikTok use the browser-driven discover scraper.
+        r = await window.api.intel.discoverScrape({
+          token, accountId: Number(accountId),
+          platform, keyword: term,
+        });
+      }
       if (!r.ok) { onError(r.error || 'Scrape failed'); setStage('idle'); setBusy(false); return; }
       const fetched = r.posts || [];
       setPosts(fetched);
-      if (!fetched.length) { onMsg('No posts came back.'); setStage('idle'); setBusy(false); return; }
+      if (!fetched.length) {
+        onMsg(platform === 'reddit'
+          ? 'No posts came back.'
+          : `No ${platform} results — try a different hashtag, or selectors may need updating (the platform may have changed its markup).`);
+        setStage('idle'); setBusy(false); return;
+      }
 
       setStage('analyzing');
       const an = await window.api.intel.analyze({ token, posts: fetched });
@@ -994,7 +1008,8 @@ function UnifiedDiscoverPanel({ token, accountId, accounts, onAccount, onMsg, on
 
       setStage('planning');
       const findings = fetched.slice(0, 12).map((p) => ({
-        subreddit: p.subreddit, title: p.title, ups: p.score, num_comments: p.num_comments,
+        subreddit: p.subreddit || (platform === 'reddit' ? subreddit : platform),
+        title: p.title, ups: p.score, num_comments: p.num_comments,
       }));
       const pl = await window.api.intel.synthesizePlan({ token, profileId: profileId || null, findings, save: !!profileId });
       if (pl.ok) setPlan(pl); else onError(pl.error || 'Plan synth failed');
@@ -1015,10 +1030,10 @@ function UnifiedDiscoverPanel({ token, accountId, accounts, onAccount, onMsg, on
       {/* Platform tabs */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
         {[
-          { k: 'reddit',    l: 'Reddit',    c: '#ff4500', live: true  },
-          { k: 'x',         l: 'X',         c: '#fff',    live: false },
-          { k: 'instagram', l: 'Instagram', c: '#e2497d', live: false },
-          { k: 'tiktok',    l: 'TikTok',    c: '#69c9d0', live: false },
+          { k: 'reddit',    l: 'Reddit',    c: '#ff4500', live: true },
+          { k: 'x',         l: 'X',         c: '#fff',    live: true },
+          { k: 'instagram', l: 'Instagram', c: '#e2497d', live: true },
+          { k: 'tiktok',    l: 'TikTok',    c: '#69c9d0', live: true },
         ].map((p) => {
           const isActive = platform === p.k;
           return (
@@ -1044,11 +1059,11 @@ function UnifiedDiscoverPanel({ token, accountId, accounts, onAccount, onMsg, on
 
       {platform !== 'reddit' && (
         <div style={{
-          background: 'rgba(212,166,74,0.10)', border: '1px solid var(--gold)',
+          background: 'rgba(60,110,180,0.10)', border: '1px solid #2c4a6e',
           borderRadius: 'var(--radius-lg)', padding: '10px 14px', marginBottom: 14,
-          fontSize: 12, color: 'var(--gold-bright)',
+          fontSize: 12, color: '#9fc0ea',
         }}>
-          ⓘ {platform} discover adapter lands next batch. Reddit works today.
+          ⓘ {platform} discover opens a hidden browser on the chosen account's session, navigates to the hashtag/handle page, scrolls + scrapes the visible cards. Selectors are best-effort — if results come back empty, the platform likely changed its DOM (let us know).
         </div>
       )}
 
@@ -1105,7 +1120,7 @@ function UnifiedDiscoverPanel({ token, accountId, accounts, onAccount, onMsg, on
       <div style={{ marginTop: 14 }}>
         <button
           onClick={run}
-          disabled={busy || platform !== 'reddit'}
+          disabled={busy}
           className="primary"
           style={{ width: '100%', padding: '12px 18px', background: busy ? 'var(--bg-1)' : 'linear-gradient(90deg, #3a6f8c, #6a4fc4)' }}
         >

@@ -18,19 +18,20 @@
 // the engine skips them cleanly instead of throwing.
 
 const reddit = require('./reddit');
+const x = require('./x');
 
-const stub = (id) => ({
+const stub = (id, msg) => ({
   id,
   configured: false,
-  async submitPost() { return { ok: false, error: `${id} adapter not configured yet` }; },
+  async submitPost() { return { ok: false, error: msg || `${id} adapter not configured yet` }; },
 });
 
 const ADAPTERS = {
   reddit,
   redgifs: stub('redgifs'),
-  x: stub('x'),
-  instagram: stub('instagram'),
-  tiktok: stub('tiktok'),
+  x, // text + image-URL tweets via hidden BrowserWindow on the account's session
+  instagram: stub('instagram', 'Instagram posting needs the native media-upload pipeline — currently engagement-only (scroll / like / follow runs today)'),
+  tiktok: stub('tiktok', 'TikTok posting needs the native video-upload pipeline — currently engagement-only (scroll / like / follow runs today)'),
 };
 
 function getAdapter(platform) {
