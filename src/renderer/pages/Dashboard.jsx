@@ -48,6 +48,20 @@ export default function DashboardPage({ navigate }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [classFilter, setClassFilter] = useState('all');
   const [selected, setSelected] = useState(() => new Set());
+  // Model rows act as dropdowns — click toggles expansion. Default expanded so
+  // first-time use isn't empty. Persist per-session in localStorage.
+  const [collapsedModels, setCollapsedModels] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('dash_collapsed_models') || '[]')); }
+    catch { return new Set(); }
+  });
+  function toggleModel(pid) {
+    setCollapsedModels((s) => {
+      const next = new Set(s);
+      next.has(pid) ? next.delete(pid) : next.add(pid);
+      try { localStorage.setItem('dash_collapsed_models', JSON.stringify([...next])); } catch {}
+      return next;
+    });
+  }
 
   const [templates, setTemplates] = useState([]);
   const [proxies, setProxies] = useState([]);
@@ -465,12 +479,18 @@ export default function DashboardPage({ navigate }) {
                     if (!byPlatform.has(p)) byPlatform.set(p, []);
                     byPlatform.get(p).push(x);
                   }
+                  const isCollapsed = collapsedModels.has(pid);
                   out.push(
                     <tr key={`model-${pid}`} style={{ background: 'rgba(212,166,74,0.05)', borderTop: '2px solid var(--gold)' }}>
-                      <td colSpan={12} style={{ ...td, padding: '10px 14px' }}>
+                      <td colSpan={12} style={{ ...td, padding: '10px 14px', cursor: 'pointer' }} onClick={() => toggleModel(pid)}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                          <span style={{
+                            width: 16, display: 'inline-grid', placeItems: 'center',
+                            color: 'var(--gold)', fontSize: 12, transition: 'transform 0.15s',
+                            transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                          }}>▾</span>
                           <button
-                            onClick={() => openAllForModel(m)}
+                            onClick={(e) => { e.stopPropagation(); openAllForModel(m); }}
                             title={`Launch all ${m.total} account${m.total === 1 ? '' : 's'} in one tabbed window`}
                             style={{
                               width: 32, height: 32, borderRadius: '50%',
@@ -482,7 +502,7 @@ export default function DashboardPage({ navigate }) {
                             }}
                           >▶</button>
                           <Avatar name={m.name} size={32} />
-                          <div onClick={() => navigate('model', { modelId: m.id })} style={{ cursor: 'pointer', minWidth: 140 }} title={`Open ${m.name} profile`}>
+                          <div onClick={(e) => { e.stopPropagation(); navigate('model', { modelId: m.id }); }} style={{ cursor: 'pointer', minWidth: 140 }} title={`Open ${m.name} profile`}>
                             <div style={{ fontWeight: 700, fontSize: 14 }}>{m.name}</div>
                             <div style={{ fontSize: 10, color: '#9aa0a6', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>
                               <span style={{ color: '#7fd99a' }}>{m.live} live</span>
@@ -493,7 +513,7 @@ export default function DashboardPage({ navigate }) {
                           </div>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                             {[...byPlatform.entries()].map(([p, list]) => (
-                              <button key={p} onClick={() => openAllForModel(m)} title={`${list.length} ${p} account${list.length === 1 ? '' : 's'}`} style={{ ...platformLogoPill, background: platformColor(p) }}>
+                              <button key={p} onClick={(e) => { e.stopPropagation(); openAllForModel(m); }} title={`${list.length} ${p} account${list.length === 1 ? '' : 's'}`} style={{ ...platformLogoPill, background: platformColor(p) }}>
                                 <span style={{ fontWeight: 800, fontSize: 11, color: '#fff' }}>{platformShort(p)}</span>
                                 {list.length > 1 && <span style={{ fontSize: 9, fontWeight: 700, color: '#fff', opacity: 0.9 }}>×{list.length}</span>}
                               </button>
@@ -506,7 +526,7 @@ export default function DashboardPage({ navigate }) {
                       </td>
                     </tr>
                   );
-                  for (const a of accts) out.push(renderAccountRow(a));
+                  if (!isCollapsed) for (const a of accts) out.push(renderAccountRow(a));
                 }
                 return out;
               })()}

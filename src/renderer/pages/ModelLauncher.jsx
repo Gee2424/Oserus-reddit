@@ -110,6 +110,9 @@ export default function ModelLauncher({ modelId }) {
   const [accounts, setAccounts] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [urls, setUrls] = useState({});           // accountId → current URL
+  // Tabs only get mounted once the user has visited them. Saves the cost of
+  // spinning up a Chromium process per account on first paint.
+  const [visited, setVisited] = useState({});
   const webviewRefs = useRef({});
   const credsCache = useRef({}); // accountId → { username, password }
 
@@ -120,7 +123,7 @@ export default function ModelLauncher({ modelId }) {
       if (list.ok) {
         const accs = (list.accounts || []).filter((a) => a.status !== 'banned');
         setAccounts(accs);
-        if (accs.length) setActiveId(accs[0].id);
+        if (accs.length) { setActiveId(accs[0].id); setVisited({ [accs[0].id]: true }); }
         // initial URLs per account = platform home page
         const map = {};
         for (const a of accs) {
@@ -217,7 +220,7 @@ export default function ModelLauncher({ modelId }) {
           return (
             <button
               key={a.id}
-              onClick={() => setActiveId(a.id)}
+              onClick={() => { setActiveId(a.id); setVisited((v) => v[a.id] ? v : { ...v, [a.id]: true }); }}
               title={`${a.platform || 'reddit'} · ${a.username}`}
               style={{
                 background: isActive ? '#1c1c1e' : '#15151700',
@@ -246,10 +249,12 @@ export default function ModelLauncher({ modelId }) {
         )}
       </div>
 
-      {/* Webview surface — every tab is mounted at once but hidden when not
-          active so cookies persist and switching tabs is instant. */}
+      {/* Webview surface — LAZY mount: only tabs the user has visited get
+          mounted (each webview = a full Chromium process; mounting all 5-25
+          at once was making the page unusable). Once visited, a tab stays
+          mounted so cookies persist and switching back is instant. */}
       <div style={{ flex: 1, position: 'relative' }}>
-        {accounts.map((a) => (
+        {accounts.filter((a) => visited[a.id]).map((a) => (
           <webview
             key={a.id}
             ref={(el) => { if (el) webviewRefs.current[a.id] = el; }}

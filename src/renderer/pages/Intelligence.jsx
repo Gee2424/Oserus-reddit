@@ -141,13 +141,10 @@ export default function IntelligencePage({ initialTab }) {
         <CompatibilityPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} />
       )}
       {tab === 'discover' && (
-        <>
-          <ScraperPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
-          <div style={{ height: 18 }} />
-          <ResearchPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
-          <div style={{ height: 18 }} />
-          <PlanPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} onMsg={setMsg} onError={setErr} />
-        </>
+        <UnifiedDiscoverPanel
+          token={token} accountId={accountId} accounts={accounts}
+          onAccount={setAccountId} onMsg={setMsg} onError={setErr}
+        />
       )}
 
       {tab === 'requirements' && (<>
@@ -955,3 +952,215 @@ function PlanPanel({ token, accountId, accounts, onAccount, onMsg, onError }) {
     </div>
   );
 }
+function UnifiedDiscoverPanel({ token, accountId, accounts, onAccount, onMsg, onError }) {
+  const [platform, setPlatform] = useState('reddit');
+  const [subreddit, setSubreddit] = useState('');
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('hot');
+  const [tWindow, setTWindow] = useState('week');
+  const [limit, setLimit] = useState(50);
+  const [posts, setPosts] = useState([]);
+  const [analysis, setAnalysis] = useState(null);
+  const [plan, setPlan] = useState(null);
+  const [profileId, setProfileId] = useState('');
+  const [profiles, setProfiles] = useState([]);
+  const [stage, setStage] = useState('idle');  // idle | scraping | analyzing | planning
+  const [busy, setBusy] = useState(false);
+
+  React.useEffect(() => {
+    window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
+  }, [token]);
+
+  async function run() {
+    if (platform !== 'reddit') { onError(`${platform} adapter not wired yet — Reddit is live, others land next batch.`); return; }
+    if (!accountId) { onError('Pick a scraper account first.'); return; }
+    if (!subreddit.trim()) { onError('Enter a subreddit.'); return; }
+    setBusy(true); setPosts([]); setAnalysis(null); setPlan(null);
+    try {
+      setStage('scraping');
+      const r = await window.api.intel.scrapePosts({
+        token, accountId: Number(accountId),
+        subreddit: subreddit.trim(), sort, t: tWindow,
+        limit: Number(limit) || 50, query: query.trim() || undefined,
+      });
+      if (!r.ok) { onError(r.error || 'Scrape failed'); setStage('idle'); setBusy(false); return; }
+      const fetched = r.posts || [];
+      setPosts(fetched);
+      if (!fetched.length) { onMsg('No posts came back.'); setStage('idle'); setBusy(false); return; }
+
+      setStage('analyzing');
+      const an = await window.api.intel.analyze({ token, posts: fetched });
+      if (an.ok) setAnalysis(an);
+
+      setStage('planning');
+      const findings = fetched.slice(0, 12).map((p) => ({
+        subreddit: p.subreddit, title: p.title, ups: p.score, num_comments: p.num_comments,
+      }));
+      const pl = await window.api.intel.synthesizePlan({ token, profileId: profileId || null, findings, save: !!profileId });
+      if (pl.ok) setPlan(pl); else onError(pl.error || 'Plan synth failed');
+    } finally {
+      setStage('idle'); setBusy(false);
+    }
+  }
+
+  const stageLabel = {
+    idle: 'Ready',
+    scraping: 'Scraping posts…',
+    analyzing: 'Analyzing trends…',
+    planning: 'Synthesizing plan with AI…',
+  }[stage];
+
+  return (
+    <div className="card" style={{ padding: 18 }}>
+      {/* Platform tabs */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+        {[
+          { k: 'reddit',    l: 'Reddit',    c: '#ff4500', live: true  },
+          { k: 'x',         l: 'X',         c: '#fff',    live: false },
+          { k: 'instagram', l: 'Instagram', c: '#e2497d', live: false },
+          { k: 'tiktok',    l: 'TikTok',    c: '#69c9d0', live: false },
+        ].map((p) => {
+          const isActive = platform === p.k;
+          return (
+            <button
+              key={p.k}
+              onClick={() => setPlatform(p.k)}
+              style={{
+                background: isActive ? 'rgba(255,255,255,0.06)' : 'transparent',
+                border: `1px solid ${isActive ? p.c : 'var(--border)'}`,
+                borderRadius: 999, padding: '5px 12px',
+                color: isActive ? '#fff' : 'var(--text-2)',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: p.c }} />
+              {p.l}
+              {!p.live && <span style={{ fontSize: 9, opacity: 0.7 }}>soon</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {platform !== 'reddit' && (
+        <div style={{
+          background: 'rgba(212,166,74,0.10)', border: '1px solid var(--gold)',
+          borderRadius: 'var(--radius-lg)', padding: '10px 14px', marginBottom: 14,
+          fontSize: 12, color: 'var(--gold-bright)',
+        }}>
+          ⓘ {platform} discover adapter lands next batch. Reddit works today.
+        </div>
+      )}
+
+      {/* Unified form: scraper account · subreddit / keywords · sort · save plan to model */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <div>
+          <label>Scraper account</label>
+          <select value={accountId || ''} onChange={(e) => onAccount(e.target.value)}>
+            <option value="">— pick an account —</option>
+            {accounts.map((a) => <option key={a.id} value={a.id}>u/{a.username} · {a.profile_name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label>Save plan to model (optional)</label>
+          <select value={profileId} onChange={(e) => setProfileId(e.target.value)}>
+            <option value="">— don't save (preview only) —</option>
+            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: platform === 'reddit' ? '1.5fr 1fr 0.7fr 0.7fr 0.7fr' : '1fr 1fr', gap: 10, marginTop: 10 }}>
+        <div>
+          <label>{platform === 'reddit' ? 'Subreddit' : platform === 'x' ? 'Topic / handle' : 'Hashtag'}</label>
+          <input
+            placeholder={platform === 'reddit' ? 'pics, r/pics, or full URL' : platform === 'x' ? '#fitness or @handle' : '#trending'}
+            value={subreddit}
+            onChange={(e) => setSubreddit(e.target.value)}
+          />
+        </div>
+        <div>
+          <label>Search · keywords (optional)</label>
+          <input placeholder='e.g. espresso or #fyp' value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+        {platform === 'reddit' && <>
+          <div>
+            <label>Sort</label>
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option>hot</option><option>top</option><option>rising</option><option>new</option>
+            </select>
+          </div>
+          <div>
+            <label>Window</label>
+            <select value={tWindow} onChange={(e) => setTWindow(e.target.value)}>
+              <option>hour</option><option>day</option><option>week</option><option>month</option><option>year</option><option>all</option>
+            </select>
+          </div>
+          <div>
+            <label>Limit</label>
+            <input type="number" min={5} max={100} value={limit} onChange={(e) => setLimit(e.target.value)} />
+          </div>
+        </>}
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <button
+          onClick={run}
+          disabled={busy || platform !== 'reddit'}
+          className="primary"
+          style={{ width: '100%', padding: '12px 18px', background: busy ? 'var(--bg-1)' : 'linear-gradient(90deg, #3a6f8c, #6a4fc4)' }}
+        >
+          {busy ? stageLabel : '→ Scrape · Analyze · Synthesize Plan'}
+        </button>
+      </div>
+
+      {/* Posts */}
+      {posts.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: 'var(--gold-bright)' }}>Posts ({posts.length})</div>
+          <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {posts.slice(0, 50).map((p) => (
+              <div key={p.id} style={{ display: 'flex', gap: 8, fontSize: 12, padding: '4px 8px', borderBottom: '1px dashed var(--border)' }}>
+                <span className="mono" style={{ minWidth: 60 }}>{p.score?.toLocaleString() || 0}↑</span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</span>
+                <span className="dim" style={{ minWidth: 60, textAlign: 'right' }}>{p.num_comments} cmt</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Analysis */}
+      {analysis && (
+        <div style={{ marginTop: 18, padding: 14, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--gold-bright)' }}>Trends</div>
+          {Array.isArray(analysis.topWords) && analysis.topWords.length > 0 && (
+            <div style={{ fontSize: 12, marginBottom: 8 }}>
+              <span className="muted">Top words: </span>
+              {analysis.topWords.slice(0, 12).map((w, i) => (
+                <span key={i} style={{ display: 'inline-block', marginRight: 6, padding: '2px 8px', borderRadius: 999, background: 'var(--bg-elev)', border: '1px solid var(--border)' }}>
+                  {w.word} <span className="dim">×{w.count}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {analysis.bestHour != null && (
+            <div style={{ fontSize: 12 }}>
+              <span className="muted">Best posting hour (UTC):</span> <span className="mono" style={{ color: 'var(--gold)' }}>{analysis.bestHour}:00</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Plan */}
+      {plan && (
+        <div style={{ marginTop: 18, padding: 14, background: 'var(--bg-1)', border: '1px solid var(--gold)', borderRadius: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--gold-bright)' }}>
+            AI content plan {plan.savedDocId ? '· saved to docs' : ''}
+          </div>
+          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5 }}>{plan.plan || plan.text || JSON.stringify(plan)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+

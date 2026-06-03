@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 import { PLATFORMS, platformColor } from '../lib/platforms.js';
@@ -82,11 +82,23 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   }, [active?.id, folder, token, isLive]);
 
   useEffect(() => { load(); setSelectedThreadKey(null); }, [load]);
+  // When the user leaves a thread (closes selection or switches platforms),
+  // re-fetch so the conversation list reflects the latest state.
+  const lastSelectedRef = useRef(null);
+  useEffect(() => {
+    if (lastSelectedRef.current && !selectedThreadKey) {
+      load();
+    }
+    lastSelectedRef.current = selectedThreadKey;
+  }, [selectedThreadKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!active || !isLive) return;
-    const id = setInterval(load, 60000);
+    // Auto-refresh every 60s — but ONLY when no thread is open. Refreshing
+    // while the user is reading/replying re-sorts the conversation list and
+    // makes the thread jump, which is exactly the annoyance you flagged.
+    const id = setInterval(() => { if (!selectedThreadKey) load(); }, 60000);
     return () => clearInterval(id);
-  }, [load, active, isLive]);
+  }, [load, active, isLive, selectedThreadKey]);
 
   useEffect(() => {
     if (!isLive || !platformAccounts || platformAccounts.length <= 1) return;
@@ -158,10 +170,29 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   async function sendReply() {
     if (!replyText.trim() || !replyTarget) return;
     setSending(true); setErr(null);
-    const res = await window.api.inbox.reply({ token, accountId: active.id, parentFullname: replyTarget.name, text: replyText.trim() });
+    const body = replyText.trim();
+    const res = await window.api.inbox.reply({ token, accountId: active.id, parentFullname: replyTarget.name, text: body });
     setSending(false);
-    if (res.ok) { setReplyText(''); load(); }
-    else setErr(res.error);
+    if (!res.ok) { setErr(res.error); return; }
+    setReplyText('');
+    // Optimistically append the sent message to the local state instead of
+    // re-fetching the inbox — keeps the conversation list in its current
+    // order so the thread doesn't jump out from under you while you're in it.
+    // The next auto-refresh fires only after the thread is closed.
+    const now = Math.floor(Date.now() / 1000);
+    const local = {
+      id: `local-${now}`,
+      name: `local-${now}`,
+      firstMessageName: replyTarget.firstMessageName || replyTarget.name,
+      kind: 't4',
+      author: active.username,
+      dest: selected?.other || replyTarget.author,
+      subject: replyTarget.subject || '',
+      body,
+      created: now,
+      isNew: false,
+    };
+    setMessages((prev) => [...prev, local]);
   }
   async function popOut() {
     await window.api.windows.openPopout({ route: 'inbox', title: 'Account Manager Pro', width: 1180, height: 760 });
