@@ -598,7 +598,7 @@ function DashboardBlocks({ token, accounts, navigate }) {
     .slice(0, 6);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 18 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 18 }}>
       {/* Alerts */}
       <div className="card" style={{ padding: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -723,7 +723,7 @@ function Modal({ title, children, onClose }) {
   );
 }
 
-const statRow = { display: 'flex', gap: 14, marginBottom: 18 };
+const statRow = { display: 'flex', flexWrap: 'wrap', gap: 14, marginBottom: 18 };
 const modelList = { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 };
 const modelRowCard = {
   display: 'flex', alignItems: 'center', gap: 12,

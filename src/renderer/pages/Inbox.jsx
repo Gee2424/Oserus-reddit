@@ -455,7 +455,7 @@ function AnalyticsTile({ label, value, tone }) {
 const shell = { background: '#0f0f10', border: '1px solid #272729', borderRadius: 14, overflow: 'hidden', boxShadow: '0 8px 30px -10px rgba(0,0,0,0.6)' };
 const topBar = { display: 'flex', alignItems: 'center', padding: '16px 18px', borderBottom: '1px solid #272729', background: '#131314' };
 const analyticsStrip = { display: 'flex', gap: 10, padding: '14px 18px', borderBottom: '1px solid #272729', background: '#101011' };
-const threeCol = { display: 'grid', gridTemplateColumns: '220px 340px 1fr', height: 'calc(100vh - 260px)', minHeight: 620, overflow: 'hidden' };
+const threeCol = { display: 'grid', gridTemplateColumns: 'minmax(170px, 220px) minmax(260px, 340px) 1fr', height: 'calc(100vh - 260px)', minHeight: 620, overflow: 'hidden' };
 const platformRow = { display: 'flex', gap: 6, padding: '10px 18px', borderBottom: '1px solid #272729', background: '#0f0f10', flexWrap: 'wrap' };
 const accountsCol = { background: '#0c0c0d', borderRight: '1px solid #1f1f21', padding: '12px 10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8 };
 const listCol = { display: 'flex', flexDirection: 'column', background: '#0f0f10', borderRight: '1px solid #1f1f21', minHeight: 0, overflow: 'hidden' };

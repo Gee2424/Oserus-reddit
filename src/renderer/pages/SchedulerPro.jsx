@@ -890,6 +890,9 @@ function Composer({ token, accounts, onDone, onError }) {
   // Eligibility intel: subreddit gates × account karma/age.
   const [intelMap, setIntelMap] = useState(new Map());
   const [karmaMap, setKarmaMap] = useState(new Map());
+  // Preferred subreddits per profile. Pulled from promo_subreddits so the
+  // composer can offer quick-pick chips + one-click 'post to all preferred'.
+  const [preferredByProfile, setPreferredByProfile] = useState({}); // { [profileId]: ['sub1', 'sub2'] }
 
   useEffect(() => {
     window.api.votes.hasApiKey({ token }).then((r) => {
@@ -904,6 +907,31 @@ function Composer({ token, accounts, onDone, onError }) {
       if (r.ok) setKarmaMap(new Map((r.accounts || []).map((a) => [a.id, a])));
     });
   }, [token]);
+
+  // Pull preferred subs for every profile whose accounts appear in the
+  // picker. Caches per profile id so re-selecting doesn't re-fetch.
+  useEffect(() => {
+    const profileIds = [...new Set(platformAccounts.map((a) => a.profile_id).filter(Boolean))];
+    for (const pid of profileIds) {
+      if (preferredByProfile[pid]) continue;
+      window.api.subs.listPromo({ token, profileId: pid }).then((r) => {
+        if (r.ok) setPreferredByProfile((m) => ({ ...m, [pid]: (r.subs || []).map((s) => s.name) }));
+      });
+    }
+  }, [platformAccounts, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Unique preferred subs across the selected targets. Drives the quick-pick
+  // chip row + the 'Schedule to all preferred' button.
+  const preferredAcrossTargets = useMemo(() => {
+    const set = new Set();
+    for (const id of targets) {
+      const acc = platformAccounts.find((a) => a.id === id);
+      if (!acc) continue;
+      const list = preferredByProfile[acc.profile_id] || [];
+      for (const s of list) set.add(s);
+    }
+    return [...set].sort();
+  }, [targets, platformAccounts, preferredByProfile]);
 
   // Compute per-target eligibility warnings against the typed subreddit.
   const eligibilityWarnings = useMemo(() => {
@@ -971,6 +999,45 @@ function Composer({ token, accounts, onDone, onError }) {
     else onError(res.error);
   }
 
+  // Fan-out: one scheduled post per (target account × that account's model's
+  // preferred subs). Spaces them 7 minutes apart per account so the back end
+  // doesn't get a thundering herd and the user doesn't trip Reddit's
+  // submission rate limit.
+  async function submitAllPreferred() {
+    if (!targets.length || !form.title || !form.when) {
+      onError('Pick at least one account, a title, and a start time.');
+      return;
+    }
+    if (platform !== 'reddit') { onError('Preferred subs are Reddit-only for now.'); return; }
+    if (!preferredAcrossTargets.length) { onError('No preferred subs saved on these models. Add them on the Model profile.'); return; }
+    setBusy(true);
+    const base = new Date(form.when.replace('T', ' ')).getTime();
+    const items = [];
+    for (const accountId of targets) {
+      const acc = platformAccounts.find((a) => a.id === accountId);
+      const subs = (preferredByProfile[acc?.profile_id] || []);
+      if (!subs.length) continue;
+      subs.forEach((sub, i) => {
+        const when = new Date(base + i * 7 * 60 * 1000);
+        const stored = when.toISOString().slice(0, 19).replace('T', ' ');
+        items.push({
+          accountId, subreddit: sub,
+          title: form.title, body: form.body, kind: form.kind, url: form.url,
+          scheduledFor: stored,
+          boostServiceId: boost.enabled ? boost.serviceId : null,
+          boostQty: boost.enabled ? Number(boost.qty) : 0,
+          boostDelayMinutes: boost.enabled ? Number(boost.delayMinutes) || 0 : 0,
+          boostDripRate: boost.enabled ? boost.dripRate : null,
+        });
+      });
+    }
+    if (!items.length) { setBusy(false); onError('No (account × preferred sub) pairs to schedule.'); return; }
+    const res = await window.api.scheduled.bulkCreate({ token, items });
+    setBusy(false);
+    if (res.ok) onDone();
+    else onError(res.error);
+  }
+
   return (
     <div className="card bordered-glow" style={{ padding: 18, marginBottom: 18 }}>
       <h3 style={{ marginTop: 0, marginBottom: 12 }}>Schedule a post {targets.length > 1 ? `to ${targets.length} accounts` : ''}</h3>
@@ -1022,6 +1089,25 @@ function Composer({ token, accounts, onDone, onError }) {
             <div>
               <label>Subreddit</label>
               <input placeholder="any subreddit, e.g. AskReddit" value={form.subreddit} onChange={(e) => setForm({ ...form, subreddit: e.target.value })} />
+              {preferredAcrossTargets.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
+                  <span className="dim" style={{ fontSize: 10, alignSelf: 'center', marginRight: 4 }}>Preferred:</span>
+                  {preferredAcrossTargets.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, subreddit: s }))}
+                      title={`Use r/${s}`}
+                      style={{
+                        fontSize: 10, padding: '2px 8px', borderRadius: 999,
+                        background: form.subreddit === s ? 'var(--gold)' : 'var(--bg-1)',
+                        color: form.subreddit === s ? '#1a1a14' : 'var(--text-2)',
+                        border: '1px solid var(--border)', cursor: 'pointer',
+                      }}
+                    >r/{s}</button>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label>When</label>
@@ -1192,10 +1278,20 @@ function Composer({ token, accounts, onDone, onError }) {
         )}
       </div>}
 
-      <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+      <div style={{ marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button className="primary" onClick={submit} disabled={busy}>
           {busy ? 'Scheduling…' : (targets.length > 1 ? `Schedule to ${targets.length} accounts` : 'Schedule post')}
         </button>
+        {platform === 'reddit' && preferredAcrossTargets.length > 0 && (
+          <button
+            className="ghost"
+            onClick={submitAllPreferred}
+            disabled={busy}
+            title={`Fan this post out to all ${preferredAcrossTargets.length} preferred sub(s) across selected models, spaced 7 minutes apart per account`}
+          >
+            ✦ Schedule to all preferred ({preferredAcrossTargets.length})
+          </button>
+        )}
       </div>
     </div>
   );

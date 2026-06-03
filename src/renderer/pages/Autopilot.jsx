@@ -451,7 +451,7 @@ function ExampleLibrary({ token }) {
       {err && <Banner kind="err">{err}</Banner>}
 
       {accountId && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 18 }}>
           {/* Example posts */}
           <div>
             <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Example posts ({posts.length})</div>
@@ -491,7 +491,7 @@ function ExampleLibrary({ token }) {
               <span className="primary" style={{ display: 'inline-block', padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>+ Add image(s)</span>
             </label>
             <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>Pool autopilot draws from for image posts on this account.</div>
-            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
+            <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
               {images.length === 0
                 ? <div className="muted" style={{ fontSize: 12, gridColumn: '1 / -1' }}>No example images yet.</div>
                 : images.map((img) => (
@@ -617,7 +617,7 @@ function AdminSetupPanel({ token }) {
           {err && <Banner kind="err">{err}</Banner>}
 
           {/* Status snapshot tiles */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginTop: 14 }}>
             {[
               { l: 'Warming', k: 'warming', tone: '#d4a64a' },
               { l: 'Ready',   k: 'ready',   tone: '#7fd99a' },
@@ -869,7 +869,7 @@ function EngagementPanel({ token }) {
             <span style={{ fontWeight: 600 }}>Engagement enabled for this account</span>
           </label>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 12 }}>
             <div>
               <label>Sessions per day</label>
               <input type="number" min={1} max={48} value={proto.sessions_per_day} onChange={(e) => setProto({ ...proto, sessions_per_day: Number(e.target.value) })} />
