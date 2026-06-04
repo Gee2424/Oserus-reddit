@@ -64,6 +64,7 @@ const registerExamplesHandlers = require('./ipc/examples');
 const registerEngagementHandlers = require('./ipc/engagement');
 const registerAutoCommentHandlers = require('./ipc/autoComment');
 const coordinator = require('./services/coordinator');
+const oserusBrowser = require('./browser');
 
 const isDev = !app.isPackaged;
 let mainWindow;
@@ -587,6 +588,65 @@ ipcMain.handle('app:restart', () => {
 
 ipcMain.handle('app:version', () => ({ version: app.getVersion() }));
 
+// Oserus Browser handlers. `open` is invoked from Management with the
+// operator's token; the browser module caches the token so the picker
+// can list profiles without a second sign-in. `listProfiles` and
+// `launchAccount` are called from inside the browser window's preload.
+function registerOserusBrowserHandlers() {
+  const { userFromToken } = require('./ipc/auth');
+  const { hasPermission } = require('./permissions');
+
+  ipcMain.handle('oserus-browser:open', async (_e, { token } = {}) => {
+    oserusBrowser.setOperatorToken(token || null);
+    return oserusBrowser.openPicker();
+  });
+
+  ipcMain.handle('oserus-browser:backToPicker', async () => {
+    return oserusBrowser.openPicker();
+  });
+
+  ipcMain.handle('oserus-browser:close', async () => oserusBrowser.closeBrowser());
+
+  ipcMain.handle('oserus-browser:listProfiles', async () => {
+    try {
+      const token = oserusBrowser.getOperatorToken();
+      const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Not authenticated' };
+
+      const db = getDb();
+      const seeAll = hasPermission(user, 'profiles.manage');
+      const profiles = seeAll
+        ? db.prepare(`SELECT id, name, main_email FROM model_profiles ORDER BY name`).all()
+        : db.prepare(
+            `SELECT id, name, main_email FROM model_profiles
+             WHERE assigned_user_id = ? ORDER BY name`
+          ).all(user.id);
+
+      // Account-level proxy wins; model-level fallback so guest profiles
+      // bound only at the model still display the right proxy label.
+      const acctStmt = db.prepare(
+        `SELECT a.id, a.platform, a.username, a.status,
+                px.label AS proxy_label
+         FROM reddit_accounts a
+         LEFT JOIN model_profiles mp ON mp.id = a.profile_id
+         LEFT JOIN proxies px ON px.id = COALESCE(a.proxy_id, mp.proxy_id)
+         WHERE a.profile_id = ?
+         ORDER BY a.platform, a.username`
+      );
+      for (const p of profiles) {
+        p.accounts = acctStmt.all(p.id);
+      }
+      return { ok: true, profiles };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'listProfiles failed' };
+    }
+  });
+
+  ipcMain.handle('oserus-browser:launchAccount', async (_e, { accountId }) => {
+    return oserusBrowser.openForAccount(accountId);
+  });
+}
+
 ipcMain.handle('updater:installNow', () => {
   quitAndInstall();
 });
@@ -649,6 +709,13 @@ app.whenReady().then(() => {
   registerExamplesHandlers(ipcMain);
   registerEngagementHandlers(ipcMain);
   registerAutoCommentHandlers(ipcMain);
+
+  // Oserus Browser (v0.62 soft-cut: optional, launched on demand from
+  // Management). The module manages a single window — picker or session
+  // — and reuses prepareSessionForAccount so model-level proxy + UA
+  // carry over to the locked browsing window.
+  oserusBrowser.init({ dev: isDev, prepareSession: prepareSessionForAccount });
+  registerOserusBrowserHandlers();
 
   createWindow();
 

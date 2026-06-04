@@ -243,6 +243,9 @@ const api = {
     setAlwaysOnTop: (data) => ipcRenderer.invoke('window:setAlwaysOnTop', data),
     close: () => ipcRenderer.invoke('window:close'),
   },
+  oserusBrowser: {
+    open: (data) => ipcRenderer.invoke('oserus-browser:open', data),
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);
