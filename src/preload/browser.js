@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('oserusBrowser', {
   session: {
     backToPicker: () => ipcRenderer.invoke('oserus-browser:backToPicker'),
     close: () => ipcRenderer.invoke('oserus-browser:close'),
+    autofillScript: (data) => ipcRenderer.invoke('oserus-browser:autofillScript', data),
     currentAccountId: () => {
       try {
         const params = new URLSearchParams(window.location.search);
