@@ -27,6 +27,10 @@ function ensureAccountMigrations() {
   const have = (n) => cols.some((c) => c.name === n);
   if (!have('starred'))    db.exec('ALTER TABLE reddit_accounts ADD COLUMN starred INTEGER NOT NULL DEFAULT 0');
   if (!have('user_agent')) db.exec('ALTER TABLE reddit_accounts ADD COLUMN user_agent TEXT');
+  // Antidetect fingerprint — JSON blob with platform / UA / screen / WebGL
+  // / TZ / language / hardware values. Generated on first session prep and
+  // persisted so the same account always presents the same identity.
+  if (!have('fingerprint_json')) db.exec('ALTER TABLE reddit_accounts ADD COLUMN fingerprint_json TEXT');
 }
 // keep old name for back-compat call sites in this file
 const ensureStarredColumn = ensureAccountMigrations;

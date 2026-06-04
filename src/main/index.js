@@ -66,6 +66,15 @@ const registerAutoCommentHandlers = require('./ipc/autoComment');
 const coordinator = require('./services/coordinator');
 const oserusBrowser = require('./browser');
 const { buildAutofillScript } = require('./autofill');
+const fingerprintMod = require('./fingerprint');
+const { writePreloadFor } = require('./antidetectPreload');
+
+// WebRTC IP-leak guard. Forces Chromium to send WebRTC traffic through
+// the configured proxy when one is set, so the page's RTCPeerConnection
+// can't reveal the real local IP via STUN. Must be applied before
+// app.whenReady(); putting it next to the other early-boot config.
+app.commandLine.appendSwitch('webrtc-ip-handling-policy', 'default_public_interface_only');
+app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'default_public_interface_only');
 
 const isDev = !app.isPackaged;
 let mainWindow;
@@ -136,11 +145,20 @@ async function prepareSessionForAccount(accountId) {
 
   const partition = `persist:${account.partition_key}`;
   const sess = session.fromPartition(partition);
-  // Per-account UA when set on the row; falls back to a recent Windows Chrome.
-  sess.setUserAgent(
-    account.user_agent ||
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
-  );
+
+  // Antidetect fingerprint — load (or generate + persist on first use) and
+  // apply at every layer: User-Agent + Accept-Language at the network
+  // boundary; navigator / screen / WebGL / Canvas / Audio / timezone via
+  // a session-scoped preload that runs before any page script.
+  const fp = fingerprintMod.loadOrCreate(db, accountId);
+  // Row-level user_agent override still wins (legacy escape hatch).
+  sess.setUserAgent(account.user_agent || fp.userAgent, fp.acceptLanguage);
+  try {
+    const preloadPath = writePreloadFor(account.partition_key, fp);
+    sess.setPreloads([preloadPath]);
+  } catch (e) {
+    elog.warn('[antidetect] preload write failed', e?.message);
+  }
 
   // Apply proxy. Electron's proxy story is finicky — three things matter:
   //   1. Register the 'login' handler BEFORE setProxy so the first 407
@@ -466,7 +484,7 @@ function registerOserusBrowserHandlers() {
       // Account-level proxy wins; model-level fallback so guest profiles
       // bound only at the model still display the right proxy label.
       const acctStmt = db.prepare(
-        `SELECT a.id, a.platform, a.username, a.status,
+        `SELECT a.id, a.platform, a.username, a.status, a.fingerprint_json,
                 px.label AS proxy_label
          FROM reddit_accounts a
          LEFT JOIN model_profiles mp ON mp.id = a.profile_id
@@ -475,7 +493,17 @@ function registerOserusBrowserHandlers() {
          ORDER BY a.platform, a.username`
       );
       for (const p of profiles) {
-        p.accounts = acctStmt.all(p.id);
+        p.accounts = acctStmt.all(p.id).map((a) => {
+          let fp = null;
+          if (a.fingerprint_json) {
+            try { fp = JSON.parse(a.fingerprint_json); } catch {}
+          }
+          // Don't ship the heavy fingerprint JSON to the renderer — just
+          // the summarized identity the picker shows.
+          delete a.fingerprint_json;
+          a.fingerprint = fp ? fingerprintMod.summarize(fp) : null;
+          return a;
+        });
       }
       return { ok: true, profiles };
     } catch (e) {

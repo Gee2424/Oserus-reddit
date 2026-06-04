@@ -65,10 +65,21 @@ export default function Picker() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {p.accounts.map((a) => (
                   <button key={a.id} onClick={() => launch(a.id)} style={acctRow}>
-                    <span style={{ ...dot, background: a.status === 'banned' ? '#e2a3a3' : a.status === 'ready' ? '#7fd99a' : '#d4a64a' }} />
-                    <span className="mono" style={{ fontSize: 12 }}>{a.platform}</span>
-                    <span style={{ flex: 1, textAlign: 'left', fontWeight: 500 }}>{a.username}</span>
-                    {a.proxy_label && <span className="mono dim" style={{ fontSize: 10 }}>via {a.proxy_label}</span>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+                      <span style={{ ...dot, background: a.status === 'banned' ? '#e2a3a3' : a.status === 'ready' ? '#7fd99a' : '#d4a64a' }} />
+                      <span className="mono" style={{ fontSize: 12 }}>{a.platform}</span>
+                      <span style={{ flex: 1, textAlign: 'left', fontWeight: 500 }}>{a.username}</span>
+                      {a.proxy_label && <span className="mono dim" style={{ fontSize: 10 }}>via {a.proxy_label}</span>}
+                    </div>
+                    {a.fingerprint && (
+                      <div style={fpStrip} title="This identity is sent to every site this account visits">
+                        <span style={fpItem}>◐ {a.fingerprint.os}</span>
+                        <span style={fpItem}>▭ {a.fingerprint.screen}</span>
+                        <span style={fpItem}>⌖ {a.fingerprint.timezone}</span>
+                        <span style={fpItem}>⌨ {a.fingerprint.language}</span>
+                        <span style={fpItem}>{a.fingerprint.cores}c · {a.fingerprint.memory}</span>
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>
@@ -88,10 +99,18 @@ const card = {
   borderRadius: 'var(--radius-lg)', padding: 14,
 };
 const acctRow = {
-  display: 'flex', alignItems: 'center', gap: 8,
+  display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 5,
   background: 'var(--bg-1)', border: '1px solid var(--border)',
   borderRadius: 8, padding: '7px 10px', cursor: 'pointer',
-  color: 'var(--text-1)',
+  color: 'var(--text-1)', textAlign: 'left',
+};
+const fpStrip = {
+  display: 'flex', flexWrap: 'wrap', gap: 6,
+  paddingTop: 4, borderTop: '1px dashed var(--border)',
+};
+const fpItem = {
+  fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.04em',
+  color: 'var(--text-3)',
 };
 const dot = { width: 8, height: 8, borderRadius: '50%' };
 const chipEmail = {
