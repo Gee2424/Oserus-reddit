@@ -30,7 +30,6 @@ let lastRun = null;
 let lastSummary = null;
 let engagementTimer = null;
 let topicTimer = null;
-let autoCommentTimer = null;
 let schedTimer = null;
 let proxyTimer = null;
 let boostTimer = null;
@@ -495,12 +494,14 @@ function start() {
   proxyTimer = setInterval(autoTestProxies, 30 * 60 * 1000);
   karmaTimer = setInterval(() => refreshKarmaSnapshots().catch(() => {}), 6 * 60 * 60 * 1000);
 
+  // Engagement tick now owns commenting too — see services/engagement.js
+  // and services/autopilotProtocol.js. The legacy per-platform autoComment
+  // dispatcher is gone; Reddit's API-comment path is invoked inline from
+  // runSession() when the protocol has comment_rate_pct > 0.
   const { engagementTick } = require('./engagement');
   engagementTimer = setInterval(() => engagementTick().catch(() => {}), 4 * 60 * 1000);
   const { topicTick } = require('./topicDiscovery');
   topicTimer = setInterval(() => topicTick().catch(() => {}), 4 * 60 * 60 * 1000);
-  const { autoCommentTick } = require('./autoComment');
-  autoCommentTimer = setInterval(() => autoCommentTick().catch(() => {}), 3 * 60 * 1000);
 
   // First-run staging: scheduled near-immediately, the rest spread out
   // so we don't slam the network the second the app starts.
@@ -510,14 +511,13 @@ function start() {
   setTimeout(tick, 60 * 1000);
   setTimeout(() => engagementTick().catch(() => {}), 2 * 60 * 1000);
   setTimeout(() => topicTick().catch(() => {}), 5 * 60 * 1000);
-  setTimeout(() => autoCommentTick().catch(() => {}), 4 * 60 * 1000);
 }
 
 function stop() {
-  for (const t of [timer, schedTimer, proxyTimer, boostTimer, karmaTimer, engagementTimer, topicTimer, autoCommentTimer]) {
+  for (const t of [timer, schedTimer, proxyTimer, boostTimer, karmaTimer, engagementTimer, topicTimer]) {
     if (t) clearInterval(t);
   }
-  timer = schedTimer = proxyTimer = boostTimer = karmaTimer = engagementTimer = topicTimer = autoCommentTimer = null;
+  timer = schedTimer = proxyTimer = boostTimer = karmaTimer = engagementTimer = topicTimer = null;
 }
 
 function status() {

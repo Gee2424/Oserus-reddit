@@ -305,6 +305,47 @@ function initDatabase() {
       last_run_at TEXT
     );
 
+    -- Unified autopilot protocol — per model profile, per platform.
+    --
+    -- Replaces the per-account engagement_protocols + auto_comment_protocols
+    -- pair. One row owns pacing + engagement rates + commenting + targeting +
+    -- AI persona for one (profile, platform). Switching the active model in
+    -- the Autopilot UI swaps which row you're editing.
+    --
+    -- Commenting and "engagement" (scroll/like/follow) are no longer separate
+    -- concepts here — one knob (comment_rate_pct) governs whether a session
+    -- also leaves AI-generated comments. Reddit-API based commenting is
+    -- triggered from this same protocol when platform='reddit'.
+    CREATE TABLE IF NOT EXISTS autopilot_protocols (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER NOT NULL REFERENCES model_profiles(id) ON DELETE CASCADE,
+      platform   TEXT    NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      -- pacing
+      sessions_per_day    INTEGER NOT NULL DEFAULT 3,
+      session_minutes_min INTEGER NOT NULL DEFAULT 6,
+      session_minutes_max INTEGER NOT NULL DEFAULT 14,
+      -- engagement rates (0-100)
+      like_rate_pct        INTEGER NOT NULL DEFAULT 18,
+      follow_rate_pct      INTEGER NOT NULL DEFAULT 4,
+      watch_full_rate_pct  INTEGER NOT NULL DEFAULT 25,
+      comment_rate_pct     INTEGER NOT NULL DEFAULT 0,
+      comment_videos_only  INTEGER NOT NULL DEFAULT 1,
+      -- targeting (all JSON arrays/objects, see services/autopilotProtocol.js)
+      hashtags_json       TEXT,  -- which feeds / tags to surf
+      follow_list_json    TEXT,  -- if set, only follow these handles
+      target_filter_json  TEXT,  -- who to comment on: min/max followers, verified, exclude
+      target_subs_json    TEXT,  -- Reddit: subreddits to comment under (API path)
+      -- AI persona for comments
+      comment_persona     TEXT,  -- 'playful' | 'curious' | 'flirty' | 'dry' | 'custom'
+      comment_prompt      TEXT,  -- custom prompt body when persona='custom'
+      last_run_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(profile_id, platform)
+    );
+    CREATE INDEX IF NOT EXISTS idx_autopilot_protocols_due
+      ON autopilot_protocols (enabled, last_run_at);
+
     -- Editable per-job system prompts for the autopilot AI. NULL profile_id
     -- is the global default for that job; a row with a profile_id overrides
     -- for that model only. job ∈ ('post_sfw','post_nsfw','comment').
@@ -570,6 +611,75 @@ function initDatabase() {
     }
   } catch (e) {
     console.warn('[db] engagement migration skipped:', e?.message);
+  }
+
+  // One-time backfill: fold per-account engagement_protocols and
+  // auto_comment_protocols rows into the unified per-profile autopilot_protocols.
+  // Idempotent — UNIQUE(profile_id, platform) skips conflicts, and we only
+  // run when autopilot_protocols is still empty.
+  try {
+    const hasAny = db.prepare('SELECT 1 FROM autopilot_protocols LIMIT 1').get();
+    if (!hasAny) {
+      // Collapse multiple accounts under the same (profile, platform) by
+      // taking the most-recently-touched engagement row as the source of
+      // truth — losing the last config across siblings is acceptable on a
+      // one-shot migration.
+      const eRows = db.prepare(
+        `SELECT a.profile_id, a.platform,
+                e.enabled, e.sessions_per_day, e.session_minutes_min, e.session_minutes_max,
+                e.like_rate_pct, e.follow_rate_pct, e.watch_full_rate_pct,
+                e.comment_rate_pct, e.comment_videos_only,
+                e.hashtags_json, e.follow_list_json, e.last_run_at
+           FROM engagement_protocols e
+           JOIN reddit_accounts a ON a.id = e.account_id
+          ORDER BY COALESCE(e.last_run_at, '') DESC`
+      ).all();
+      const ins = db.prepare(
+        `INSERT OR IGNORE INTO autopilot_protocols
+          (profile_id, platform, enabled,
+           sessions_per_day, session_minutes_min, session_minutes_max,
+           like_rate_pct, follow_rate_pct, watch_full_rate_pct,
+           comment_rate_pct, comment_videos_only,
+           hashtags_json, follow_list_json, last_run_at)
+         VALUES (@profile_id, @platform, @enabled,
+                 @sessions_per_day, @session_minutes_min, @session_minutes_max,
+                 @like_rate_pct, @follow_rate_pct, @watch_full_rate_pct,
+                 @comment_rate_pct, @comment_videos_only,
+                 @hashtags_json, @follow_list_json, @last_run_at)`
+      );
+      for (const r of eRows) ins.run(r);
+
+      // Reddit auto_comment_protocols → set target_subs_json + bump
+      // comment_rate_pct above 0 so commenting is on for that profile.
+      const cRows = db.prepare(
+        `SELECT a.profile_id, c.target_subs_json, c.enabled, c.comments_per_day
+           FROM auto_comment_protocols c
+           JOIN reddit_accounts a ON a.id = c.account_id
+          WHERE c.enabled = 1
+          ORDER BY a.profile_id`
+      ).all();
+      const upsertRedditComments = db.prepare(
+        `INSERT INTO autopilot_protocols
+          (profile_id, platform, enabled, target_subs_json, comment_rate_pct)
+         VALUES (?, 'reddit', 1, ?, 100)
+         ON CONFLICT(profile_id, platform) DO UPDATE SET
+           target_subs_json = excluded.target_subs_json,
+           comment_rate_pct = CASE
+             WHEN autopilot_protocols.comment_rate_pct < 1 THEN 100
+             ELSE autopilot_protocols.comment_rate_pct
+           END,
+           enabled = 1`
+      );
+      for (const r of cRows) upsertRedditComments.run(r.profile_id, r.target_subs_json);
+
+      if (eRows.length || cRows.length) {
+        console.log(
+          `[db] Backfilled autopilot_protocols: ${eRows.length} engagement, ${cRows.length} auto-comment`
+        );
+      }
+    }
+  } catch (e) {
+    console.warn('[db] autopilot_protocols backfill skipped:', e?.message);
   }
 
   // Keep content_sources in sync with the legacy per-platform target tables

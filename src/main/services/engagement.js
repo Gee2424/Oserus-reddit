@@ -115,14 +115,31 @@ function buildScript(platform, opts) {
 
       const caption = visibleText(findIn(p, sel.caption)).slice(0, 600);
       const creator = (visibleText(findIn(p, sel.creator)) || '').replace(/^@/, '').split(/\\s+/)[0];
+      // Best-effort follower / verified extraction for the targeting
+      // filter. Selectors vary across platforms; we just hint when we
+      // can and let the main-process filter accept-on-unknown.
+      let followers = null;
+      try {
+        const fc = (p.innerText || '').match(/([\\d.,]+)\\s*([KMB]?)\\s*(followers|fans)/i);
+        if (fc) {
+          let n = parseFloat(fc[1].replace(/,/g, ''));
+          if (fc[2] === 'K') n *= 1e3;
+          else if (fc[2] === 'M') n *= 1e6;
+          else if (fc[2] === 'B') n *= 1e9;
+          followers = Math.round(n);
+        }
+      } catch {}
+      const verified = !!p.querySelector('[aria-label*="erified" i], [data-testid="icon-verified"], svg[aria-label*="erified" i]');
 
-      // Bridge to main process for an AI comment. Returns null on any
-      // failure — we just skip silently in that case.
+      // Bridge to main process for an AI comment. Bridge applies the
+      // protocol's target filter + persona; returns null on rejection
+      // or any failure — we just skip silently in that case.
       let reply = null;
       try {
         reply = await window.oserus?.requestComment?.({
           platform: ${JSON.stringify(platform)},
-          caption, creator,
+          protocolId: cfg.protocolId,
+          caption, creator, followers, verified,
           topReplies: [],
         });
       } catch (e) { stats.errors.push('ai:' + e.message); return; }
@@ -227,7 +244,13 @@ function buildScript(platform, opts) {
 // ---------------------------------------------------------------- IPC bridge
 // Registered once on first runSession call. The hidden engagement
 // window's preload invokes `engagement:requestComment` which lands
-// here, calls the autopilot AI, and returns the generated comment.
+// here, applies the protocol's targeting filter, and (when the
+// candidate passes) calls the autopilot AI with the persona prompt
+// set on the protocol.
+//
+// The session.executeJavaScript flow passes the active protocol's id
+// via cfg, so the bridge can look it up here without state-sharing.
+const autopilotProtocol = require('./autopilotProtocol');
 let bridgeRegistered = false;
 function registerBridge() {
   if (bridgeRegistered) return;
@@ -235,11 +258,27 @@ function registerBridge() {
   ipcMain.handle('engagement:requestComment', async (_e, payload = {}) => {
     try {
       const { callAutopilotAI } = require('./postgen');
-      const { platform, caption, creator, topReplies } = payload;
+      const { platform, caption, creator, topReplies, protocolId, followers, verified } = payload;
       if (!caption && !creator) return { ok: false, error: 'no context' };
-      const system = `You are a real person scrolling ${platform || 'social media'} videos and leaving casual reactions. Write ONE short reply to the video below (1 sentence, occasionally 2). Sound like a real viewer: react to a specific detail in the caption — don't be generic. Avoid hashtags, no emojis spam (zero or one max), no "great video" / "love this content" filler. Never promotional, never about another platform. Output ONLY the reply text, nothing else.`;
+
+      // Look up the protocol row so we get the persona + target filter
+      // fresh on every comment, not stale from session start.
+      let proto = null;
+      if (protocolId) {
+        proto = getDb().prepare('SELECT * FROM autopilot_protocols WHERE id = ?').get(protocolId);
+      }
+      if (proto && !autopilotProtocol.passesTargetFilter(proto, { caption, followers, verified })) {
+        return { ok: false, error: 'filtered' };
+      }
+
+      const personaSystem = proto
+        ? autopilotProtocol.buildCommentPrompt(proto)
+        : autopilotProtocol.PERSONA_PROMPTS.curious;
+      const system = `${personaSystem}\n\nYou are reacting to a ${platform || 'social media'} post. Output ONLY the reply text, nothing else.`;
       const userMsg = [
         creator ? `Creator: @${creator}` : null,
+        typeof followers === 'number' ? `Creator followers: ${followers}` : null,
+        verified ? 'Creator is verified.' : null,
         caption ? `Caption: ${caption}` : '(no caption)',
         Array.isArray(topReplies) && topReplies.length
           ? `Visible top replies (for tone — do not mimic verbatim):\n${topReplies.slice(0, 4).map((r) => `- ${r}`).join('\n')}`
@@ -262,15 +301,23 @@ function registerBridge() {
 }
 
 // ------------------------------------------------- one session for one account
+//
+// Resolves the protocol by (account.profile_id, account.platform). If
+// the account belongs to a profile with no protocol row yet, the call
+// is a no-op so accidental engagement runs never burn an account.
 async function runSession(accountId, { dryRun = false } = {}) {
   registerBridge();
   const db = getDb();
   const acct = db.prepare(
-    `SELECT id, username, partition_key, platform FROM reddit_accounts WHERE id = ?`
+    `SELECT id, username, partition_key, platform, profile_id
+       FROM reddit_accounts WHERE id = ?`
   ).get(accountId);
   if (!acct) return { ok: false, error: 'Account not found' };
-  const proto = db.prepare(`SELECT * FROM engagement_protocols WHERE account_id = ?`).get(accountId);
-  if (!proto) return { ok: false, error: 'No engagement protocol configured' };
+  const proto = db.prepare(
+    `SELECT * FROM autopilot_protocols WHERE profile_id = ? AND platform = ?`
+  ).get(acct.profile_id, acct.platform);
+  if (!proto) return { ok: false, error: 'No autopilot protocol for this profile + platform' };
+  if (!proto.enabled) return { ok: false, error: 'Protocol disabled' };
 
   const url = urlFor(acct.platform);
   const minMin = Math.max(1, proto.session_minutes_min || 6);
@@ -331,6 +378,9 @@ async function runSession(accountId, { dryRun = false } = {}) {
         commentRatePct:  Math.max(0, Math.min(100, proto.comment_rate_pct ?? 0)),
         commentVideosOnly:(proto.comment_videos_only ?? 1) ? true : false,
         followList,
+        // Bridge looks the row up fresh to honor the persona + filter
+        // even if the user just edited them.
+        protocolId: proto.id,
       });
       stats = await win.webContents.executeJavaScript(script);
     }
@@ -352,21 +402,36 @@ async function runSession(accountId, { dryRun = false } = {}) {
     err || (stats.errors?.length ? stats.errors.join(' · ') : null),
     sessionId
   );
-  db.prepare(`UPDATE engagement_protocols SET last_run_at = datetime('now') WHERE account_id = ?`).run(accountId);
+  autopilotProtocol.markRan(acct.profile_id, acct.platform);
+
+  // Reddit hybrid: when commenting is enabled on a Reddit protocol we
+  // also fire one API-based comment via redditAutoComment in the same
+  // session window — DOM-comment selectors on Reddit are too fragile.
+  // Errors here are non-fatal; the engagement stats above are still
+  // the canonical record.
+  if (!dryRun && acct.platform === 'reddit' && (proto.comment_rate_pct ?? 0) > 0) {
+    try {
+      const { runOnce } = require('./redditAutoComment');
+      await runOnce(acct.id, { dryRun: false, protocol: proto });
+    } catch (e) {
+      elog.warn('[engagement] reddit api-comment failed', { accountId, error: e?.message });
+    }
+  }
 
   return { ok: !err, error: err, sessionId, stats, seconds };
 }
 
-// Coordinator tick — pick at most one enabled protocol whose last_run_at
-// is stale enough to be due. Spreads sessions across the day instead of
-// slamming them all at once.
+// Coordinator tick — pick at most one enabled (profile, platform)
+// protocol whose last_run_at is stale enough to be due. Then pick one
+// account from that profile + platform and run a session for it.
+// Spreads sessions across the day so we don't slam the network.
 async function engagementTick() {
   const db = getDb();
   let rows;
   try {
     rows = db.prepare(
-      `SELECT account_id, sessions_per_day, last_run_at
-         FROM engagement_protocols
+      `SELECT id, profile_id, platform, sessions_per_day, last_run_at
+         FROM autopilot_protocols
         WHERE enabled = 1`
     ).all();
   } catch { return; }
@@ -383,7 +448,15 @@ async function engagementTick() {
   if (!dueRows.length) return;
 
   const pick = dueRows[Math.floor(Math.random() * dueRows.length)];
-  try { await runSession(pick.account_id, { dryRun: false }); } catch {}
+  // Pick one account from this profile + platform. Rotates fairly by
+  // ORDER BY id so the same account isn't always first.
+  const acct = db.prepare(
+    `SELECT id FROM reddit_accounts
+      WHERE profile_id = ? AND platform = ? AND status IN ('warming','ready')
+      ORDER BY RANDOM() LIMIT 1`
+  ).get(pick.profile_id, pick.platform);
+  if (!acct) return;
+  try { await runSession(acct.id, { dryRun: false }); } catch {}
 }
 
 module.exports = { runSession, engagementTick };

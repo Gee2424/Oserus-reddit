@@ -241,12 +241,10 @@ export default function AutopilotPage() {
       {/* Per-account example library — autopilot seeds Grok with these. */}
       <ExampleLibrary token={token} />
 
-      {/* Human-like engagement (scroll/like/follow) for IG / TikTok / X / Reddit. */}
-      <EngagementPanel token={token} />
-
-      {/* Auto-comment loop — reads posts from configured subs, generates a
-          reply seeded with example_comments, posts via /api/comment. */}
-      <AutoCommentPanel token={token} />
+      {/* Unified per-profile-per-platform autopilot: scroll + like + follow
+          + AI commenting, with targeting + persona. Replaces the old
+          per-account Engagement and Auto-comment panels. */}
+      <AutopilotProtocolPanel token={token} />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1fr', gap: 18 }}>
         {/* Protocol editor */}
@@ -764,159 +762,327 @@ function ImageThumb({ token, id }) {
   return <img src={src} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />;
 }
 
-function EngagementPanel({ token }) {
-  const [accounts, setAccounts] = useState([]);
-  const [platformFilter, setPlatformFilter] = useState('all');
-  const [accountId, setAccountId] = useState('');
+
+// ============================================================================
+// AutopilotProtocolPanel — unified per-profile-per-platform autopilot config.
+//
+// Replaces the older per-account EngagementPanel + AutoCommentPanel pair.
+// The operator picks a model profile, picks a platform, and edits one
+// protocol row in autopilot_protocols. Switching profile or platform
+// swaps the whole config so VAs don't have to reason about which
+// account they're editing.
+// ============================================================================
+
+const PLATFORMS_ALL = [
+  { v: 'reddit',    l: 'Reddit',    c: '#ff4500' },
+  { v: 'x',         l: 'X',         c: '#fff' },
+  { v: 'instagram', l: 'Instagram', c: '#e2497d' },
+  { v: 'tiktok',    l: 'TikTok',    c: '#69c9d0' },
+  { v: 'redgifs',   l: 'RedGifs',   c: '#d63d3d' },
+];
+
+const PERSONAS = [
+  { v: 'curious', l: 'Curious',  hint: 'Asks short questions, notices specifics.' },
+  { v: 'playful', l: 'Playful',  hint: 'Light teasing, real-viewer energy.' },
+  { v: 'flirty',  l: 'Flirty',   hint: 'Confident, not crude.' },
+  { v: 'dry',     l: 'Dry',      hint: 'Deadpan, one short observation.' },
+  { v: 'custom',  l: 'Custom',   hint: 'Write your own system prompt below.' },
+];
+
+function AutopilotProtocolPanel({ token }) {
+  const [profiles, setProfiles] = useState([]);
+  const [profileId, setProfileId] = useState('');
+  const [platform, setPlatform] = useState('reddit');
   const [proto, setProto] = useState(null);
-  const [sessions, setSessions] = useState([]);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-  const [msg, setMsg] = useState(null);
+  const [status, setStatus] = useState(null);
+
+  // Free-text mirrors of the JSON fields so the user types in a textarea.
   const [hashtagsText, setHashtagsText] = useState('');
   const [followText, setFollowText] = useState('');
+  const [subsText, setSubsText] = useState('');
+  const [excludeText, setExcludeText] = useState('');
 
+  // Load every profile the user can see. Reuse the profiles IPC.
   useEffect(() => {
-    window.api.accounts.listForUser({ token }).then((r) => {
+    window.api.profiles.list({ token }).then((r) => {
       if (r.ok) {
-        const list = r.accounts || [];
-        setAccounts(list);
-        if (!accountId && list.length) setAccountId(String(list[0].id));
+        const list = r.profiles || [];
+        setProfiles(list);
+        if (!profileId && list.length) setProfileId(String(list[0].id));
       }
     });
   }, [token]);
 
-  const visibleAccounts = (platformFilter === 'all')
-    ? accounts
-    : accounts.filter((a) => (a.platform || 'reddit') === platformFilter);
-  useEffect(() => {
-    if (!visibleAccounts.find((a) => String(a.id) === String(accountId))) {
-      setAccountId(visibleAccounts[0] ? String(visibleAccounts[0].id) : '');
-    }
-  }, [platformFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = useCallback(async () => {
+    if (!profileId || !platform) { setProto(null); return; }
+    const r = await window.api.autopilot.get({
+      token, profileId: Number(profileId), platform,
+    });
+    if (!r.ok) { setProto(null); return; }
+    const p = r.protocol;
+    setProto(p);
+    try { setHashtagsText((JSON.parse(p.hashtags_json    || '[]') || []).join(', ')); } catch { setHashtagsText(''); }
+    try { setFollowText  ((JSON.parse(p.follow_list_json || '[]') || []).join(', ')); } catch { setFollowText(''); }
+    try { setSubsText    ((JSON.parse(p.target_subs_json || '[]') || []).join(', ')); } catch { setSubsText(''); }
+    try {
+      const f = JSON.parse(p.target_filter_json || '{}') || {};
+      setExcludeText((f.exclude_keywords || []).join(', '));
+    } catch { setExcludeText(''); }
+  }, [token, profileId, platform]);
 
-  const load = useCallback(async (id) => {
-    if (!id) { setProto(null); setSessions([]); return; }
-    const [p, s] = await Promise.all([
-      window.api.engagement.get({ token, accountId: Number(id) }),
-      window.api.engagement.sessions({ token, accountId: Number(id), limit: 10 }),
-    ]);
-    if (p.ok) {
-      setProto(p.protocol);
-      try { setHashtagsText((JSON.parse(p.protocol.hashtags_json || '[]') || []).join(', ')); } catch { setHashtagsText(''); }
-      try { setFollowText((JSON.parse(p.protocol.follow_list_json || '[]') || []).join(', ')); } catch { setFollowText(''); }
-    }
-    if (s.ok) setSessions(s.sessions || []);
-  }, [token]);
+  useEffect(() => { load(); }, [load]);
 
-  useEffect(() => { load(accountId); }, [accountId, load]);
+  function set(patch) { setProto((p) => ({ ...(p || {}), ...patch })); }
 
   async function save() {
-    if (!proto) return;
-    setBusy(true); setErr(null);
-    const hashtags = hashtagsText.split(/[,\n]/).map((s) => s.trim().replace(/^#/, '')).filter(Boolean);
-    const followList = followText.split(/[,\n]/).map((s) => s.trim().replace(/^@/, '')).filter(Boolean);
-    const r = await window.api.engagement.set({
-      token, accountId: Number(accountId),
-      patch: { ...proto, hashtags_json: JSON.stringify(hashtags), follow_list_json: JSON.stringify(followList) },
+    if (!profileId || !platform || !proto) return;
+    setBusy(true); setStatus(null);
+    const arr = (s) => String(s || '').split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+    let filter = {};
+    try { filter = JSON.parse(proto.target_filter_json || '{}'); } catch {}
+    filter.exclude_keywords = arr(excludeText);
+    const r = await window.api.autopilot.set({
+      token,
+      profileId: Number(profileId),
+      platform,
+      patch: {
+        ...proto,
+        hashtags:    arr(hashtagsText),
+        follow_list: arr(followText),
+        target_subs: arr(subsText),
+        target_filter: filter,
+      },
     });
     setBusy(false);
-    if (r.ok) { setProto(r.protocol); setMsg('Saved.'); }
-    else setErr(r.error);
+    setStatus(r.ok ? '✓ Saved' : (r.error || 'Failed'));
+    if (r.ok) setProto(r.protocol);
+    setTimeout(() => setStatus(null), 2500);
   }
-  async function runNow(dryRun) {
-    setBusy(true); setErr(null);
-    const r = await window.api.engagement.runNow({ token, accountId: Number(accountId), dryRun });
-    setBusy(false);
-    if (r.ok) {
-      setMsg(`Session done · ${r.stats?.posts_seen ?? 0} seen · ${r.stats?.likes ?? 0} liked · ${r.stats?.follows ?? 0} followed · ${r.seconds}s`);
-      load(accountId);
-    } else setErr(r.error);
-  }
-  useEffect(() => { if (!msg && !err) return; const t = setTimeout(() => { setMsg(null); setErr(null); }, 5000); return () => clearTimeout(t); }, [msg, err]);
 
-  const acct = accounts.find((a) => String(a.id) === String(accountId));
-  const platform = acct?.platform || 'reddit';
-  const supportsHashtags = platform === 'instagram' || platform === 'tiktok';
+  async function runNow(dryRun = false) {
+    setBusy(true); setStatus('Running…');
+    const r = await window.api.autopilot.runNow({
+      token, profileId: Number(profileId), platform, dryRun,
+    });
+    setBusy(false);
+    if (!r?.ok) { setStatus(r?.error || 'Failed'); return; }
+    setStatus(`Ran · ${r.stats?.likes || 0} likes · ${r.stats?.follows || 0} follows · ${r.stats?.comments || 0} comments`);
+  }
+
+  const supportsHashtags = platform === 'tiktok' || platform === 'instagram';
+  const supportsTargetSubs = platform === 'reddit';
+
+  let targetFilter = {};
+  try { targetFilter = JSON.parse(proto?.target_filter_json || '{}') || {}; } catch {}
 
   return (
     <div className="card" style={{ padding: 18, marginBottom: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-        <h3 style={{ margin: 0 }}>Engagement</h3>
-        <span className="muted" style={{ fontSize: 11 }}>
-          human-like scroll · like · follow · watch · per-account, per-platform
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 16 }}>Autopilot Engagement</h2>
+        <span className="muted" style={{ fontSize: 12 }}>
+          one config per model + platform — drives scrolling, liking, following, and AI commenting
         </span>
       </div>
-      <div className="muted" style={{ fontSize: 11, marginBottom: 14, lineHeight: 1.5 }}>
-        Opens a hidden browser on this account's session and runs a session you'd never tell from a real user — scrolls a random amount, likes a fraction of posts, follows a fraction (filtered to your follow-list if set), watches some reels in full and skips others. Selectors are best-effort; platforms change markup, so verify with a dry run before relying on it.
-      </div>
-      <PlatformFilter value={platformFilter} onChange={setPlatformFilter} />
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
-        <label style={{ fontSize: 12, margin: 0 }}>Account</label>
-        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ minWidth: 320 }}>
-          <option value="">— pick an account —</option>
-          {visibleAccounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {(a.platform || 'reddit')} · {a.username}{a.profile_name ? ` · ${a.profile_name}` : ''}
-            </option>
-          ))}
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+        <select value={profileId} onChange={(e) => setProfileId(e.target.value)} style={{ minWidth: 220 }}>
+          {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {PLATFORMS_ALL.map((o) => {
+            const active = platform === o.v;
+            return (
+              <button
+                key={o.v}
+                onClick={() => setPlatform(o.v)}
+                style={{
+                  background: active ? 'rgba(255,255,255,0.06)' : 'transparent',
+                  border: `1px solid ${active ? o.c : 'var(--border)'}`,
+                  borderRadius: 999, padding: '4px 11px',
+                  color: active ? '#fff' : 'var(--text-2)',
+                  fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: o.c }} />
+                {o.l}
+              </button>
+            );
+          })}
+        </div>
+        {status && <span className="muted" style={{ fontSize: 12, marginLeft: 'auto' }}>{status}</span>}
       </div>
 
-      {err && <Banner kind="err">{err}</Banner>}
-      {msg && <Banner kind="ok">{msg}</Banner>}
-
-      {proto && accountId && (
+      {!proto ? <div className="muted">Pick a model and a platform.</div> : (
         <>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}>
-            <input type="checkbox" checked={!!proto.enabled} onChange={(e) => setProto({ ...proto, enabled: e.target.checked ? 1 : 0 })} style={{ width: 'auto' }} />
-            <span style={{ fontWeight: 600 }}>Engagement enabled for this account</span>
+          {/* Enabled toggle */}
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13 }}>
+            <input
+              type="checkbox"
+              checked={!!proto.enabled}
+              onChange={(e) => set({ enabled: e.target.checked ? 1 : 0 })}
+            />
+            Autopilot enabled for this profile + platform
           </label>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 12 }}>
+          {/* Pacing */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12 }}>
             <div>
               <label>Sessions per day</label>
-              <input type="number" min={1} max={48} value={proto.sessions_per_day} onChange={(e) => setProto({ ...proto, sessions_per_day: Number(e.target.value) })} />
+              <input type="number" min={1} value={proto.sessions_per_day ?? 3}
+                     onChange={(e) => set({ sessions_per_day: Number(e.target.value) })} />
             </div>
             <div>
-              <label>Session min (min)</label>
-              <input type="number" min={1} value={proto.session_minutes_min} onChange={(e) => setProto({ ...proto, session_minutes_min: Number(e.target.value) })} />
+              <label>Session min (minutes)</label>
+              <input type="number" min={1} value={proto.session_minutes_min ?? 6}
+                     onChange={(e) => set({ session_minutes_min: Number(e.target.value) })} />
             </div>
             <div>
-              <label>Session max (min)</label>
-              <input type="number" min={1} value={proto.session_minutes_max} onChange={(e) => setProto({ ...proto, session_minutes_max: Number(e.target.value) })} />
+              <label>Session max (minutes)</label>
+              <input type="number" min={1} value={proto.session_minutes_max ?? 14}
+                     onChange={(e) => set({ session_minutes_max: Number(e.target.value) })} />
             </div>
+          </div>
+
+          {/* Engagement rates */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
             <div>
               <label>Like rate (%)</label>
-              <input type="number" min={0} max={100} value={proto.like_rate_pct} onChange={(e) => setProto({ ...proto, like_rate_pct: Number(e.target.value) })} />
+              <input type="number" min={0} max={100} value={proto.like_rate_pct ?? 18}
+                     onChange={(e) => set({ like_rate_pct: Number(e.target.value) })} />
             </div>
             <div>
               <label>Follow rate (%)</label>
-              <input type="number" min={0} max={100} value={proto.follow_rate_pct} onChange={(e) => setProto({ ...proto, follow_rate_pct: Number(e.target.value) })} />
+              <input type="number" min={0} max={100} value={proto.follow_rate_pct ?? 4}
+                     onChange={(e) => set({ follow_rate_pct: Number(e.target.value) })} />
             </div>
             <div>
               <label>Watch-fully rate (%)</label>
-              <input type="number" min={0} max={100} value={proto.watch_full_rate_pct} onChange={(e) => setProto({ ...proto, watch_full_rate_pct: Number(e.target.value) })} />
+              <input type="number" min={0} max={100} value={proto.watch_full_rate_pct ?? 25}
+                     onChange={(e) => set({ watch_full_rate_pct: Number(e.target.value) })} />
             </div>
             <div>
-              <label title="Probability a video gets an AI-generated reaction comment. Needs Autopilot AI key.">Comment rate (%)</label>
-              <input type="number" min={0} max={100} value={proto.comment_rate_pct ?? 0} onChange={(e) => setProto({ ...proto, comment_rate_pct: Number(e.target.value) })} />
+              <label title="Probability the session leaves an AI comment on a given post. Needs the Autopilot AI key.">
+                Comment rate (%)
+              </label>
+              <input type="number" min={0} max={100} value={proto.comment_rate_pct ?? 0}
+                     onChange={(e) => set({ comment_rate_pct: Number(e.target.value) })} />
             </div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 6 }}>
+          </div>
+
+          {/* Targeting */}
+          <div style={{ marginBottom: 12 }}>
+            <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+              Targeting · which accounts your model engages with
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <label>Min followers</label>
+                <input
+                  type="number" min={0}
+                  value={targetFilter.min_followers ?? ''}
+                  onChange={(e) => {
+                    const f = { ...targetFilter };
+                    const v = e.target.value.trim();
+                    if (v === '') delete f.min_followers;
+                    else f.min_followers = Number(v);
+                    set({ target_filter_json: JSON.stringify(f) });
+                  }}
+                />
+              </div>
+              <div>
+                <label>Max followers</label>
+                <input
+                  type="number" min={0}
+                  value={targetFilter.max_followers ?? ''}
+                  onChange={(e) => {
+                    const f = { ...targetFilter };
+                    const v = e.target.value.trim();
+                    if (v === '') delete f.max_followers;
+                    else f.max_followers = Number(v);
+                    set({ target_filter_json: JSON.stringify(f) });
+                  }}
+                />
+              </div>
+            </div>
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={!!targetFilter.verified_only}
+                  onChange={(e) => {
+                    const f = { ...targetFilter, verified_only: e.target.checked };
+                    if (!e.target.checked) delete f.verified_only;
+                    set({ target_filter_json: JSON.stringify(f) });
+                  }}
+                />
+                Verified accounts only
+              </label>
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
                 <input
                   type="checkbox"
                   checked={!!(proto.comment_videos_only ?? 1)}
-                  onChange={(e) => setProto({ ...proto, comment_videos_only: e.target.checked ? 1 : 0 })}
+                  onChange={(e) => set({ comment_videos_only: e.target.checked ? 1 : 0 })}
                 />
                 Only comment on videos
               </label>
             </div>
+            <div style={{ marginTop: 10 }}>
+              <label>Exclude posts whose caption contains</label>
+              <textarea
+                rows={2}
+                placeholder="onlyfans, fansly, link in bio"
+                value={excludeText}
+                onChange={(e) => setExcludeText(e.target.value)}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+              />
+              <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>Comma-separated. Case-insensitive substring match.</div>
+            </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+          {/* AI comment persona */}
+          <div style={{ marginBottom: 12 }}>
+            <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+              How the AI comments
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+              {PERSONAS.map((p) => {
+                const active = (proto.comment_persona || 'curious') === p.v;
+                return (
+                  <button
+                    key={p.v}
+                    onClick={() => set({ comment_persona: p.v })}
+                    title={p.hint}
+                    style={{
+                      background: active ? 'rgba(212,166,74,0.18)' : 'transparent',
+                      border: `1px solid ${active ? 'var(--gold)' : 'var(--border)'}`,
+                      borderRadius: 999, padding: '4px 11px',
+                      color: active ? 'var(--gold)' : 'var(--text-2)',
+                      fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    }}
+                  >{p.l}</button>
+                );
+              })}
+            </div>
+            {(proto.comment_persona === 'custom') && (
+              <div>
+                <label>Custom system prompt for comments</label>
+                <textarea
+                  rows={4}
+                  value={proto.comment_prompt || ''}
+                  onChange={(e) => set({ comment_prompt: e.target.value })}
+                  placeholder="You react to videos like a real viewer in… one short line, no hashtags, never promotional, …"
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Per-platform lists */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             <div>
-              <label>Follow-list (usernames, comma or newline)</label>
+              <label>Follow-list (handles)</label>
               <textarea
                 rows={3}
                 placeholder="@modelhandle1, @modelhandle2"
@@ -924,233 +1090,48 @@ function EngagementPanel({ token }) {
                 onChange={(e) => setFollowText(e.target.value)}
                 style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
               />
-              <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>Empty = follow anyone the rate allows. Filled = only follow accounts on this list.</div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                Empty = follow anyone the rate allows. Filled = only follow these handles.
+              </div>
             </div>
             <div>
-              <label>Hashtags {supportsHashtags ? '(IG / TikTok will land on one per session)' : '(N/A for this platform)'}</label>
+              <label>
+                Hashtags {supportsHashtags ? '(IG / TikTok will land on one per session)' : '(N/A for this platform)'}
+              </label>
               <textarea
                 rows={3}
                 disabled={!supportsHashtags}
-                placeholder="#fitness, #travel"
                 value={hashtagsText}
                 onChange={(e) => setHashtagsText(e.target.value)}
+                placeholder="#fitness, #cosplay"
                 style={{ fontFamily: 'var(--font-mono)', fontSize: 12, opacity: supportsHashtags ? 1 : 0.5 }}
               />
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="primary" onClick={save} disabled={busy}>Save protocol</button>
-            <button className="ghost" onClick={() => runNow(true)} disabled={busy}>Dry run (open + skip)</button>
-            <button className="ghost" onClick={() => runNow(false)} disabled={busy}>Run one session now</button>
-            <span className="muted" style={{ marginLeft: 'auto', fontSize: 11 }}>
-              {proto.last_run_at ? `Last run ${new Date(proto.last_run_at.replace(' ', 'T') + 'Z').toLocaleString()}` : 'Never run'}
-            </span>
-          </div>
-
-          <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Recent sessions</div>
-            {sessions.length === 0
-              ? <div className="muted" style={{ fontSize: 12 }}>No sessions yet for this account.</div>
-              : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {sessions.map((s) => (
-                    <div key={s.id} style={{ display: 'flex', gap: 10, fontSize: 12, alignItems: 'center', padding: '4px 0', borderBottom: '1px dashed var(--border)' }}>
-                      <span className="mono dim" style={{ minWidth: 130 }}>{s.started_at}</span>
-                      <span style={{ minWidth: 70 }}>{s.platform}</span>
-                      <span style={{ minWidth: 60 }}>{s.seconds ?? '—'}s</span>
-                      <span style={{ minWidth: 60 }}>👁 {s.posts_seen}</span>
-                      <span style={{ minWidth: 50 }}>♥ {s.likes}</span>
-                      <span style={{ minWidth: 60 }}>＋ {s.follows}</span>
-                      {s.error && <span style={{ color: '#e2a3a3', fontSize: 11 }}>{s.error}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-const dot = { width: 12, height: 12, borderRadius: '50%', flexShrink: 0 };
-const eventRow = {
-  display: 'flex', alignItems: 'flex-start', gap: 10,
-  padding: '10px 16px', borderBottom: '1px solid var(--border)',
-};
-const pill = { fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, textTransform: 'uppercase', flexShrink: 0, marginTop: 2 };
-function statusPill(s) {
-  if (s === 'posted') return { background: 'rgba(122,154,90,0.15)', color: '#bdd5a3' };
-  if (s === 'failed') return { background: 'rgba(180,90,90,0.15)', color: '#e2a3a3' };
-  return { background: 'rgba(255,255,255,0.06)', color: 'var(--text-3)' };
-}
-
-function AutoCommentPanel({ token }) {
-  const [accounts, setAccounts] = useState([]);
-  const [platformFilter, setPlatformFilter] = useState('all');
-  const [accountId, setAccountId] = useState('');
-  const [proto, setProto] = useState(null);
-  const [runs, setRuns] = useState([]);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState(null);
-  const [msg, setMsg] = useState(null);
-  const [subsText, setSubsText] = useState('');
-
-  useEffect(() => {
-    window.api.accounts.listForUser({ token }).then((r) => {
-      if (r.ok) {
-        const list = (r.accounts || []).filter((a) => (a.platform || 'reddit') === 'reddit');
-        setAccounts(list);
-        if (!accountId && list.length) setAccountId(String(list[0].id));
-      }
-    });
-  }, [token]);
-
-  const visibleAccounts = (platformFilter === 'all')
-    ? accounts
-    : accounts.filter((a) => (a.platform || 'reddit') === platformFilter);
-
-  useEffect(() => {
-    if (!visibleAccounts.find((a) => String(a.id) === String(accountId))) {
-      setAccountId(visibleAccounts[0] ? String(visibleAccounts[0].id) : '');
-    }
-  }, [platformFilter]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const load = useCallback(async (id) => {
-    if (!id) { setProto(null); setRuns([]); return; }
-    const [p, r] = await Promise.all([
-      window.api.autoComment.get({ token, accountId: Number(id) }),
-      window.api.autoComment.runs({ token, accountId: Number(id), limit: 10 }),
-    ]);
-    if (p.ok) {
-      setProto(p.protocol);
-      try { setSubsText((JSON.parse(p.protocol.target_subs_json || '[]') || []).join(', ')); }
-      catch { setSubsText(''); }
-    }
-    if (r.ok) setRuns(r.runs || []);
-  }, [token]);
-
-  useEffect(() => { load(accountId); }, [accountId, load]);
-
-  async function save() {
-    if (!proto) return;
-    setBusy(true); setErr(null);
-    const subs = subsText.split(/[,\n]/).map((s) => s.trim().replace(/^r\//i, '')).filter(Boolean);
-    const r = await window.api.autoComment.set({
-      token, accountId: Number(accountId),
-      patch: { ...proto, target_subs_json: JSON.stringify(subs) },
-    });
-    setBusy(false);
-    if (r.ok) { setProto(r.protocol); setMsg('Saved.'); }
-    else setErr(r.error);
-  }
-  async function runNow(dryRun) {
-    setBusy(true); setErr(null);
-    const r = await window.api.autoComment.runNow({ token, accountId: Number(accountId), dryRun });
-    setBusy(false);
-    if (r.ok) {
-      setMsg(dryRun
-        ? `Dry-run reply ready: "${(r.comment || '').slice(0, 80)}..."`
-        : `Posted: r/${r.post ? '' : ''}${(r.post?.title || '').slice(0, 60)}`);
-      load(accountId);
-    } else setErr(r.error);
-  }
-  useEffect(() => { if (!msg && !err) return; const t = setTimeout(() => { setMsg(null); setErr(null); }, 5000); return () => clearTimeout(t); }, [msg, err]);
-
-  return (
-    <div className="card" style={{ padding: 18, marginBottom: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-        <h3 style={{ margin: 0 }}>Auto-comment</h3>
-        <span className="muted" style={{ fontSize: 11 }}>
-          read sub → pick post → reply in this account's voice (Reddit)
-        </span>
-      </div>
-      <div className="muted" style={{ fontSize: 11, marginBottom: 14, lineHeight: 1.5 }}>
-        Autopilot picks a random target sub, reads a hot post + the top comments for context, drafts a reply using your saved Example comments as the voice template, and posts via /api/comment. Daily rate is spaced through the day with ±jitter so it doesn't read as a bot.
-      </div>
-      <PlatformFilter value={platformFilter} onChange={setPlatformFilter} />
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
-        <label style={{ fontSize: 12, margin: 0 }}>Account</label>
-        <select value={accountId} onChange={(e) => setAccountId(e.target.value)} style={{ minWidth: 320 }}>
-          <option value="">— pick an account —</option>
-          {visibleAccounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {(a.platform || 'reddit')} · {a.username}{a.profile_name ? ` · ${a.profile_name}` : ''}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {err && <Banner kind="err">{err}</Banner>}
-      {msg && <Banner kind="ok">{msg}</Banner>}
-
-      {proto && accountId && (
-        <>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}>
-            <input type="checkbox" checked={!!proto.enabled} onChange={(e) => setProto({ ...proto, enabled: e.target.checked ? 1 : 0 })} style={{ width: 'auto' }} />
-            <span style={{ fontWeight: 600 }}>Auto-comment enabled for this account</span>
-          </label>
-
-          <div style={{ marginBottom: 12 }}>
-            <label>Target subs (comma or newline, no r/)</label>
-            <textarea
-              rows={3}
-              value={subsText}
-              onChange={(e) => setSubsText(e.target.value)}
-              placeholder="askreddit, casualconversation, mildlyinteresting"
-              style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
-            />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 12 }}>
-            <div>
-              <label>Comments per day</label>
-              <input type="number" min={1} max={48} value={proto.comments_per_day} onChange={(e) => setProto({ ...proto, comments_per_day: Number(e.target.value) })} />
+          {supportsTargetSubs && (
+            <div style={{ marginBottom: 14 }}>
+              <label>Reddit target subreddits (for the API-comment path)</label>
+              <textarea
+                rows={3}
+                placeholder="askreddit, casualconversation, …"
+                value={subsText}
+                onChange={(e) => setSubsText(e.target.value)}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+              />
+              <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                When comment rate &gt; 0 and platform = Reddit, one API-based comment runs after each engagement session, drawing from these subs.
+              </div>
             </div>
-            <div>
-              <label>Session min (min)</label>
-              <input type="number" min={1} value={proto.session_minutes_min} onChange={(e) => setProto({ ...proto, session_minutes_min: Number(e.target.value) })} />
-            </div>
-            <div>
-              <label>Session max (min)</label>
-              <input type="number" min={1} value={proto.session_minutes_max} onChange={(e) => setProto({ ...proto, session_minutes_max: Number(e.target.value) })} />
-            </div>
-          </div>
+          )}
 
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button className="primary" onClick={save} disabled={busy}>Save protocol</button>
-            <button className="ghost" onClick={() => runNow(true)} disabled={busy}>Dry run (draft only)</button>
-            <button className="ghost" onClick={() => runNow(false)} disabled={busy}>Run one now</button>
-            <span className="muted" style={{ marginLeft: 'auto', fontSize: 11 }}>
-              {proto.last_run_at ? `Last run ${new Date(proto.last_run_at.replace(' ', 'T') + 'Z').toLocaleString()}` : 'Never run'}
-            </span>
-          </div>
-
-          <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6 }}>Recent runs</div>
-            {runs.length === 0
-              ? <div className="muted" style={{ fontSize: 12 }}>No runs yet.</div>
-              : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {runs.map((r) => (
-                    <div key={r.id} style={{ display: 'flex', flexDirection: 'column', gap: 2, padding: '6px 8px', borderBottom: '1px dashed var(--border)', fontSize: 12 }}>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <span style={{
-                          fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
-                          background: r.status === 'posted' ? 'rgba(127,217,154,0.14)' : r.status === 'failed' ? 'rgba(226,163,163,0.14)' : 'rgba(212,166,74,0.14)',
-                          color: r.status === 'posted' ? '#7fd99a' : r.status === 'failed' ? '#e2a3a3' : '#d4a64a',
-                        }}>{r.status}</span>
-                        <span className="mono dim" style={{ fontSize: 11 }}>r/{r.subreddit}</span>
-                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.post_title}</span>
-                        <span className="dim" style={{ fontSize: 10 }}>{r.created_at}</span>
-                      </div>
-                      {r.comment_text && <div className="muted" style={{ fontSize: 11, marginLeft: 36, marginTop: 2, whiteSpace: 'pre-wrap' }}>↳ {r.comment_text.slice(0, 200)}</div>}
-                      {r.error && <div style={{ color: '#e2a3a3', fontSize: 10, marginLeft: 36 }}>{r.error}</div>}
-                    </div>
-                  ))}
-                </div>
-              )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="primary" disabled={busy} onClick={save}>Save</button>
+            <button className="ghost" disabled={busy} onClick={() => runNow(true)}>Test run (dry)</button>
+            <button className="ghost" disabled={busy} onClick={() => runNow(false)}>Run now</button>
+            <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-3)' }}>
+              Last run: {proto.last_run_at || 'never'}
+            </div>
           </div>
         </>
       )}

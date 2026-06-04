@@ -235,6 +235,15 @@ const api = {
     runNow: (data) => ipcRenderer.invoke('autoComment:runNow', data),
     runs:   (data) => ipcRenderer.invoke('autoComment:runs', data),
   },
+  // Unified per-profile-per-platform autopilot protocol (engagement
+  // + commenting in one config). Supersedes the engagement + autoComment
+  // groups above; those are kept temporarily for the legacy UI.
+  autopilot: {
+    listForProfile: (data) => ipcRenderer.invoke('autopilot:listForProfile', data),
+    get:    (data) => ipcRenderer.invoke('autopilot:get', data),
+    set:    (data) => ipcRenderer.invoke('autopilot:set', data),
+    runNow: (data) => ipcRenderer.invoke('autopilot:runNow', data),
+  },
   windows: {
     openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),
     openAccountBrowser: (data) => ipcRenderer.invoke('window:openAccountBrowser', data),

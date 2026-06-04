@@ -32,10 +32,22 @@ async function fetchPostThread(partition, permalink) {
   return { post, comments };
 }
 
-async function runOnce(accountId, { dryRun = false } = {}) {
+// runOnce can be called two ways:
+//   - From the engagement loop: `protocol` is passed in (the unified
+//     autopilot_protocols row for this Reddit profile). Reuses the
+//     protocol's target_subs_json + comment persona.
+//   - Standalone (manual "run now" via IPC, dev test): resolves the
+//     protocol from the account's profile_id + 'reddit'.
+async function runOnce(accountId, { dryRun = false, protocol = null } = {}) {
   const db = getDb();
-  const proto = db.prepare('SELECT * FROM auto_comment_protocols WHERE account_id = ?').get(accountId);
+  const acctMeta = db.prepare('SELECT profile_id FROM reddit_accounts WHERE id = ?').get(accountId);
+  if (!acctMeta) return { ok: false, error: 'Account not found' };
+
+  const proto = protocol || db.prepare(
+    `SELECT * FROM autopilot_protocols WHERE profile_id = ? AND platform = 'reddit'`
+  ).get(acctMeta.profile_id);
   if (!proto || !proto.enabled) return { ok: false, error: 'Protocol disabled' };
+  if ((proto.comment_rate_pct ?? 0) <= 0) return { ok: false, error: 'Commenting disabled in protocol' };
 
   let subs = [];
   try { subs = JSON.parse(proto.target_subs_json || '[]'); } catch {}
@@ -88,16 +100,17 @@ async function runOnce(accountId, { dryRun = false } = {}) {
     ).all(accountId);
   } catch {}
 
-  // Resolve the editable comment-template (per-model override → global → default)
-  // and interpolate {{vars}}. Examples are appended after as a static block.
-  const { resolveAutopilotPrompt, interpolatePrompt } = require('./postgen');
-  const tmpl = resolveAutopilotPrompt('comment', acct.profile_id);
-  const base = interpolatePrompt(tmpl, {
-    username: acct.username,
-    brand_voice: acct.brand_voice || '',
-    brand_voice_line: acct.brand_voice ? `Voice: ${acct.brand_voice}` : '',
-    model_name: acct.profile_name || '',
-  });
+  // The persona / custom prompt lives on the unified autopilot_protocols
+  // row. We still apply the brand-voice line + username so the comment
+  // feels owned by this account.
+  const { buildCommentPrompt } = require('./autopilotProtocol');
+  const personaPrompt = buildCommentPrompt(proto);
+  const base = [
+    `You are this Reddit user: u/${acct.username}.`,
+    acct.brand_voice ? `Voice: ${acct.brand_voice}` : null,
+    personaPrompt,
+    'Write ONE comment reply for the post below. 1–4 sentences. Output ONLY the comment text — no quotes, no preface, no signature.',
+  ].filter(Boolean).join('\n');
   const examplesBlock = examples.length
     ? '\n\nHow this account usually replies:\n' + examples.map((e, i) => `${i + 1}. PARENT: "${e.parent_title}"${e.parent_body ? ' / ' + String(e.parent_body).slice(0, 160) : ''}\n   YOUR REPLY: "${String(e.comment_body).slice(0, 300)}"`).join('\n')
     : '';
@@ -142,7 +155,9 @@ async function runOnce(accountId, { dryRun = false } = {}) {
     if (errs.length) throw new Error(errs.map((e) => e[1]).join('; '));
     db.prepare(`INSERT INTO auto_comment_runs (account_id, subreddit, post_id, post_title, comment_text, status) VALUES (?,?,?,?,?,?)`)
       .run(accountId, sub, post.id, post.title, commentText, 'posted');
-    db.prepare(`UPDATE auto_comment_protocols SET last_run_at = datetime('now') WHERE account_id = ?`).run(accountId);
+    // last_run_at tracking moved to autopilot_protocols and is stamped by
+    // the engagement loop. The legacy auto_comment_protocols row (if any)
+    // stays read-only for backward compat.
     return { ok: true, post: { id: post.id, title: post.title }, comment: commentText };
   } catch (e) {
     db.prepare(`INSERT INTO auto_comment_runs (account_id, subreddit, post_id, post_title, comment_text, status, error) VALUES (?,?,?,?,?,?,?)`)
