@@ -190,18 +190,16 @@ export default function DashboardPage({ navigate }) {
 
   return (
     <div>
-      <div style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-end' }}>
-        <div>
-          <h1 style={{ fontSize: 30, marginBottom: 2 }}>Dashboard</h1>
-          <div className="muted" style={{ fontSize: 14 }}>{greeting}, {user.display_name || user.username}.</div>
-        </div>
+      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'baseline', gap: 12 }}>
+        <h1 style={{ fontSize: 22, margin: 0 }}>Dashboard</h1>
+        <div className="muted" style={{ fontSize: 12 }}>{greeting}, {user.display_name || user.username}.</div>
         <div style={{ marginLeft: 'auto' }}><PopOutButton route="dashboard" title="Dashboard" /></div>
       </div>
 
-      <div style={statRow}>
-        <StatTile label="Total Accounts"  value={totals.total}   tone="blue" />
-        <StatTile label="Live Accounts"   value={totals.live}    tone="green" />
-        <StatTile label="Banned Accounts" value={totals.banned}  tone="red" />
+      <div style={statStrip}>
+        <StatPip label="Total"  value={totals.total}  tone="var(--text-1)" />
+        <StatPip label="Live"   value={totals.live}   tone="#7fd99a" />
+        <StatPip label="Banned" value={totals.banned} tone="#e2a3a3" />
       </div>
 
       <DashboardBlocks token={token} accounts={reddit} navigate={navigate} />
@@ -640,11 +638,11 @@ function DashboardBlocks({ token, accounts, navigate }) {
   })();
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 14, marginBottom: 18 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10, marginBottom: 12 }}>
       {/* Alerts */}
-      <div className="card" style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 14 }}>Alerts</h3>
+      <div className="card" style={{ padding: 11 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 13 }}>Alerts</h3>
           <span className="muted" style={{ fontSize: 11 }}>{alerts.length} need attention</span>
         </div>
         {alerts.length === 0
@@ -666,9 +664,9 @@ function DashboardBlocks({ token, accounts, navigate }) {
       </div>
 
       {/* Due Today */}
-      <div className="card" style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 14 }}>Due in next 24h</h3>
+      <div className="card" style={{ padding: 11 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 13 }}>Due in next 24h</h3>
           <span className="muted" style={{ fontSize: 11 }}>{dueSoon.length} scheduled</span>
           <button className="ghost" onClick={() => navigate('automation')} style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 9px' }}>Open Scheduler</button>
         </div>
@@ -688,9 +686,9 @@ function DashboardBlocks({ token, accounts, navigate }) {
       </div>
 
       {/* Karma Leaderboard */}
-      <div className="card" style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 14 }}>Karma leaderboard</h3>
+      <div className="card" style={{ padding: 11 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 13 }}>Karma leaderboard</h3>
           <span className="muted" style={{ fontSize: 11 }}>top accounts by total karma</span>
         </div>
         {leaders.length === 0
@@ -712,9 +710,9 @@ function DashboardBlocks({ token, accounts, navigate }) {
       </div>
 
       {/* Action Feed */}
-      <div className="card" style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 14 }}>Live action feed</h3>
+      <div className="card" style={{ padding: 11 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 13 }}>Live action feed</h3>
           <span className="muted" style={{ fontSize: 11 }}>last {events.length}</span>
         </div>
         {events.length === 0
@@ -739,9 +737,9 @@ function DashboardBlocks({ token, accounts, navigate }) {
       </div>
 
       {/* DM Previews */}
-      <div className="card" style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 14 }}>Unread DMs</h3>
+      <div className="card" style={{ padding: 11 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 13 }}>Unread DMs</h3>
           <span className="muted" style={{ fontSize: 11 }}>{totalUnread} total</span>
           <button className="ghost" onClick={() => navigate('inbox')} style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 9px' }}>Open Inbox</button>
         </div>
@@ -763,9 +761,9 @@ function DashboardBlocks({ token, accounts, navigate }) {
       </div>
 
       {/* Proxy Health */}
-      <div className="card" style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 14 }}>Proxy health</h3>
+      <div className="card" style={{ padding: 11 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 13 }}>Proxy health</h3>
           <button className="ghost" onClick={() => navigate('add-accounts', { tab: 'proxies' })} style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 9px' }}>Manage</button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(70px, 1fr))', gap: 8 }}>
@@ -784,9 +782,9 @@ function DashboardBlocks({ token, accounts, navigate }) {
       </div>
 
       {/* Empty Schedule Alert */}
-      <div className="card" style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 14 }}>Empty schedule (3d)</h3>
+      <div className="card" style={{ padding: 11 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 13 }}>Empty schedule (3d)</h3>
           <span className="muted" style={{ fontSize: 11 }}>{emptySchedule.length} accounts</span>
         </div>
         {emptySchedule.length === 0
@@ -804,9 +802,9 @@ function DashboardBlocks({ token, accounts, navigate }) {
       </div>
 
       {/* Trending Topics */}
-      <div className="card" style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 14 }}>Trending in your subs</h3>
+      <div className="card" style={{ padding: 11 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 13 }}>Trending in your subs</h3>
           <span className="muted" style={{ fontSize: 11 }}>{trending.length} candidates</span>
         </div>
         {trending.length === 0
@@ -825,9 +823,9 @@ function DashboardBlocks({ token, accounts, navigate }) {
       </div>
 
       {/* Quick Actions */}
-      <div className="card" style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <h3 style={{ margin: 0, fontSize: 14 }}>Quick actions</h3>
+      <div className="card" style={{ padding: 11 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 13 }}>Quick actions</h3>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <button
@@ -894,6 +892,19 @@ function Modal({ title, children, onClose }) {
 }
 
 const statRow = { display: 'flex', flexWrap: 'wrap', gap: 14, marginBottom: 18 };
+const statStrip = {
+  display: 'flex', gap: 18, marginBottom: 14, alignItems: 'baseline',
+  padding: '8px 14px', background: 'var(--bg-1)',
+  border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+};
+function StatPip({ label, value, tone }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+      <span style={{ fontSize: 20, fontWeight: 600, color: tone, lineHeight: 1 }}>{value}</span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)' }}>{label}</span>
+    </div>
+  );
+}
 const modelList = { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 };
 const modelRowCard = {
   display: 'flex', alignItems: 'center', gap: 12,
@@ -924,6 +935,6 @@ const platformLogoPill = {
   padding: '0 6px',
   transition: 'transform 0.12s ease, filter 0.12s ease',
 };
-const actionBar = { display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' };
-const th = { textAlign: 'left', padding: '11px 14px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)' };
-const td = { padding: '10px 14px', verticalAlign: 'middle' };
+const actionBar = { display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' };
+const th = { textAlign: 'left', padding: '8px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)' };
+const td = { padding: '7px 12px', verticalAlign: 'middle' };

@@ -126,7 +126,8 @@ function register(ipcMain) {
       .prepare(
         `SELECT a.*, p.label AS proxy_label, p.kind AS proxy_kind
          FROM reddit_accounts a
-         LEFT JOIN proxies p ON p.id = a.proxy_id
+         LEFT JOIN model_profiles mp ON mp.id = a.profile_id
+         LEFT JOIN proxies p ON p.id = COALESCE(a.proxy_id, mp.proxy_id)
          WHERE a.profile_id = ? ${platformClause}
          ORDER BY a.platform, a.status, a.username`
       )
@@ -156,8 +157,8 @@ function register(ipcMain) {
     }
     const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
-    // Per-account proxy only (model-level inheritance was breaking Electron's
-    // setProxy on some configurations; user reverted to account-only).
+    // Account-level proxy wins; if unset, fall back to the model's proxy so
+    // setting one proxy at the model level lights up every account under it.
     const accounts = getDb()
       .prepare(
         `SELECT a.*, p.name AS profile_name, p.main_email AS profile_main_email,
@@ -165,7 +166,7 @@ function register(ipcMain) {
                 px.last_test_ok AS proxy_test_ok, px.last_test_error AS proxy_test_error
          FROM reddit_accounts a
          JOIN model_profiles p ON p.id = a.profile_id
-         LEFT JOIN proxies px ON px.id = a.proxy_id
+         LEFT JOIN proxies px ON px.id = COALESCE(a.proxy_id, p.proxy_id)
          ${whereClause}
          ORDER BY p.name, a.platform, a.status, a.username`
       )

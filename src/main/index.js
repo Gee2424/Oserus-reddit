@@ -119,14 +119,15 @@ function createWindow() {
 async function prepareSessionForAccount(accountId) {
   if (!accountId) return { ok: false, error: 'No accountId' };
   const db = getDb();
-  // Per-account proxy only — model-level inheritance was breaking Electron's
-  // setProxy in some configs; account-only is the safe behavior.
+  // Account proxy wins; fall back to the model's proxy so a single
+  // proxy set at the model level routes every account under it.
   const account = db.prepare(
     `SELECT a.*,
             px.kind AS proxy_kind, px.host AS proxy_host, px.port AS proxy_port,
             px.username AS proxy_username, px.password_encrypted AS proxy_pw_enc
      FROM reddit_accounts a
-     LEFT JOIN proxies px ON px.id = a.proxy_id
+     LEFT JOIN model_profiles mp ON mp.id = a.profile_id
+     LEFT JOIN proxies px ON px.id = COALESCE(a.proxy_id, mp.proxy_id)
      WHERE a.id = ?`
   ).get(accountId);
   if (!account) return { ok: false, error: 'Account not found' };
