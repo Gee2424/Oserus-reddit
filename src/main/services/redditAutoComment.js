@@ -49,10 +49,10 @@ async function runOnce(accountId, { dryRun = false } = {}) {
   ).get(accountId);
   if (!acct) return { ok: false, error: 'Account not found' };
 
-  // Re-prep partition (proxy/UA).
+  // Re-prep partition (proxy + UA + antidetect).
   try {
-    const main = require('../index');
-    if (main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
+    const { prepareSessionForAccount } = require('./sessionPrep');
+    await prepareSessionForAccount(accountId);
   } catch {}
   const part = `persist:${acct.partition_key}`;
 

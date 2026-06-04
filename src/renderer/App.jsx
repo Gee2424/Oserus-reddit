@@ -22,6 +22,7 @@ import IntelligencePage from './pages/Intelligence.jsx';
 import AddAccountsPage from './pages/AddAccounts.jsx';
 import RedGifsDashboardPage from './pages/RedGifsDashboard.jsx';
 import RedditApiPage from './pages/RedditApi.jsx';
+import InboxPage from './pages/Inbox.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 
 // A pop-out window loads the renderer with #popout=<route>&k=v&k=v.

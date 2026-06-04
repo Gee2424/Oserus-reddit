@@ -28,8 +28,8 @@ async function submitPost({ accountId, title, body, kind, url }) {
   if (text.length > 280) text = text.slice(0, 277) + '…';
 
   try {
-    const main = require('../index');
-    if (main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
+    const { prepareSessionForAccount } = require('../services/sessionPrep');
+    await prepareSessionForAccount(accountId);
   } catch {}
 
   const partition = `persist:${acct.partition_key}`;

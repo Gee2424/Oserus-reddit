@@ -8,6 +8,7 @@
 const { userFromToken } = require('./auth');
 const { getDb } = require('../db');
 const { partitionFor, request } = require('../services/redditSession');
+const { prepareSessionForAccount } = require('../services/sessionPrep');
 
 function ensureTable() {
   getDb().exec(`
@@ -182,10 +183,7 @@ function register(ipcMain) {
       if (!accountId) throw new Error('Pick a scraper account');
       // Re-apply the account's UA + proxy on its partitioned session before the
       // scrape so this works without the renderer remembering to prep first.
-      try {
-        const main = require('../index');
-        if (main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
-      } catch {}
+      try { await prepareSessionForAccount(accountId); } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Account not found');
       ensureTable();
@@ -243,10 +241,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      try {
-        const main = require('../index');
-        if (accountId && main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
-      } catch {}
+      try { if (accountId) await prepareSessionForAccount(accountId); } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
       const sub = cleanSub(subreddit);
@@ -281,10 +276,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      try {
-        const main = require('../index');
-        if (accountId && main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
-      } catch {}
+      try { if (accountId) await prepareSessionForAccount(accountId); } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
       const u = String(username || '').replace(/^u\//i, '').replace(/^@/, '').trim();
@@ -321,10 +313,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      try {
-        const main = require('../index');
-        if (accountId && main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
-      } catch {}
+      try { if (accountId) await prepareSessionForAccount(accountId); } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
       const sub = cleanSub(subreddit);
@@ -412,10 +401,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
-      try {
-        const main = require('../index');
-        if (accountId && main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
-      } catch {}
+      try { if (accountId) await prepareSessionForAccount(accountId); } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
       const sub = cleanSub(subreddit);

@@ -354,8 +354,8 @@ async function runSession(accountId, { dryRun = false } = {}) {
   // Re-prepare the partitioned session (cookies / proxy / UA / antidetect)
   // so the engagement window lands logged in.
   try {
-    const main = require('../index');
-    if (main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
+    const { prepareSessionForAccount } = require('./sessionPrep');
+    await prepareSessionForAccount(accountId);
   } catch {}
 
   const partition = `persist:${acct.partition_key}`;

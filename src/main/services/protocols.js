@@ -249,5 +249,6 @@ module.exports = {
   recordEvent,
   lastPostAt,
   countPostsSince,
+  isQuietHour,
   backendName: coordination.backendName,
 };

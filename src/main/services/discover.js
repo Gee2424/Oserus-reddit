@@ -85,8 +85,8 @@ async function scrape({ accountId, platform, keyword, settleMs = 4500 }) {
   if (!urlFor || !script) return { ok: false, error: `Discover adapter for ${platform} not configured` };
 
   try {
-    const main = require('../index');
-    if (main.prepareSessionForAccount) await main.prepareSessionForAccount(accountId);
+    const { prepareSessionForAccount } = require('./sessionPrep');
+    await prepareSessionForAccount(accountId);
   } catch {}
 
   const partition = `persist:${acct.partition_key}`;

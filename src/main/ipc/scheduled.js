@@ -50,12 +50,10 @@ function conflictsFor({ accountId, profileId, platform = 'reddit', scheduledFor,
 
   const p = protocols.resolveProtocol({ platform, profileId, accountId });
 
-  // Quiet hours
-  const hour = when.getHours();
-  const qs = p.quietStart, qe = p.quietEnd;
-  if (qs != null && qe != null && qs !== qe) {
-    const inQuiet = qs < qe ? (hour >= qs && hour < qe) : (hour >= qs || hour < qe);
-    if (inQuiet) warnings.push(`Lands in quiet hours (${qs}:00–${qe}:00)`);
+  // Quiet hours — defer to protocols.isQuietHour so wrap-around math is in
+  // one place. End-of-window is exclusive: 22→06 blocks hour=22..05.
+  if (protocols.isQuietHour(when.getHours(), p.quietStart, p.quietEnd)) {
+    warnings.push(`Lands in quiet hours (${p.quietStart}:00–${p.quietEnd}:00)`);
   }
 
   // Same-day cap + min-gap vs other pending posts on this account

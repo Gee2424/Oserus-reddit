@@ -229,12 +229,23 @@ async function generatePost({ accountId, mode, hint, targetSubreddit, autopilot 
 
   const isSfw = mode === 'sfw' || (mode !== 'nsfw' && account.status === 'warming');
 
-  let candidates;
-  if (isSfw) {
-    candidates = getDb().prepare('SELECT name, vibe, description FROM warmup_subreddits ORDER BY name').all();
-  } else {
-    candidates = getDb().prepare('SELECT name, description FROM promo_subreddits WHERE profile_id = ? ORDER BY name').all(account.profile_id);
-  }
+  // Pull subreddit candidates from the unified content_sources pool. Old
+  // warmup_subreddits / promo_subreddits tables still exist and are kept in
+  // sync via DB triggers (see db.js), so the existing Subreddits UI keeps
+  // working; this code path is now Reddit's view of the generic pool.
+  const contentSources = require('./contentSources');
+  const rawCandidates = contentSources.list({
+    platform: 'reddit',
+    kind: isSfw ? 'warmup' : 'promo',
+    profileId: account.profile_id,
+  });
+  const candidates = rawCandidates.map((c) => {
+    let vibe = null;
+    if (c.metadata_json) {
+      try { vibe = JSON.parse(c.metadata_json).vibe || null; } catch {}
+    }
+    return { name: c.name, description: c.description, vibe };
+  });
 
   // Free-form target: allow any subreddit even if not on the saved list.
   const cleanTarget = targetSubreddit ? String(targetSubreddit).replace(/^\/?r\//i, '').trim() : null;

@@ -572,6 +572,81 @@ function initDatabase() {
     console.warn('[db] engagement migration skipped:', e?.message);
   }
 
+  // Keep content_sources in sync with the legacy per-platform target tables
+  // forever (until v0.63 drops them). Triggers mean the existing Subreddits
+  // UI can keep INSERT/UPDATE/DELETE-ing the old tables without code changes
+  // while the autopilot reads exclusively from content_sources. Each trigger
+  // is CREATE-IF-NOT-EXISTS so reruns are safe.
+  try {
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS warmup_subreddits_to_cs_ins
+      AFTER INSERT ON warmup_subreddits BEGIN
+        INSERT OR IGNORE INTO content_sources
+          (platform, scope, scope_id, kind, name, description, metadata_json)
+        VALUES
+          ('reddit', 'global', NULL, 'warmup', NEW.name, NEW.description,
+           CASE WHEN NEW.vibe IS NULL THEN NULL
+                ELSE json_object('vibe', NEW.vibe) END);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS warmup_subreddits_to_cs_upd
+      AFTER UPDATE ON warmup_subreddits BEGIN
+        UPDATE content_sources
+           SET name = NEW.name,
+               description = NEW.description,
+               metadata_json = CASE WHEN NEW.vibe IS NULL THEN NULL
+                                    ELSE json_object('vibe', NEW.vibe) END
+         WHERE platform = 'reddit'
+           AND scope = 'global'
+           AND scope_id IS NULL
+           AND kind = 'warmup'
+           AND name = OLD.name;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS warmup_subreddits_to_cs_del
+      AFTER DELETE ON warmup_subreddits BEGIN
+        DELETE FROM content_sources
+         WHERE platform = 'reddit'
+           AND scope = 'global'
+           AND scope_id IS NULL
+           AND kind = 'warmup'
+           AND name = OLD.name;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS promo_subreddits_to_cs_ins
+      AFTER INSERT ON promo_subreddits BEGIN
+        INSERT OR IGNORE INTO content_sources
+          (platform, scope, scope_id, kind, name, description)
+        VALUES
+          ('reddit', 'model', NEW.profile_id, 'promo', NEW.name, NEW.description);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS promo_subreddits_to_cs_upd
+      AFTER UPDATE ON promo_subreddits BEGIN
+        UPDATE content_sources
+           SET name = NEW.name,
+               description = NEW.description
+         WHERE platform = 'reddit'
+           AND scope = 'model'
+           AND scope_id = NEW.profile_id
+           AND kind = 'promo'
+           AND name = OLD.name;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS promo_subreddits_to_cs_del
+      AFTER DELETE ON promo_subreddits BEGIN
+        DELETE FROM content_sources
+         WHERE platform = 'reddit'
+           AND scope = 'model'
+           AND scope_id = OLD.profile_id
+           AND kind = 'promo'
+           AND name = OLD.name;
+      END;
+    `);
+  } catch (e) {
+    console.warn('[db] content_sources mirror triggers skipped:', e?.message);
+  }
+
   // One-time backfill: mirror existing warmup_subreddits + promo_subreddits
   // into content_sources so the multi-platform autopilot can use the same
   // pool. Idempotent — UNIQUE constraint on content_sources skips dupes.

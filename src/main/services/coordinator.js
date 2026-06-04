@@ -367,7 +367,7 @@ async function fireBoostOrder(post, url) {
   const db = getDb();
   try {
     const { decryptSecret } = require('../db');
-    const enc = getSetting('upvote_biz_api_key');
+    const enc = getSetting('upvote_api_key');
     const apiKey = enc ? decryptSecret(enc) : null;
     if (!apiKey) {
       db.prepare("UPDATE scheduled_posts SET boost_status='failed' WHERE id=?").run(post.id);

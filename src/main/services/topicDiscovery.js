@@ -32,7 +32,12 @@ async function discoverForProfile(profileId) {
   if (!acct) return { ok: false, error: 'No Reddit account for this model' };
 
   const part = `persist:${acct.partition_key}`;
-  const subs = db.prepare('SELECT name FROM promo_subreddits WHERE profile_id = ?').all(profileId).map((r) => r.name);
+  // Pull subs from the unified content_sources pool (triggers keep the legacy
+  // promo_subreddits table mirrored so the existing Subreddits UI keeps working).
+  const contentSources = require('./contentSources');
+  const subs = contentSources
+    .list({ platform: 'reddit', kind: 'promo', profileId })
+    .map((r) => r.name);
   if (!subs.length) return { ok: true, discovered: 0 };
 
   const insert = db.prepare(
