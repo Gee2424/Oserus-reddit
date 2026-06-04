@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import SubredditRail from './SubredditRail.jsx';
 
 // Profile-locked, multi-tab browsing shell. Tab strip + back/forward/
 // reload + omnibox + N <webview> elements (hidden when inactive so each
@@ -182,7 +183,7 @@ export default function BrowserShell({ accountId }) {
             style={omni}
             value={omniValue}
             onChange={(e) => setOmniValue(e.target.value)}
-            placeholder="Search or type a URL"
+            placeholder="Search Google or type a URL"
             spellCheck={false}
             onFocus={(e) => e.target.select()}
           />
@@ -191,20 +192,33 @@ export default function BrowserShell({ accountId }) {
 
       <div style={loadingBar(active.loading)} />
 
-      <div style={{ flex: 1, position: 'relative' }}>
-        {tabs.map((t) => (
-          <webview
-            key={t.id}
-            ref={(el) => { if (el) webviewRefs.current[t.id] = el; }}
-            src={t.url}
-            style={{
-              position: 'absolute', inset: 0, width: '100%', height: '100%',
-              border: 'none',
-              visibility: t.id === activeId ? 'visible' : 'hidden',
-            }}
-            allowpopups="true"
-          />
-        ))}
+      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <SubredditRail
+          accountId={accountId}
+          onOpen={(name, intent) => {
+            const url = intent === 'submit'
+              ? `https://www.reddit.com/r/${name}/submit`
+              : `https://www.reddit.com/r/${name}/`;
+            const t = newTab(url);
+            setTabs((cur) => [...cur, t]);
+            setActiveId(t.id);
+          }}
+        />
+        <div style={{ flex: 1, position: 'relative' }}>
+          {tabs.map((t) => (
+            <webview
+              key={t.id}
+              ref={(el) => { if (el) webviewRefs.current[t.id] = el; }}
+              src={t.url}
+              style={{
+                position: 'absolute', inset: 0, width: '100%', height: '100%',
+                border: 'none',
+                visibility: t.id === activeId ? 'visible' : 'hidden',
+              }}
+              allowpopups="true"
+            />
+          ))}
+        </div>
       </div>
     </div>
   );

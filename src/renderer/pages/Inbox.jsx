@@ -46,6 +46,10 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   const { active, accounts: platformAccounts, setActive } = forPlatform(platform);
 
   const [folder, setFolder] = useState('all');
+  // Reddit returns DMs (kind 't4') and post/comment reply notifications
+  // (kind 't1') in the same inbox feed. VAs found mixing them confusing,
+  // so we split into two views and keep the user's last choice in state.
+  const [kindView, setKindView] = useState('messages'); // 'messages' | 'replies'
   const [err, setErr] = useState(null);
   const [notLoggedIn, setNotLoggedIn] = useState(false);
   const [selectedThreadKey, setSelectedThreadKey] = useState(null);
@@ -116,12 +120,23 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   // running even when this page is unmounted (Dashboard / Scheduler / etc).
   // No local fetch needed here.
 
+  // Split the raw feed into DMs vs post/comment replies so the threads
+  // column can render either bucket without intermixing them. Counts are
+  // used by the kind-tab badges below.
+  const messagesOnly = messages.filter((m) => m.kind === 't4');
+  const repliesOnly  = messages.filter((m) => m.kind === 't1' || m.kind === 't3');
+  const unreadCounts = {
+    messages: messagesOnly.filter((m) => m.isNew).length,
+    replies:  repliesOnly.filter((m) => m.isNew).length,
+  };
+  const visibleMessages = kindView === 'replies' ? repliesOnly : messagesOnly;
+
   // Group messages into conversation threads. Reddit returns nested `replies`
   // so each message has a `firstMessageName` pointing at the root — we group
   // on that so the full back-and-forth shows together.
   const groups = (() => {
     const byKey = new Map();
-    for (const m of messages) {
+    for (const m of visibleMessages) {
       const key = m.firstMessageName || m.name;
       // Counterparty = whichever side of the conversation isn't us.
       const other = (m.author === active?.username) ? m.dest : m.author;
@@ -290,6 +305,26 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: loading ? 'var(--gold)' : '#7fd99a' }} />
                   {loading ? 'Refreshing…' : 'Connected'}
                 </div>
+              </div>
+
+              <div style={kindTabs}>
+                {[
+                  { v: 'messages', label: 'Messages', sub: 'Direct messages (PMs)', count: unreadCounts.messages },
+                  { v: 'replies',  label: 'Replies',  sub: 'Post & comment replies', count: unreadCounts.replies },
+                ].map((k) => {
+                  const isActive = kindView === k.v;
+                  return (
+                    <button
+                      key={k.v}
+                      onClick={() => { setKindView(k.v); setSelectedThreadKey(null); }}
+                      style={{ ...kindTab, ...(isActive ? kindTabActive : {}) }}
+                      title={k.sub}
+                    >
+                      <span>{k.label}</span>
+                      {k.count > 0 && <span style={kindBadge}>{k.count}</span>}
+                    </button>
+                  );
+                })}
               </div>
 
               <div style={folderTabs}>
@@ -478,6 +513,22 @@ const avatarSm = { width: 24, height: 24, borderRadius: '50%', display: 'grid', 
 const badgeRed = { background: '#e85d3a', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999 };
 const badgeRedSm = { background: '#e85d3a', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 999, alignSelf: 'center' };
 
+const kindTabs = { display: 'flex', gap: 0, marginBottom: 10, background: '#0f0f10', border: '1px solid #2a2a2c', borderRadius: 10, padding: 3 };
+const kindTab = {
+  flex: 1, background: 'transparent', border: 'none',
+  color: '#9a9b9d', padding: '6px 8px',
+  fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+};
+const kindTabActive = {
+  background: 'linear-gradient(135deg, rgba(212,166,74,0.18), rgba(212,166,74,0.06))',
+  color: 'var(--gold)',
+  boxShadow: 'inset 0 0 0 1px rgba(212,166,74,0.35)',
+};
+const kindBadge = {
+  fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 999,
+  background: 'rgba(226,163,163,0.18)', color: '#e2a3a3',
+};
 const folderTabs = { display: 'flex', gap: 6, marginBottom: 10 };
 const folderTab = { flex: 1, background: '#171718', border: '1px solid #2a2a2c', color: '#9a9b9d', padding: '7px 10px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 };
 const folderTabActive = { background: '#1a3a6a', color: '#d7dadc', borderColor: '#2a4170' };

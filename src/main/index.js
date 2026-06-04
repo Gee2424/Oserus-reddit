@@ -515,6 +515,31 @@ function registerOserusBrowserHandlers() {
     return oserusBrowser.openForAccount(accountId);
   });
 
+  // Built-in subreddit quick-launch for the locked browser. Returns the
+  // shared warm-up list AND the account's model-specific promo list so
+  // VAs can jump to a post-composer for any approved sub in one click.
+  ipcMain.handle('oserus-browser:listSubreddits', (_e, { accountId } = {}) => {
+    try {
+      const db = getDb();
+      const warmup = db.prepare(
+        `SELECT name, description, vibe FROM warmup_subreddits ORDER BY name`
+      ).all();
+      let promo = [];
+      if (accountId) {
+        promo = db.prepare(
+          `SELECT s.name, s.description
+           FROM promo_subreddits s
+           JOIN reddit_accounts a ON a.profile_id = s.profile_id
+           WHERE a.id = ?
+           ORDER BY s.name`
+        ).all(accountId);
+      }
+      return { ok: true, warmup, promo };
+    } catch (e) {
+      return { ok: false, error: e?.message || 'listSubreddits failed' };
+    }
+  });
+
   // Renderer calls this once per tab and runs the returned string inside
   // every webview navigation, so the locked profile sessions get the same
   // autofill behavior as the standalone single-account browser. Returns

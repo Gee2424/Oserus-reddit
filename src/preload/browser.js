@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('oserusBrowser', {
     backToPicker: () => ipcRenderer.invoke('oserus-browser:backToPicker'),
     close: () => ipcRenderer.invoke('oserus-browser:close'),
     autofillScript: (data) => ipcRenderer.invoke('oserus-browser:autofillScript', data),
+    listSubreddits: (data) => ipcRenderer.invoke('oserus-browser:listSubreddits', data),
     currentAccountId: () => {
       try {
         const params = new URLSearchParams(window.location.search);
