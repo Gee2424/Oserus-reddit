@@ -4,7 +4,7 @@
 // seeded with this account's account_example_comments, and posts via
 // /api/comment. Logs every attempt in auto_comment_runs.
 const { getDb } = require('../db');
-const { partitionFor, request, modhashFor } = require('./redditSession');
+const { request, modhashFor } = require('./redditSession');
 
 async function callAIWrap(system, user) {
   const { callAutopilotAI } = require('./postgen');
