@@ -898,6 +898,20 @@ function EngagementPanel({ token }) {
               <label>Watch-fully rate (%)</label>
               <input type="number" min={0} max={100} value={proto.watch_full_rate_pct} onChange={(e) => setProto({ ...proto, watch_full_rate_pct: Number(e.target.value) })} />
             </div>
+            <div>
+              <label title="Probability a video gets an AI-generated reaction comment. Needs Autopilot AI key.">Comment rate (%)</label>
+              <input type="number" min={0} max={100} value={proto.comment_rate_pct ?? 0} onChange={(e) => setProto({ ...proto, comment_rate_pct: Number(e.target.value) })} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: 6 }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={!!(proto.comment_videos_only ?? 1)}
+                  onChange={(e) => setProto({ ...proto, comment_videos_only: e.target.checked ? 1 : 0 })}
+                />
+                Only comment on videos
+              </label>
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>

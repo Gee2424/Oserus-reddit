@@ -1,41 +1,63 @@
-// Platform adapter registry.
+// Platform adapter registry — multi-platform autopilot contract.
 //
-// Every platform implements the same interface so the posting engine,
-// coordinator, and future UI stay platform-agnostic:
+// Every adapter implements the same surface so the coordinator never
+// branches on `platform === 'reddit'` again. Required methods marked
+// with [r]; optional with [o] (caller checks the capability flags).
 //
-//   {
-//     id: 'reddit',
-//     configured: boolean,                 // is this adapter usable yet?
-//     async submitPost({ accountId, subreddit, title, body, kind, url }) -> { ok, id|error }
-//     async fetchInbox({ accountId, folder }) -> { ok, messages|error }    (optional)
-//     async sendDM({ accountId, to, text }) -> { ok|error }                (optional)
-//     async getAnalytics({ accountId }) -> { ok, stats|error }             (optional)
-//   }
+//   id                                   - platform key
+//   configured                           - false → engine skips it
+//   capabilities                         - { post, comment, engagement, dm }
 //
-// Adding a platform = add a file here and register it. No core changes.
-// X / Instagram / TikTok are stubbed until their transport (browser
-// automation vs official API) is wired — they report configured:false so
-// the engine skips them cleanly instead of throwing.
+//   [r] async submitPost(args)           - { ok, id?, url?, error? }
+//   [o] async pickTarget(account, mode)  - returns one content_source row
+//                                          for "where to post". Default
+//                                          implementation in helpers.js
+//                                          picks one at random.
+//   [o] async generateContent(args)      - { title, body, kind, url?, ... }
+//                                          shaped for this platform.
+//   [o] async runAutoComment(account)    - one comment cycle.
+//
+// args for submitPost are intentionally a wide union so adapters can
+// ignore fields they don't care about. Reddit reads {subreddit, title,
+// body, kind, url}; X reads {text}; IG/TT/RG read {caption, mediaPath}.
 
 const reddit = require('./reddit');
 const x = require('./x');
 
-const stub = (id, msg) => ({
-  id,
-  configured: false,
-  async submitPost() { return { ok: false, error: msg || `${id} adapter not configured yet` }; },
-});
+// Stub factory. Every platform we don't have a real adapter for goes
+// here; the engine skips them cleanly instead of branching.
+function stub(id, msg) {
+  return {
+    id,
+    configured: false,
+    capabilities: { post: false, comment: false, engagement: true, dm: false },
+    async submitPost() { return { ok: false, error: msg || `${id} adapter not configured yet` }; },
+  };
+}
 
 const ADAPTERS = {
   reddit,
-  redgifs: stub('redgifs'),
-  x, // text + image-URL tweets via hidden BrowserWindow on the account's session
-  instagram: stub('instagram', 'Instagram posting needs the native media-upload pipeline — currently engagement-only (scroll / like / follow runs today)'),
-  tiktok: stub('tiktok', 'TikTok posting needs the native video-upload pipeline — currently engagement-only (scroll / like / follow runs today)'),
+  redgifs:   stub('redgifs',   'RedGifs posting needs the native media-upload pipeline — currently engagement-only.'),
+  x,
+  instagram: stub('instagram', 'Instagram posting needs the native media-upload pipeline — currently engagement-only (scroll / like / follow runs today).'),
+  tiktok:    stub('tiktok',    'TikTok posting needs the native video-upload pipeline — currently engagement-only (scroll / like / follow runs today).'),
 };
 
-function getAdapter(platform) {
-  return ADAPTERS[platform] || null;
+function getAdapter(platform) { return ADAPTERS[platform] || null; }
+
+// List the platforms whose adapter is actually wired for posting.
+// Coordinator uses this so it doesn't waste a tick on stubs.
+function postablePlatforms() {
+  return Object.values(ADAPTERS)
+    .filter((a) => a.configured && (a.capabilities?.post !== false))
+    .map((a) => a.id);
 }
 
-module.exports = { getAdapter, ADAPTERS };
+// List platforms whose adapter advertises comment support.
+function commentablePlatforms() {
+  return Object.values(ADAPTERS)
+    .filter((a) => a.configured && a.capabilities?.comment)
+    .map((a) => a.id);
+}
+
+module.exports = { getAdapter, ADAPTERS, postablePlatforms, commentablePlatforms };

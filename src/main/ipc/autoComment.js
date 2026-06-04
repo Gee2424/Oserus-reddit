@@ -1,6 +1,8 @@
 const { userFromToken } = require('./auth');
 const { getDb } = require('../db');
-const { runOnce } = require('../services/autoComment');
+// IPC runs against Reddit today. When other platforms get a real
+// runAutoComment we'll route through getAdapter(platform).runAutoComment.
+const { runOnce } = require('../services/redditAutoComment');
 
 const DEFAULTS = {
   enabled: 0,

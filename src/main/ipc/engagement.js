@@ -13,6 +13,9 @@ const DEFAULTS = {
   like_rate_pct: 18,
   follow_rate_pct: 4,
   watch_full_rate_pct: 25,
+  // Off by default — admins opt in once the AI key is configured.
+  comment_rate_pct: 0,
+  comment_videos_only: 1,
   hashtags_json: '[]',
   follow_list_json: '[]',
 };
@@ -43,9 +46,13 @@ function register(ipcMain) {
       getDb().prepare(
         `INSERT INTO engagement_protocols
            (account_id, enabled, sessions_per_day, session_minutes_min, session_minutes_max,
-            like_rate_pct, follow_rate_pct, watch_full_rate_pct, hashtags_json, follow_list_json)
+            like_rate_pct, follow_rate_pct, watch_full_rate_pct,
+            comment_rate_pct, comment_videos_only,
+            hashtags_json, follow_list_json)
          VALUES (@account_id, @enabled, @sessions_per_day, @session_minutes_min, @session_minutes_max,
-                 @like_rate_pct, @follow_rate_pct, @watch_full_rate_pct, @hashtags_json, @follow_list_json)
+                 @like_rate_pct, @follow_rate_pct, @watch_full_rate_pct,
+                 @comment_rate_pct, @comment_videos_only,
+                 @hashtags_json, @follow_list_json)
          ON CONFLICT(account_id) DO UPDATE SET
            enabled=excluded.enabled,
            sessions_per_day=excluded.sessions_per_day,
@@ -54,6 +61,8 @@ function register(ipcMain) {
            like_rate_pct=excluded.like_rate_pct,
            follow_rate_pct=excluded.follow_rate_pct,
            watch_full_rate_pct=excluded.watch_full_rate_pct,
+           comment_rate_pct=excluded.comment_rate_pct,
+           comment_videos_only=excluded.comment_videos_only,
            hashtags_json=excluded.hashtags_json,
            follow_list_json=excluded.follow_list_json`
       ).run({
@@ -65,6 +74,8 @@ function register(ipcMain) {
         like_rate_pct: Number(next.like_rate_pct) || 18,
         follow_rate_pct: Number(next.follow_rate_pct) || 4,
         watch_full_rate_pct: Number(next.watch_full_rate_pct) || 25,
+        comment_rate_pct: Math.max(0, Math.min(100, Number(next.comment_rate_pct) || 0)),
+        comment_videos_only: next.comment_videos_only ? 1 : 0,
         hashtags_json: next.hashtags_json || '[]',
         follow_list_json: next.follow_list_json || '[]',
       });
@@ -84,7 +95,7 @@ function register(ipcMain) {
     try {
       if (!userFromToken(token)) throw new Error('Not authenticated');
       const rows = getDb().prepare(
-        `SELECT id, platform, started_at, ended_at, seconds, posts_seen, likes, follows, error
+        `SELECT id, platform, started_at, ended_at, seconds, posts_seen, likes, follows, comments, error
            FROM engagement_sessions
           WHERE account_id = ?
           ORDER BY id DESC

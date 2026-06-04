@@ -152,6 +152,33 @@ function initDatabase() {
       UNIQUE(profile_id, name)
     );
 
+    -- Unified content-source pool used by the multi-platform autopilot.
+    -- Generalizes warmup_subreddits + promo_subreddits + per-platform
+    -- equivalents (X hashtags, IG/TT tags, RedGifs tags). One table so
+    -- the coordinator picks targets the same way for every platform.
+    --
+    --   platform : reddit | redgifs | x | instagram | tiktok
+    --   scope    : 'global' (shared house list) | 'model' (per-model)
+    --   scope_id : NULL for global; model_profiles.id for model scope
+    --   kind     : 'warmup' (SFW, used while status='warming')
+    --            | 'promo'  (used once status='ready')
+    --   name     : subreddit name / hashtag / tag — bare, no prefix
+    --   metadata : free-form JSON (vibe, karma gates, NSFW flag, etc.)
+    CREATE TABLE IF NOT EXISTS content_sources (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL,
+      scope TEXT NOT NULL CHECK(scope IN ('global','model')),
+      scope_id INTEGER,
+      kind TEXT NOT NULL CHECK(kind IN ('warmup','promo')),
+      name TEXT NOT NULL,
+      description TEXT,
+      metadata_json TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(platform, scope, scope_id, kind, name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_content_sources_lookup
+      ON content_sources (platform, scope, scope_id, kind);
+
     -- Role definitions. Builtin rows have is_builtin=1 and cannot be deleted.
     -- The 'key' column matches users.role (existing users keep their key).
     CREATE TABLE IF NOT EXISTS roles (
@@ -218,6 +245,14 @@ function initDatabase() {
       like_rate_pct INTEGER NOT NULL DEFAULT 18,
       follow_rate_pct INTEGER NOT NULL DEFAULT 4,
       watch_full_rate_pct INTEGER NOT NULL DEFAULT 25,
+      -- Probability the session leaves an AI-generated comment on a
+      -- given post (capped per session by the natural feed length).
+      -- 0 disables commenting; ~5-10% feels human.
+      comment_rate_pct INTEGER NOT NULL DEFAULT 0,
+      -- When 1, the comment_rate_pct only applies to posts containing a
+      -- <video>; text-only posts are skipped. Reduces awkward off-topic
+      -- replies on static images.
+      comment_videos_only INTEGER NOT NULL DEFAULT 1,
       hashtags_json TEXT,
       follow_list_json TEXT,
       last_run_at TEXT
@@ -234,6 +269,8 @@ function initDatabase() {
       posts_seen INTEGER NOT NULL DEFAULT 0,
       likes INTEGER NOT NULL DEFAULT 0,
       follows INTEGER NOT NULL DEFAULT 0,
+      -- Comments posted (AI-generated, human-typed via preload bridge).
+      comments INTEGER NOT NULL DEFAULT 0,
       error TEXT
     );
 
@@ -512,6 +549,61 @@ function initDatabase() {
     const ins = db.prepare('INSERT INTO warmup_subreddits (name, vibe, description) VALUES (?,?,?)');
     for (const d of defaults) ins.run(d.name, d.vibe, d.description);
     console.log(`[db] Seeded ${defaults.length} default warm-up subreddits`);
+  }
+
+  // Lightweight schema migrations for tables already in users' DBs.
+  // `CREATE TABLE IF NOT EXISTS` does NOT add columns to an existing
+  // table — for adds we ALTER conditionally.
+  try {
+    const have = (table, col) => {
+      const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+      return rows.some((r) => r.name === col);
+    };
+    if (!have('engagement_protocols', 'comment_rate_pct')) {
+      db.exec('ALTER TABLE engagement_protocols ADD COLUMN comment_rate_pct INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!have('engagement_protocols', 'comment_videos_only')) {
+      db.exec('ALTER TABLE engagement_protocols ADD COLUMN comment_videos_only INTEGER NOT NULL DEFAULT 1');
+    }
+    if (!have('engagement_sessions', 'comments')) {
+      db.exec('ALTER TABLE engagement_sessions ADD COLUMN comments INTEGER NOT NULL DEFAULT 0');
+    }
+  } catch (e) {
+    console.warn('[db] engagement migration skipped:', e?.message);
+  }
+
+  // One-time backfill: mirror existing warmup_subreddits + promo_subreddits
+  // into content_sources so the multi-platform autopilot can use the same
+  // pool. Idempotent — UNIQUE constraint on content_sources skips dupes.
+  try {
+    const hasContent = db.prepare(
+      "SELECT 1 FROM content_sources WHERE platform = 'reddit' LIMIT 1"
+    ).get();
+    if (!hasContent) {
+      const insWarm = db.prepare(
+        `INSERT OR IGNORE INTO content_sources
+         (platform, scope, scope_id, kind, name, description, metadata_json)
+         VALUES ('reddit', 'global', NULL, 'warmup', ?, ?, ?)`
+      );
+      const wRows = db.prepare('SELECT name, description, vibe FROM warmup_subreddits').all();
+      for (const w of wRows) {
+        insWarm.run(w.name, w.description || null, w.vibe ? JSON.stringify({ vibe: w.vibe }) : null);
+      }
+      const insPromo = db.prepare(
+        `INSERT OR IGNORE INTO content_sources
+         (platform, scope, scope_id, kind, name, description)
+         VALUES ('reddit', 'model', ?, 'promo', ?, ?)`
+      );
+      const pRows = db.prepare('SELECT profile_id, name, description FROM promo_subreddits').all();
+      for (const p of pRows) {
+        insPromo.run(p.profile_id, p.name, p.description || null);
+      }
+      if (wRows.length || pRows.length) {
+        console.log(`[db] Backfilled content_sources: ${wRows.length} warmup, ${pRows.length} promo`);
+      }
+    }
+  } catch (e) {
+    console.warn('[db] content_sources backfill skipped:', e?.message);
   }
 }
 

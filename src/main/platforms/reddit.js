@@ -1,17 +1,24 @@
 // Reddit platform adapter.
 //
-// Posts through the account's logged-in Electron session partition — the
-// same mechanism the Inbox uses (net.request with useSessionCookies +
-// the session's modhash). No OAuth, no scraping: cookies authenticate us
-// as that account exactly like the browser tab does.
+// Posts and comments through the account's logged-in Electron session
+// partition — the same mechanism the Inbox uses (net.request with
+// useSessionCookies + the session's modhash). No OAuth, no scraping:
+// cookies authenticate us as that account exactly like the browser tab.
+//
+// Implements the full PlatformAdapter contract: submitPost,
+// pickTarget, generateContent, runAutoComment. Other platforms cover
+// the same surface in their own files.
 
 const { partitionFor, request, modhashFor } = require('../services/redditSession');
+const { getDb } = require('../db');
+const contentSources = require('../services/contentSources');
 
 const reddit = {
   id: 'reddit',
   configured: true,
+  capabilities: { post: true, comment: true, engagement: true, dm: true },
 
-  // kind: 'self' (text) | 'link' | 'image'(treated as link to media url)
+  // ----------------------------------------------------------- submitPost
   async submitPost({ accountId, subreddit, title, body, kind = 'self', url }) {
     try {
       const acct = partitionFor(accountId);
@@ -47,6 +54,52 @@ const reddit = {
       if (err.message === 'NOT_LOGGED_IN') return { ok: false, notLoggedIn: true, error: 'Account not logged into Reddit' };
       return { ok: false, error: err.message };
     }
+  },
+
+  // ----------------------------------------------------------- pickTarget
+  // Returns one content_sources row appropriate for the account's
+  // current status. Returns null when no sources are configured —
+  // coordinator treats null as "skip this account, log reason".
+  async pickTarget(account) {
+    const sources = contentSources.listForAccount(account);
+    if (!sources.length) return null;
+    return sources[Math.floor(Math.random() * sources.length)];
+  },
+
+  // ------------------------------------------------------ generateContent
+  // Reddit uses the shared postgen pipeline. Returns the first
+  // suggestion since the coordinator only posts once per pass per
+  // account. `target` may be a content_sources row or null (random).
+  async generateContent({ account, target }) {
+    const { generatePost } = require('../services/postgen');
+    const mode = account.status === 'ready' ? 'nsfw' : 'sfw';
+    const res = await generatePost({
+      accountId: account.id,
+      mode,
+      targetSubreddit: target?.name || null,
+      autopilot: true,
+    });
+    if (!res.ok || !res.suggestions?.length) {
+      return { ok: false, error: res.error || 'No suggestions generated' };
+    }
+    const pick = res.suggestions[0];
+    return {
+      ok: true,
+      target: pick.subreddit || target?.name,
+      title: pick.title,
+      body: pick.body || '',
+      kind: pick.kind || 'self',
+    };
+  },
+
+  // -------------------------------------------------------- runAutoComment
+  // Single comment cycle for one account on Reddit. Pulls a candidate
+  // post from one of the account's auto_comment_protocols.target_subs,
+  // generates a context-aware reply, and submits it. Logs every attempt
+  // in auto_comment_runs. Returns { ok, error?, post?, comment? }.
+  async runAutoComment(account, { dryRun = false } = {}) {
+    const { runOnce } = require('../services/redditAutoComment');
+    return runOnce(account.id, { dryRun });
   },
 };
 
