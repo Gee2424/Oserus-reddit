@@ -57,7 +57,6 @@ export default function RedGifsDashboardPage({ navigate }) {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
           <PopOutButton route="redgifs-dashboard" title="RedGIFs" />
-          <button className="ghost" onClick={() => navigate && navigate('redgifs-browse')}>Open Browser ↗</button>
           <button className="primary" onClick={refreshAll} disabled={loading}>{loading ? 'Refreshing…' : '↻ Refresh All'}</button>
         </div>
       </div>

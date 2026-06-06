@@ -232,8 +232,8 @@ export default function AddAccountsPage({ navigate, initialTab }) {
                 in that account's isolated session, so the Inbox / Autopilot / Scheduler all
                 read from the live login automatically.
               </div>
-              <button className="primary" onClick={() => navigate && navigate('reddit')} style={{ marginTop: 18 }}>
-                Open Reddit browser ↗
+              <button className="primary" onClick={() => navigate && navigate('profiles')} style={{ marginTop: 18 }}>
+                Back to Models ↗
               </button>
             </div>
           )}

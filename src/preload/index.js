@@ -246,14 +246,16 @@ const api = {
   },
   windows: {
     openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),
-    openAccountBrowser: (data) => ipcRenderer.invoke('window:openAccountBrowser', data),
-    openModelLauncher: (data) => ipcRenderer.invoke('window:openModelLauncher', data),
     openExternalTabs: (data) => ipcRenderer.invoke('system:openExternalTabs', data),
     setAlwaysOnTop: (data) => ipcRenderer.invoke('window:setAlwaysOnTop', data),
     close: () => ipcRenderer.invoke('window:close'),
   },
+  // Oserus Browser is the only browsing surface. There's no standalone
+  // Browser page anymore — launching happens from a model or one of its
+  // linked accounts.
   oserusBrowser: {
-    open: (data) => ipcRenderer.invoke('oserus-browser:open', data),
+    openAccount:        (data) => ipcRenderer.invoke('oserus-browser:openAccount', data),
+    openAllForProfile:  (data) => ipcRenderer.invoke('oserus-browser:openAllForProfile', data),
   },
 };
 

@@ -181,7 +181,9 @@ export default function ModelDetailPage({ modelId, navigate }) {
 
   async function start(accountId) {
     await startAccount(accountId);
-    navigate('reddit');
+    // Browsing happens in a dedicated Oserus Browser window now, not an
+    // in-app page.
+    await window.api.oserusBrowser.openAccount({ token, accountId });
   }
 
   async function addProxy(e) {
@@ -255,7 +257,10 @@ export default function ModelDetailPage({ modelId, navigate }) {
               title="Start the first Reddit account and open the Reddit browser"
               onClick={async () => {
                 const pick = pickPreferredAccount(accounts.filter(a => a.platform !== 'redgifs'));
-                if (pick) { await startAccount(pick.id); navigate('reddit'); }
+                if (pick) {
+                  await startAccount(pick.id);
+                  await window.api.oserusBrowser.openAccount({ token, accountId: pick.id });
+                }
               }}
               style={playBtnStyle}
             >▶ Reddit</button>

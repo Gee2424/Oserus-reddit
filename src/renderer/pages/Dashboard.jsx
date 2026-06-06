@@ -148,10 +148,10 @@ export default function DashboardPage({ navigate }) {
     return [...m.values()].sort((a, b) => b.total - a.total);
   }, [accounts]);
 
-  function openAllForModel(model) {
-    // Browser page now hosts the tabbed launcher inline, so ▶ on a model row
-    // just routes there with this model selected — no popout window.
-    navigate('browser', { modelId: model.id });
+  async function openAllForModel(model) {
+    // Spawns one Oserus Browser window per linked account in this model.
+    const r = await window.api.oserusBrowser.openAllForProfile({ token, profileId: model.id });
+    if (!r?.ok) alert(r?.error || 'Could not launch this model.');
   }
 
   const filtered = useMemo(() => {
@@ -364,7 +364,7 @@ export default function DashboardPage({ navigate }) {
                     <td style={td}><input type="checkbox" checked={sel} onChange={() => toggle(a.id)} /></td>
                     <td style={td}>
                       <button
-                        onClick={() => window.api.windows.openAccountBrowser({ accountId: a.id })}
+                        onClick={() => window.api.oserusBrowser.openAccount({ token, accountId: a.id })}
                         title={`Launch ${a.username} in its own pre-logged-in browser`}
                         style={{
                           width: 28, height: 28, borderRadius: '50%',
@@ -440,7 +440,7 @@ export default function DashboardPage({ navigate }) {
                     </td>
                     <td style={td}>
                       <button
-                        onClick={() => window.api.windows.openAccountBrowser({ accountId: a.id })}
+                        onClick={() => window.api.oserusBrowser.openAccount({ token, accountId: a.id })}
                         title={`Open ${a.username} in a pre-logged-in browser window`}
                         style={{ display: 'inline-grid', placeItems: 'center', width: 22, height: 22, borderRadius: '50%', background: '#ff4500', color: '#fff', fontWeight: 700, fontSize: 12, border: 'none', cursor: 'pointer', padding: 0 }}
                       >R</button>

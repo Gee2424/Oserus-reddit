@@ -13,7 +13,6 @@ const NAV = [
   { key: 'profiles',      label: 'Models',              icon: '◇', group: 'Overview', perm: 'page.profiles' },
   { key: 'analytics',     label: 'Analytics',           icon: '◧', group: 'Overview', perm: 'page.analytics' },
 
-  { key: 'browser',       label: 'Browser',             icon: '◈', group: 'Workspace', perm: 'page.reddit' },
   { key: 'inbox',         label: 'Account Manager Pro', icon: '✉', group: 'Workspace', perm: 'page.reddit-api' },
   { key: 'automation',    label: 'Automation',          icon: '⟳', group: 'Workspace', perm: 'page.autopilot' },
   { key: 'intel',         label: 'Intelligence',        icon: '◎', group: 'Workspace', perm: 'page.intel' },
@@ -88,19 +87,6 @@ export default function Shell({ route, navigate, children }) {
               </div>
             </div>
           </div>
-          <button
-            onClick={() => {
-              const token = localStorage.getItem('token');
-              window.api?.oserusBrowser?.open?.({ token });
-            }}
-            style={{
-              width: '100%', marginTop: 10, fontSize: 12, fontWeight: 600,
-              padding: '7px 10px', borderRadius: 6, cursor: 'pointer',
-              background: 'transparent', border: '1px solid var(--gold)',
-              color: 'var(--gold)',
-            }}
-            title="Open the standalone Oserus Browser (profile picker)"
-          >Launch Oserus Browser</button>
           <button className="ghost" onClick={logout} style={{ width: '100%', marginTop: 6, fontSize: 12 }}>
             Sign out
           </button>

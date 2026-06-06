@@ -11,16 +11,11 @@ export default function ProfilesPage({ navigate }) {
   const [profiles, setProfiles] = useState([]);
 
   async function playModel(profileId) {
-    const res = await window.api.accounts.listForProfile({ token, profileId });
-    if (!res.ok || !res.accounts.length) {
-      alert('No accounts on this model yet. Link one first.');
-      return;
-    }
-    // Pre-cookied Chrome window per account (Electron BrowserWindow uses the
-    // account's persist:<partition> so cookies + UA + proxy are already wired).
-    for (const a of res.accounts) {
-      await window.api.windows.openAccountBrowser({ accountId: a.id });
-    }
+    // Opens one Oserus Browser window per linked account in parallel.
+    // Each window is bound to that account's persist partition with
+    // proxy + antidetect + UA already wired by prepareSessionForAccount.
+    const r = await window.api.oserusBrowser.openAllForProfile({ token, profileId });
+    if (!r?.ok) alert(r?.error || 'Could not launch this model.');
   }
 
   const [users, setUsers] = useState([]);

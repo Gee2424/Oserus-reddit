@@ -1,30 +1,31 @@
-// Preload bridge for the Oserus Browser window. Exposes the minimal
-// surface the browser renderer needs: list profiles + accounts, launch
-// a profile, switch back to the picker, close the window.
+// Preload for an Oserus Browser chrome window. Surfaces tab control +
+// state listener to the renderer; the renderer never touches webContents
+// directly — every operation goes through this bridge so main process
+// stays the single owner of WebContentsView lifecycle.
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+const listeners = new Set();
+ipcRenderer.on('oserus-browser:state', (_e, state) => {
+  for (const fn of listeners) {
+    try { fn(state); } catch {}
+  }
+});
+
 contextBridge.exposeInMainWorld('oserusBrowser', {
-  picker: {
-    listProfiles: (data) => ipcRenderer.invoke('oserus-browser:listProfiles', data),
-    launchAccount: (data) => ipcRenderer.invoke('oserus-browser:launchAccount', data),
-  },
-  session: {
-    backToPicker: () => ipcRenderer.invoke('oserus-browser:backToPicker'),
-    close: () => ipcRenderer.invoke('oserus-browser:close'),
-    autofillScript: (data) => ipcRenderer.invoke('oserus-browser:autofillScript', data),
-    listSubreddits: (data) => ipcRenderer.invoke('oserus-browser:listSubreddits', data),
-    currentAccountId: () => {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const v = params.get('account');
-        return v ? Number(v) : null;
-      } catch { return null; }
-    },
-  },
-  auth: {
-    // Reuse the existing auth IPC so the browser can authenticate as the
-    // logged-in operator without a second login flow.
-    me: (data) => ipcRenderer.invoke('auth:me', data),
-  },
+  // Lifecycle
+  tabsReady: () => ipcRenderer.invoke('oserus-browser:tabsReady'),
+  onState:   (fn) => listeners.add(fn),
+  offState:  (fn) => listeners.delete(fn),
+
+  // Tab strip
+  newTab:    (url)   => ipcRenderer.invoke('oserus-browser:newTab',    { url }),
+  closeTab:  (tabId) => ipcRenderer.invoke('oserus-browser:closeTab',  { tabId }),
+  switchTab: (tabId) => ipcRenderer.invoke('oserus-browser:switchTab', { tabId }),
+
+  // Omnibox / navigation
+  navigate: (url) => ipcRenderer.invoke('oserus-browser:navigate', { url }),
+  back:     ()    => ipcRenderer.invoke('oserus-browser:back'),
+  forward:  ()    => ipcRenderer.invoke('oserus-browser:forward'),
+  reload:   ()    => ipcRenderer.invoke('oserus-browser:reload'),
 });

@@ -350,7 +350,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                 notLoggedIn ? (
                   <div style={{ padding: 18, textAlign: 'center' }}>
                     <div style={{ color: '#818384', fontSize: 13, lineHeight: 1.6 }}>{active.username} isn't logged into {platform} yet.</div>
-                    {navigate && <button onClick={() => { setActive(active.id); navigate('browser'); }} style={{ ...primaryBtn, marginTop: 12 }}>Sign in via Browser ↗</button>}
+                    {active && <button onClick={() => window.api.oserusBrowser.openAccount({ token, accountId: active.id })} style={{ ...primaryBtn, marginTop: 12 }}>Sign in via Browser ↗</button>}
                   </div>
                 ) :
                 loading && messages.length === 0 ? <Empty text="Loading…" /> :

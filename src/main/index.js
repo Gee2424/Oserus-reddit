@@ -102,11 +102,9 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
   }
 
-  // ModelLauncher mounts many <webview> tabs at once and only one is visible.
-  // Without explicit throttling Chromium keeps all of them painting + running
-  // their main thread at full speed, which makes the launcher feel sluggish.
-  // We enable background throttling + image animation off on every attached
-  // webview frame so hidden tabs idle and the visible one gets the CPU.
+  // Throttle any <webview> attached to the management window — a few
+  // legacy renderer components still use them. Oserus Browser tabs do
+  // NOT mount webviews; they use native WebContentsView children.
   mainWindow.webContents.on('did-attach-webview', (_e, wc) => {
     try { wc.setBackgroundThrottling(true); } catch {}
     try { wc.setFrameRate?.(30); } catch {}
@@ -189,45 +187,6 @@ ipcMain.handle('window:openPopout', (_e, { route, title, width, height, params }
   return openPopout(route, { title, width, height, params });
 });
 
-// Per-model launcher — one tabbed window per model. If a launcher for this
-// modelId is already open, focus it instead of opening a duplicate. Different
-// models open in parallel windows.
-ipcMain.handle('window:openModelLauncher', async (_e, { profileId }) => {
-  if (!profileId) return { ok: false, error: 'profileId required' };
-  const db = getDb();
-  let profile;
-  try { profile = db.prepare('SELECT id, name FROM model_profiles WHERE id = ?').get(profileId); } catch {}
-  if (!profile) return { ok: false, error: 'Model not found' };
-  // Pre-warm every linked account's session partition so cookies + UA +
-  // proxy are wired before the renderer mounts its <webview> tabs.
-  let accounts = [];
-  try {
-    accounts = db.prepare(
-      "SELECT id FROM reddit_accounts WHERE profile_id = ? AND status != 'banned'"
-    ).all(profileId);
-  } catch {}
-  for (const a of accounts) {
-    try { await prepareSessionForAccount(a.id); } catch {}
-  }
-  return openPopout(`model-launcher-${profileId}`, {
-    title: `${profile.name} · Launcher`,
-    width: 1280, height: 860,
-    params: { route: 'model-launcher', modelId: String(profileId) },
-  });
-});
-
-// Open a real browser window pre-bound to an account's persistent session
-// partition. Used by Model Hub to launch every account (Reddit, RedGIFs, X,
-// Instagram, TikTok…) in one click — cookies + proxy + UA are already wired by
-// prepareSessionForAccount.
-const PLATFORM_URLS = {
-  reddit:    'https://www.reddit.com/',
-  redgifs:   'https://www.redgifs.com/',
-  x:         'https://x.com/home',
-  instagram: 'https://www.instagram.com/',
-  tiktok:    'https://www.tiktok.com/foryou',
-};
-
 
 // Launch every URL in the user's external browser, preferring Opera GX if
 // installed (per user request). Falls back to whatever shell.openExternal
@@ -272,79 +231,6 @@ ipcMain.handle('system:openExternalTabs', async (_e, { urls }) => {
   return { ok: true, browser: 'default', count: list.length };
 });
 
-ipcMain.handle('window:openAccountBrowser', async (_e, { accountId, url }) => {
-  if (!accountId) return { ok: false, error: 'accountId required' };
-  const prep = await prepareSessionForAccount(accountId);
-  if (!prep.ok) return prep;
-  const db = getDb();
-  const acct = db.prepare(
-    'SELECT username, platform, password_encrypted FROM reddit_accounts WHERE id = ?'
-  ).get(accountId);
-  if (!acct) return { ok: false, error: 'Account not found' };
-  const target = url || PLATFORM_URLS[acct.platform] || 'about:blank';
-  const isMac = process.platform === 'darwin';
-  const win = new BrowserWindow({
-    width: 1180,
-    height: 820,
-    minWidth: 600,
-    minHeight: 480,
-    backgroundColor: '#0d0c0a',
-    title: `${acct.platform} · u/${acct.username}`,
-    titleBarStyle: isMac ? 'hiddenInset' : 'default',
-    webPreferences: {
-      partition: `persist:${prep.partitionKey}`,
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  });
-
-  // Autofill — populate username + password on every login form we can find.
-  // Reddit, X, Instagram, TikTok, RedGIFs all render their fields async (and
-  // often inside React-controlled inputs), so we:
-  //   1. Try once on did-finish-load
-  //   2. Retry on a 250ms interval for 10 seconds
-  //   3. MutationObserver for the same 10 seconds in case fields appear later
-  // setVal goes through the prototype setter so React/Vue/etc. accept the
-  // change event and don't immediately overwrite the value.
-  const password = acct.password_encrypted ? decryptSecret(acct.password_encrypted) : '';
-  if (acct.username && password) {
-    const safeUser = JSON.stringify(acct.username);
-    const safePass = JSON.stringify(password);
-    const inject = () => {
-      const js = buildAutofillScript(safeUser, safePass);
-      win.webContents.executeJavaScript(js).catch(() => {});
-    };
-    win.webContents.on('did-finish-load', () => {
-      win.webContents.executeJavaScript('window.__oserusAutofillActive = false').catch(() => {});
-      inject();
-    });
-    win.webContents.on('did-navigate-in-page', () => {
-      win.webContents.executeJavaScript('window.__oserusAutofillActive = false').catch(() => {});
-      inject();
-    });
-  }
-
-  // Defensive: surface a friendly in-window page when the proxy or DNS
-  // chokes instead of leaving the user with a blank Chromium error.
-  win.webContents.on('did-fail-load', (_e, code, desc, url) => {
-    if (code === -3 /* ABORTED, expected on nav cancels */) return;
-    elog.warn('[browser] load failed', code, desc, url);
-    const safe = String(desc || '').replace(/</g, '&lt;');
-    win.webContents.loadURL(
-      'data:text/html;charset=utf-8,' + encodeURIComponent(
-        `<body style="font-family:sans-serif;background:#0d0c0a;color:#d7dadc;padding:40px;line-height:1.6">
-           <h2>Couldn't reach ${url}</h2>
-           <p>${safe}</p>
-           <p style="opacity:0.7;font-size:13px">Likely the assigned proxy is down or unreachable. Reassign or remove it from this account, or check your network.</p>
-         </body>`
-      )
-    );
-  });
-
-  win.loadURL(target).catch((e) => elog.warn('[browser] loadURL rejected', e && e.message));
-  return { ok: true };
-});
-
 ipcMain.handle('window:setAlwaysOnTop', (e, { value }) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (win) win.setAlwaysOnTop(!!value, 'floating');
@@ -367,106 +253,39 @@ ipcMain.handle('app:version', () => ({ version: app.getVersion() }));
 
 // Oserus Browser handlers. `open` is invoked from Management with the
 // operator's token; the browser module caches the token so the picker
-// can list profiles without a second sign-in. `listProfiles` and
-// `launchAccount` are called from inside the browser window's preload.
+// Two entry points for opening an Oserus Browser:
+//   • openAccount({ accountId }) — opens one window bound to that
+//     account's persistent session partition (proxy + UA + antidetect
+//     applied). Reused by every "Launch" affordance in Management.
+//   • openAllForProfile({ profileId }) — loops over the model's
+//     accounts and opens one window each. Same code path as openAccount.
+//
+// Autofill runs inside each tab's WebContentsView via the script that
+// services/autofill.js generates — see the autofillScript IPC below.
 function registerOserusBrowserHandlers() {
   const { userFromToken } = require('./ipc/auth');
-  const { hasPermission } = require('./permissions');
 
-  ipcMain.handle('oserus-browser:open', async (_e, { token } = {}) => {
-    oserusBrowser.setOperatorToken(token || null);
-    return oserusBrowser.openPicker();
+  ipcMain.handle('oserus-browser:openAccount', async (_e, { token, accountId } = {}) => {
+    if (!userFromToken(token)) return { ok: false, error: 'Not authenticated' };
+    oserusBrowser.setOperatorToken(token);
+    return oserusBrowser.openForAccount(accountId);
   });
 
-  ipcMain.handle('oserus-browser:backToPicker', async () => {
-    return oserusBrowser.openPicker();
+  ipcMain.handle('oserus-browser:openAllForProfile', async (_e, { token, profileId } = {}) => {
+    if (!userFromToken(token)) return { ok: false, error: 'Not authenticated' };
+    oserusBrowser.setOperatorToken(token);
+    return oserusBrowser.openAllForProfile(profileId);
   });
 
   ipcMain.handle('oserus-browser:close', async () => oserusBrowser.closeBrowser());
 
-  ipcMain.handle('oserus-browser:listProfiles', async () => {
-    try {
-      const token = oserusBrowser.getOperatorToken();
-      const user = userFromToken(token);
-      if (!user) return { ok: false, error: 'Not authenticated' };
-
-      const db = getDb();
-      const seeAll = hasPermission(user, 'profiles.manage');
-      const profiles = seeAll
-        ? db.prepare(`SELECT id, name, main_email FROM model_profiles ORDER BY name`).all()
-        : db.prepare(
-            `SELECT id, name, main_email FROM model_profiles
-             WHERE assigned_user_id = ? ORDER BY name`
-          ).all(user.id);
-
-      // Account-level proxy wins; model-level fallback so guest profiles
-      // bound only at the model still display the right proxy label.
-      const acctStmt = db.prepare(
-        `SELECT a.id, a.platform, a.username, a.status, a.fingerprint_json,
-                px.label AS proxy_label
-         FROM reddit_accounts a
-         LEFT JOIN model_profiles mp ON mp.id = a.profile_id
-         LEFT JOIN proxies px ON px.id = COALESCE(a.proxy_id, mp.proxy_id)
-         WHERE a.profile_id = ?
-         ORDER BY a.platform, a.username`
-      );
-      for (const p of profiles) {
-        p.accounts = acctStmt.all(p.id).map((a) => {
-          let fp = null;
-          if (a.fingerprint_json) {
-            try { fp = JSON.parse(a.fingerprint_json); } catch {}
-          }
-          // Don't ship the heavy fingerprint JSON to the renderer — just
-          // the summarized identity the picker shows.
-          delete a.fingerprint_json;
-          a.fingerprint = fp ? fingerprintMod.summarize(fp) : null;
-          return a;
-        });
-      }
-      return { ok: true, profiles };
-    } catch (e) {
-      return { ok: false, error: e?.message || 'listProfiles failed' };
-    }
-  });
-
-  ipcMain.handle('oserus-browser:launchAccount', async (_e, { accountId }) => {
-    return oserusBrowser.openForAccount(accountId);
-  });
-
-  // Built-in subreddit quick-launch for the locked browser. Returns the
-  // shared warm-up list AND the account's model-specific promo list so
-  // VAs can jump to a post-composer for any approved sub in one click.
-  ipcMain.handle('oserus-browser:listSubreddits', (_e, { accountId } = {}) => {
-    try {
-      const db = getDb();
-      const warmup = db.prepare(
-        `SELECT name, description, vibe FROM warmup_subreddits ORDER BY name`
-      ).all();
-      let promo = [];
-      if (accountId) {
-        promo = db.prepare(
-          `SELECT s.name, s.description
-           FROM promo_subreddits s
-           JOIN reddit_accounts a ON a.profile_id = s.profile_id
-           WHERE a.id = ?
-           ORDER BY s.name`
-        ).all(accountId);
-      }
-      return { ok: true, warmup, promo };
-    } catch (e) {
-      return { ok: false, error: e?.message || 'listSubreddits failed' };
-    }
-  });
-
-  // Renderer calls this once per tab and runs the returned string inside
-  // every webview navigation, so the locked profile sessions get the same
-  // autofill behavior as the standalone single-account browser. Returns
-  // an empty string when no creds are stored — caller no-ops in that case.
+  // Called by browser.js right after each tab finishes loading. Returns
+  // a self-contained autofill script (or empty string when no creds are
+  // stored). The script self-guards against double-injection via
+  // window.__oserusAutofillActive.
   ipcMain.handle('oserus-browser:autofillScript', (_e, { accountId } = {}) => {
     try {
-      const token = oserusBrowser.getOperatorToken();
-      const user = userFromToken(token);
-      if (!user || !accountId) return { ok: true, script: '' };
+      if (!accountId) return { ok: true, script: '' };
       const acct = getDb().prepare(
         'SELECT username, password_encrypted FROM reddit_accounts WHERE id = ?'
       ).get(accountId);

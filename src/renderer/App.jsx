@@ -6,8 +6,6 @@ import { InboxLiveProvider } from './lib/inboxLive.jsx';
 import LoginPage from './pages/Login.jsx';
 import Shell from './components/Shell.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
-import UnifiedBrowser from './pages/UnifiedBrowser.jsx';
-import ModelLauncher from './pages/ModelLauncher.jsx';
 import ProfilesPage from './pages/Profiles.jsx';
 import ModelDetailPage from './pages/ModelDetail.jsx';
 import TeamPage from './pages/Team.jsx';
@@ -44,9 +42,8 @@ function Inner() {
   const { user, loading } = useAuth();
   const [route, setRoute] = useState('dashboard');
   const [routeParams, setRouteParams] = useState({});
-  // Force a re-parse of the hash whenever it changes so popouts can switch
-  // routes / modelId in-place (e.g. ModelLauncher's model picker) without a
-  // full page reload that would destroy every webview.
+  // Force a re-parse of the hash whenever it changes so popouts can
+  // switch routes in-place without a full page reload.
   const [, forceHash] = React.useState(0);
   React.useEffect(() => {
     const onHash = () => forceHash((n) => n + 1);
@@ -72,10 +69,10 @@ function Inner() {
   const page = (() => {
     switch (route) {
       case 'dashboard': return <DashboardPage navigate={navigate} />;
-      case 'browser': return <UnifiedBrowser navigate={navigate} modelId={routeParams.modelId} defaultPlatform={routeParams.platform} />;
-      case 'reddit': return <UnifiedBrowser navigate={navigate} defaultPlatform="reddit" />;
+      // Browsing is no longer an in-app page. Account-bound browsing
+      // lives in the standalone Oserus Browser window, opened from
+      // any account's Launch button (see oserusBrowser.openAccount).
       case 'redgifs': return <RedGifsDashboardPage navigate={navigate} />;
-      case 'redgifs-browse': return <UnifiedBrowser navigate={navigate} defaultPlatform="redgifs" />;
       case 'reddit-api':
       case 'inbox':
         return <RedditApiPage navigate={navigate} />;
@@ -104,11 +101,6 @@ function Inner() {
   // Standalone pop-out: just the module + a slim pinnable titlebar.
   if (popoutRoute) {
     const popPage = (() => {
-      // Per-model launcher (one tabbed window per model) — popout key is
-      // model-launcher-<id>, hash carries modelId explicitly.
-      if (popoutInfo?.params?.route === 'model-launcher') {
-        return <ModelLauncher modelId={popoutInfo.params.modelId} />;
-      }
       switch (popoutRoute) {
         case 'inbox': return <InboxPage embedded standalone />;
         case 'scheduler-pro': return <SchedulerProPage />;
