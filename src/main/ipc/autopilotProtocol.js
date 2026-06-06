@@ -59,28 +59,11 @@ function register(ipcMain) {
     } catch (err) { return { ok: false, error: err.message }; }
   });
 
-  // Run one session right now for a hand-picked account in this profile
-  // + platform. Useful for "test my settings" buttons.
-  ipcMain.handle('autopilot:runNow', async (_e, { token, profileId, platform, accountId, dryRun }) => {
-    try {
-      const user = userFromToken(token);
-      if (!user) throw new Error('Not authenticated');
-      if (!canAccessProfile(user, profileId)) throw new Error('Not authorized');
-      let id = accountId;
-      if (!id) {
-        const row = getDb().prepare(
-          `SELECT id FROM reddit_accounts
-            WHERE profile_id = ? AND platform = ? AND status IN ('warming','ready')
-            ORDER BY RANDOM() LIMIT 1`
-        ).get(profileId, platform);
-        if (!row) throw new Error(`No active ${platform} accounts for this profile`);
-        id = row.id;
-      }
-      const { runSession } = require('../services/engagement');
-      const res = await runSession(id, { dryRun: !!dryRun });
-      return res;
-    } catch (err) { return { ok: false, error: err.message }; }
-  });
+  // autopilot:runNow is the single canonical "run" channel and lives in
+  // ipc/protocols.js. When called with {profileId, platform} it routes
+  // to one engagement session (this scope's "test my settings now"
+  // button); without those, it runs the whole-system coordinator pass.
+  // See ipc/protocols.js for the actual handler.
 }
 
 module.exports = register;

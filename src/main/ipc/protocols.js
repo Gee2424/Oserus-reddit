@@ -157,12 +157,39 @@ function register(ipcMain) {
     }
   });
 
-  // Run one pass right now. dryRun => decide only, don't post (safe preview).
-  ipcMain.handle('autopilot:runNow', async (_e, { token, dryRun }) => {
+  // Canonical "run now" handler. Two modes:
+  //   • Scoped: caller passed { profileId, platform } — run one
+  //     engagement session for an account on that scope (or a picked
+  //     accountId). This is what the Autopilot page's Run-now button
+  //     calls when an account is selected.
+  //   • System-wide: caller didn't pass profileId — run a full
+  //     coordinator pass over every eligible account.
+  ipcMain.handle('autopilot:runNow', async (_e, { token, profileId, platform, accountId, dryRun }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'protocols.run');
+
+      // Scoped: single engagement session.
+      if (profileId && platform) {
+        let id = accountId;
+        if (!id) {
+          const { getDb } = require('../db');
+          const row = getDb().prepare(
+            `SELECT id FROM reddit_accounts
+              WHERE profile_id = ? AND platform = ? AND status IN ('warming','ready')
+              ORDER BY RANDOM() LIMIT 1`
+          ).get(profileId, platform);
+          if (!row) throw new Error(`No active ${platform} accounts for this profile`);
+          id = row.id;
+        }
+        const { runSession } = require('../services/engagement');
+        const res = await runSession(id, { dryRun: !!dryRun });
+        log(user, 'autopilot.runNow', 'engagement', id, dryRun ? 'dry-run' : `posts_seen=${res.stats?.posts_seen || 0}`);
+        return res;
+      }
+
+      // System-wide: coordinator pass.
       const summary = await coordinator.runOnce({ dryRun: !!dryRun });
       log(user, 'autopilot.runNow', 'system', null, dryRun ? 'dry-run' : `posted=${summary.posted} skipped=${summary.skipped} failed=${summary.failed}`);
       return { ok: true, summary };
