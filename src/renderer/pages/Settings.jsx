@@ -1,492 +1,459 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
-import { Tag } from '../components/ui.jsx';
+import { useActiveAccount } from '../lib/activeAccount.jsx';
 import ProxiesPanel from '../components/ProxiesPanel.jsx';
 import AutopilotAIPanel from '../components/AutopilotAIPanel.jsx';
-import { useActiveAccount } from '../lib/activeAccount.jsx';
 
-export default function SettingsPage({ navigate }) {
-  const { token, user } = useAuth();
+// Configuration page.
+//
+// Three top-level groups, in the order you actually configure things:
+//
+//   1. AI            — Anthropic + Grok + Autopilot's separate key.
+//                      Each card explains exactly what its key powers.
+//   2. Infrastructure — Boost providers (upvote.biz today) + Proxies.
+//   3. Account       — Change password + per-account browser sessions.
+//
+// Removed from the previous version:
+//   • SchedulingConfig — dead component, never rendered.
+//   • cfgTab single-item tab bar — pointless when there's one tab.
+//   • "Connected devices" placeholder — pure marketing surface for a
+//     service that doesn't ship yet. Comes back when there's an
+//     actual USB bridge to configure.
+//   • Side-by-side Anthropic + Grok cards (two near-identical forms) —
+//     replaced by one reusable KeyCard so the layout is uniform.
+
+export default function SettingsPage() {
+  const { token } = useAuth();
   const can = useCan();
   const { accounts, refresh } = useActiveAccount();
-  const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
-  const [pwMsg, setPwMsg] = useState(null);
-
-  const [apiKey, setApiKey] = useState('');
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [apiKeyMsg, setApiKeyMsg] = useState(null);
-
-  const [voteKey, setVoteKey] = useState('');
-  const [hasVoteKey, setHasVoteKey] = useState(false);
-  const [voteKeyMsg, setVoteKeyMsg] = useState(null);
-
-  // Anthropic — preferred for autopilot because the system prompt is huge
-  // and prompt-caching cuts the per-call cost to ~10% of first hit.
-  const [anthropicKey, setAnthropicKey] = useState('');
-  const [providers, setProviders] = useState({ provider: 'anthropic', anthropic: { hasKey: false }, grok: { hasKey: false } });
-  const [anthropicMsg, setAnthropicMsg] = useState(null);
 
   const isAdmin = can('ai.admin');
 
-  useEffect(() => {
-    window.api.ai.hasApiKey({ token }).then(r => setHasApiKey(!!(r.ok && r.hasKey)));
-    window.api.votes.hasApiKey({ token }).then(r => setHasVoteKey(!!(r.ok && r.hasKey)));
-    window.api.ai.getProviders({ token }).then(r => { if (r.ok) setProviders(r); });
-  }, [token]);
+  // ── AI state ──────────────────────────────────────────────────────
+  const [providers, setProviders] = useState({
+    provider: 'anthropic',
+    anthropic: { hasKey: false, model: 'claude-haiku-4-5' },
+    grok:      { hasKey: false },
+  });
+  const [grokHasKey, setGrokHasKey] = useState(false);
 
-  async function saveAnthropicKey(e) {
-    e.preventDefault();
-    setAnthropicMsg(null);
-    if (!anthropicKey.trim()) { setAnthropicMsg({ kind: 'err', text: 'Paste a key first' }); return; }
-    const r = await window.api.ai.setProviderKey({ token, provider: 'anthropic', apiKey: anthropicKey.trim() });
-    if (!r.ok) { setAnthropicMsg({ kind: 'err', text: r.error }); return; }
-    setAnthropicKey('');
-    setAnthropicMsg({ kind: 'ok', text: 'Anthropic key saved and encrypted.' });
-    const p = await window.api.ai.getProviders({ token }); if (p.ok) setProviders(p);
+  const refreshAI = async () => {
+    const [p, g] = await Promise.all([
+      window.api.ai.getProviders({ token }),
+      window.api.ai.hasApiKey({ token }),
+    ]);
+    if (p.ok) setProviders(p);
+    if (g.ok) setGrokHasKey(!!g.hasKey);
+  };
+  useEffect(() => { refreshAI(); }, [token]);
+
+  // Anthropic save/clear go through setProviderKey (the "providers"
+  // surface, which also tracks the active selection). Grok historically
+  // sat on the legacy ai.setApiKey IPC; both are wired here so the page
+  // stays consistent regardless of which backend route the IPC takes.
+  async function saveAnthropic(key) {
+    const r = await window.api.ai.setProviderKey({ token, provider: 'anthropic', apiKey: key });
+    if (!r.ok) throw new Error(r.error);
+    await refreshAI();
   }
-  async function clearAnthropicKey() {
-    if (!confirm('Remove the saved Anthropic API key?')) return;
+  async function clearAnthropic() {
     await window.api.ai.setProviderKey({ token, provider: 'anthropic', apiKey: null });
-    setAnthropicMsg({ kind: 'ok', text: 'Anthropic key removed.' });
-    const p = await window.api.ai.getProviders({ token }); if (p.ok) setProviders(p);
+    await refreshAI();
+  }
+  async function saveGrok(key) {
+    const r = await window.api.ai.setApiKey({ token, apiKey: key });
+    if (!r.ok) throw new Error(r.error);
+    await refreshAI();
+  }
+  async function clearGrok() {
+    await window.api.ai.setApiKey({ token, apiKey: null });
+    await refreshAI();
   }
   async function switchProvider(next) {
     await window.api.ai.setProvider({ token, provider: next });
     setProviders((p) => ({ ...p, provider: next }));
   }
 
+  // ── Boost (upvote.biz) state ──────────────────────────────────────
+  const [hasVoteKey, setHasVoteKey] = useState(false);
+  useEffect(() => {
+    window.api.votes.hasApiKey({ token }).then((r) => setHasVoteKey(!!(r.ok && r.hasKey)));
+  }, [token]);
+  async function saveVote(key) {
+    const r = await window.api.votes.setApiKey({ token, apiKey: key });
+    if (!r.ok) throw new Error(r.error);
+    setHasVoteKey(true);
+  }
+  async function clearVote() {
+    await window.api.votes.setApiKey({ token, apiKey: null });
+    setHasVoteKey(false);
+  }
+
+  // ── Account ────────────────────────────────────────────────────────
+  const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
+  const [pwMsg, setPwMsg] = useState(null);
   async function changePassword(e) {
     e.preventDefault();
     setPwMsg(null);
     if (pw.next.length < 6) { setPwMsg({ kind: 'err', text: 'Password must be at least 6 characters' }); return; }
     if (pw.next !== pw.confirm) { setPwMsg({ kind: 'err', text: "Passwords don't match" }); return; }
-    const res = await window.api.auth.changePassword({ token, currentPassword: pw.current, newPassword: pw.next });
+    const res = await window.api.auth.changePassword({
+      token, currentPassword: pw.current, newPassword: pw.next,
+    });
     if (!res.ok) { setPwMsg({ kind: 'err', text: res.error }); return; }
     setPwMsg({ kind: 'ok', text: 'Password changed.' });
     setPw({ current: '', next: '', confirm: '' });
   }
-
-  async function saveApiKey(e) {
-    e.preventDefault();
-    setApiKeyMsg(null);
-    if (!apiKey.trim()) { setApiKeyMsg({ kind: 'err', text: 'Paste a key first' }); return; }
-    const res = await window.api.ai.setApiKey({ token, apiKey: apiKey.trim() });
-    if (!res.ok) { setApiKeyMsg({ kind: 'err', text: res.error }); return; }
-    setApiKey('');
-    setHasApiKey(true);
-    setApiKeyMsg({ kind: 'ok', text: 'API key saved and encrypted.' });
-  }
-
-  async function clearApiKey() {
-    if (!confirm('Remove the saved Grok API key? AI features will stop working until you add a new one.')) return;
-    await window.api.ai.setApiKey({ token, apiKey: null });
-    setHasApiKey(false);
-    setApiKeyMsg({ kind: 'ok', text: 'API key removed.' });
-  }
-
-  async function saveVoteKey(e) {
-    e.preventDefault();
-    setVoteKeyMsg(null);
-    if (!voteKey.trim()) { setVoteKeyMsg({ kind: 'err', text: 'Paste a key first' }); return; }
-    const res = await window.api.votes.setApiKey({ token, apiKey: voteKey.trim() });
-    if (!res.ok) { setVoteKeyMsg({ kind: 'err', text: res.error }); return; }
-    setVoteKey('');
-    setHasVoteKey(true);
-    setVoteKeyMsg({ kind: 'ok', text: 'API key saved and encrypted.' });
-  }
-
-  async function clearVoteKey() {
-    if (!confirm('Remove the saved upvote.biz API key? The Votes page will stop working until you add a new one.')) return;
-    await window.api.votes.setApiKey({ token, apiKey: null });
-    setHasVoteKey(false);
-    setVoteKeyMsg({ kind: 'ok', text: 'API key removed.' });
-  }
-
   async function clearSession(partitionKey) {
     if (!confirm("Log out this account's session? You'll need to log in again next time.")) return;
     await window.api.session.clear(partitionKey);
     refresh();
   }
 
-  const [cfgTab, setCfgTab] = useState('settings');
+  const bothAIProvidersConfigured = providers.anthropic?.hasKey && grokHasKey;
 
   return (
     <div>
       <div className="title-block">
         <div>
           <div className="eyebrow">Configuration</div>
-          <h1>Configuration</h1>
-        </div>
-      </div>
-
-      {/* Configuration sub-tabs — Post Scheduling Configuration moved to
-          Account Manager Pro / Scheduler, only Settings & API Keys remains. */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 18, borderBottom: '1px solid var(--border)' }}>
-        {[
-          { k: 'settings',   l: 'Settings & API Keys' },
-        ].map((t) => (
-          <button
-            key={t.k}
-            onClick={() => setCfgTab(t.k)}
-            style={{
-              background: 'transparent', border: 'none', borderBottom: '2px solid ' + (cfgTab === t.k ? 'var(--gold)' : 'transparent'),
-              color: cfgTab === t.k ? 'var(--gold-bright)' : 'var(--text-2)',
-              padding: '10px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginBottom: -1,
-            }}
-          >{t.l}</button>
-        ))}
-      </div>
-
-      {cfgTab === 'settings' && <>
-
-      {/* Connected devices placeholder — surfaces here so the admin can see
-          the feature exists, even though native device bridging ships later. */}
-      <div className="card" style={{ marginBottom: 22 }}>
-        <h3 style={{ marginBottom: 6 }}>Connected devices <span className="mono dim" style={{ fontSize: 10, marginLeft: 8 }}>BETA</span></h3>
-        <div className="muted" style={{ fontSize: 13, marginBottom: 12 }}>
-          Plug a jailbroken iOS / rooted Android device in over USB and Oserus
-          will detect it, associate accounts to it, and route supported
-          launches through the device's native apps instead of a desktop browser.
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 12, background: 'var(--bg-1)', border: '1px dashed var(--border)', borderRadius: 8 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--text-3)' }} />
-          <span style={{ fontSize: 13 }}>No supported devices detected.</span>
-          <span className="dim" style={{ marginLeft: 'auto', fontSize: 11 }}>Bridge service not yet shipped — placeholder.</span>
-        </div>
-      </div>
-
-      {isAdmin && (
-        <div className="card" style={{ marginBottom: 22, borderColor: providers.anthropic?.hasKey ? 'var(--ok)' : 'var(--border)' }}>
-          <h3 style={{ marginBottom: 6 }}>
-            Anthropic (Claude) API key {providers.anthropic?.hasKey && <span className="mono" style={{ fontSize: 11, color: 'var(--ok)', marginLeft: 8 }}>✓ configured</span>}
-            <span className="mono" style={{ fontSize: 10, marginLeft: 8, padding: '2px 6px', borderRadius: 4, background: 'rgba(122,154,90,0.15)', color: '#bdd5a3' }}>RECOMMENDED</span>
-          </h3>
-          <div className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
-            Used by the AI composer + autopilot. Prompt caching cuts the static system prompt cost to ~10% of first hit — autopilot bills are tiny at scale. Get a key at console.anthropic.com → API Keys. Stored encrypted using your OS keychain.
+          <h1>Settings</h1>
+          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+            API keys, proxies, and your operator account — all in one place.
           </div>
-          {anthropicMsg && (
-            <div className={anthropicMsg.kind === 'err' ? 'error-banner' : ''} style={anthropicMsg.kind === 'ok' ? styles.ok : {}}>
-              {anthropicMsg.text}
-            </div>
-          )}
-          <form onSubmit={saveAnthropicKey} style={{ display: 'flex', gap: 8 }}>
-            <input
-              type="password"
-              placeholder={providers.anthropic?.hasKey ? '••••••••••••••••  (paste a new key to replace)' : 'sk-ant-…'}
-              value={anthropicKey}
-              onChange={(e) => setAnthropicKey(e.target.value)}
-              style={{ flex: 1 }}
-              autoComplete="off"
-            />
-            <button type="submit" className="primary">Save</button>
-            {providers.anthropic?.hasKey && <button type="button" className="danger" onClick={clearAnthropicKey}>Remove</button>}
-          </form>
-          {(providers.anthropic?.hasKey || providers.grok?.hasKey) && (
-            <div style={{ marginTop: 14, padding: 12, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>Active AI provider</div>
+        </div>
+      </div>
+
+      {/* ═══════════════════════════════════════════════════ AI ═════ */}
+      {isAdmin && (
+        <Section
+          title="AI"
+          subtitle="LLM keys that power composing, research, and autopilot. Each key is encrypted using your OS keychain when saved."
+        >
+          <KeyCard
+            title="Anthropic (Claude)"
+            recommended
+            configured={providers.anthropic?.hasKey}
+            description="Powers the AI composer in Scheduler and the analyze + content-plan flow in Intelligence. Prompt caching cuts the static system prompt cost to about 10% after the first hit, so per-call cost stays small. Get a key at console.anthropic.com → API Keys."
+            placeholder="sk-ant-…"
+            onSave={saveAnthropic}
+            onClear={clearAnthropic}
+          />
+
+          <KeyCard
+            title="Grok (xAI)"
+            configured={grokHasKey}
+            description="Alternative LLM for the composer + research flows. Useful if you want a different voice on suggestions. Get a key at console.x.ai → API Keys. Switch the active provider below once both are configured."
+            placeholder="xai-…"
+            onSave={saveGrok}
+            onClear={clearGrok}
+          />
+
+          {bothAIProvidersConfigured && (
+            <Subcard title="Active AI provider"
+              description="Decides which LLM the composer + research routes call into. Autopilot uses its own key (below) regardless of this setting.">
               <div style={{ display: 'flex', gap: 6 }}>
-                <button
+                <Toggle
+                  active={providers.provider === 'anthropic'}
+                  label={`Anthropic · ${providers.anthropic?.model?.includes('haiku') ? 'Claude Haiku 4.5' : 'Claude'}`}
                   onClick={() => switchProvider('anthropic')}
-                  className={providers.provider === 'anthropic' ? 'primary' : 'ghost'}
-                  disabled={!providers.anthropic?.hasKey}
-                  style={{ fontSize: 12 }}
-                >Anthropic (Claude {providers.anthropic?.model?.includes('haiku') ? 'Haiku 4.5' : 'Sonnet'})</button>
-                <button
+                />
+                <Toggle
+                  active={providers.provider === 'grok'}
+                  label="Grok"
                   onClick={() => switchProvider('grok')}
-                  className={providers.provider === 'grok' ? 'primary' : 'ghost'}
-                  disabled={!providers.grok?.hasKey}
-                  style={{ fontSize: 12 }}
-                >Grok</button>
+                />
               </div>
-            </div>
+            </Subcard>
           )}
-        </div>
+
+          <Subcard
+            title="Autopilot AI"
+            badge="Separate key"
+            description="A dedicated Anthropic key used only by the autopilot loop and the auto-comment generator. Keeping autopilot spend on its own key makes billing reviews easy and keeps the composer key from being drained by background runs. If this key is not set, autopilot fails closed — it does NOT fall back to the main Anthropic key. The trainer below lets you customize the system prompt per job (SFW post, NSFW post, comment), either globally or per model.">
+            <AutopilotAIPanel token={token} />
+          </Subcard>
+        </Section>
       )}
 
-      {isAdmin && <AutopilotAIPanel token={token} />}
-
+      {/* ════════════════════════════════════ Infrastructure ════════ */}
       {isAdmin && (
-        <div className="card" style={{ marginBottom: 22, borderColor: hasApiKey ? 'var(--ok)' : 'var(--border)' }}>
-          <h3 style={{ marginBottom: 6 }}>Grok API key {hasApiKey && <span className="mono" style={{ fontSize: 11, color: 'var(--ok)', marginLeft: 8 }}>✓ configured</span>}</h3>
-          <div className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
-            Used by the AI composer, scheduler, and autopilot to generate post titles. Get a key at console.x.ai → API Keys. Stored encrypted on disk using your OS keychain.
-          </div>
-          {apiKeyMsg && (
-            <div className={apiKeyMsg.kind === 'err' ? 'error-banner' : ''} style={apiKeyMsg.kind === 'ok' ? styles.ok : {}}>
-              {apiKeyMsg.text}
-            </div>
-          )}
-          <form onSubmit={saveApiKey} style={{ display: 'flex', gap: 8 }}>
-            <input
-              type="password"
-              placeholder={hasApiKey ? '••••••••••••••••  (paste a new key to replace)' : 'xai-…'}
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              style={{ flex: 1 }}
-              autoComplete="off"
-            />
-            <button type="submit" className="primary">Save</button>
-            {hasApiKey && <button type="button" className="danger" onClick={clearApiKey}>Remove</button>}
-          </form>
-        </div>
+        <Section
+          title="Infrastructure"
+          subtitle="Shared pools every model can pull from. Schedules attach a boost to a post and a proxy to an account from these here."
+        >
+          <KeyCard
+            title="upvote.biz"
+            badge="Reddit upvotes"
+            configured={hasVoteKey}
+            description="Provides paid Reddit upvotes that the Scheduler can attach to a post when it goes live. Drip rate (fast / medium / slow) is configurable per post — slow looks more organic. Without a key the Scheduler still works but boost attachments are disabled."
+            placeholder="upvote.biz API key"
+            onSave={saveVote}
+            onClear={clearVote}
+          />
+
+          <ComingSoonProviders />
+
+          <Subcard
+            title="Proxy pool"
+            description="HTTP / HTTPS / SOCKS5 proxies that can be attached to a model (inherited by its accounts) or to one account. Each Oserus Browser launch routes that account's session through the configured proxy. Health is auto-tested every 30 minutes and the result feeds the PROXY ISSUE pill on the Dashboard.">
+            <ProxiesPanel />
+          </Subcard>
+        </Section>
       )}
 
-      {isAdmin && (
-        <div className="card" style={{ marginBottom: 22, padding: 0, overflow: 'hidden' }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', background: 'var(--bg-1)' }}>
-            <h3 style={{ margin: 0, fontSize: 15 }}>Infrastructure</h3>
-            <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-              Shared pools every Model can pull from — boost provider, then proxies.
-              Schedules attach a boost to a post and a proxy to an account from these here.
-            </div>
-          </div>
-
-          {/* Boost — generic provider list. upvote.biz is the only one wired
-              today but the section is laid out so future Reddit / X / IG /
-              TikTok providers slot in without restructuring the page. */}
-          <div style={{ padding: '16px 18px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-              <h4 style={{ margin: 0, fontSize: 13, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--gold-bright)' }}>
-                Boost
-              </h4>
-              <span className="dim" style={{ fontSize: 11 }}>Engagement providers schedules can attach to a post</span>
-            </div>
-
-            <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: hasVoteKey ? 'var(--green)' : 'var(--text-3)' }} />
-                <strong style={{ fontSize: 12 }}>upvote.biz</strong>
-                <span className="dim" style={{ fontSize: 11 }}>· Reddit upvotes</span>
-                {hasVoteKey && <span className="mono" style={{ fontSize: 10, color: 'var(--ok)', marginLeft: 'auto' }}>✓ configured</span>}
-              </div>
-              {voteKeyMsg && (
-                <div className={voteKeyMsg.kind === 'err' ? 'error-banner' : ''} style={voteKeyMsg.kind === 'ok' ? styles.ok : {}}>
-                  {voteKeyMsg.text}
+      {/* ═════════════════════════════════════════════ Account ═════ */}
+      <Section
+        title="Account"
+        subtitle="Your operator login and the per-account browser sessions Oserus Browser uses."
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+          <Subcard title="Change password">
+            <form onSubmit={changePassword}>
+              {pwMsg && (
+                <div className={pwMsg.kind === 'err' ? 'error-banner' : ''}
+                     style={pwMsg.kind === 'ok' ? styles.ok : { marginBottom: 12 }}>
+                  {pwMsg.text}
                 </div>
               )}
-              <form onSubmit={saveVoteKey} style={{ display: 'flex', gap: 8 }}>
-                <input
-                  type="password"
-                  placeholder={hasVoteKey ? '••••••••••••••••  (paste a new key to replace)' : 'upvote.biz API key'}
-                  value={voteKey}
-                  onChange={(e) => setVoteKey(e.target.value)}
-                  style={{ flex: 1 }}
-                  autoComplete="off"
-                />
-                <button type="submit" className="primary">Save</button>
-                {hasVoteKey && <button type="button" className="danger" onClick={clearVoteKey}>Remove</button>}
-              </form>
-            </div>
+              <div style={{ marginBottom: 12 }}>
+                <label>Current password</label>
+                <input type="password" value={pw.current}
+                       onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label>New password</label>
+                <input type="password" value={pw.next}
+                       onChange={(e) => setPw({ ...pw, next: e.target.value })} />
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label>Confirm new password</label>
+                <input type="password" value={pw.confirm}
+                       onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
+              </div>
+              <button type="submit" className="primary">Update password</button>
+            </form>
+          </Subcard>
 
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {[
-                { v: 'tiktok-views',    label: 'TikTok views',          color: '#25f4ee' },
-                { v: 'instagram-likes', label: 'Instagram likes',       color: '#e1306c' },
-                { v: 'x-engagement',    label: 'X engagement',          color: '#1d9bf0' },
-                { v: 'reddit-other',    label: 'Other Reddit provider', color: '#ff4500' },
-              ].map((p) => (
-                <button key={p.v} disabled title={`${p.label} — provider slot coming soon`} style={{
-                  background: 'var(--bg-1)', border: '1px dashed var(--border)',
-                  borderRadius: 999, padding: '4px 12px', fontSize: 11, fontWeight: 600,
-                  cursor: 'not-allowed', opacity: 0.55,
-                  display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--text-2)',
-                }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.color }} />
-                  + {p.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Proxy pool, embedded so it flows directly after the boost provider */}
-          <div style={{ padding: '16px 18px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--green)' }} />
-              <h4 style={{ margin: 0, fontSize: 13, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--gold-bright)' }}>
-                Proxy pool
-              </h4>
-            </div>
-            <div className="muted" style={{ fontSize: 12, marginBottom: 12 }}>
-              HTTP / HTTPS / SOCKS5 proxies attachable to a model (inherited by its accounts)
-              or to a single account. Health auto-tested every 30 min.
-            </div>
-            <ProxiesPanel />
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 22 }}>
-        <form onSubmit={changePassword} className="card">
-          <h3 style={{ marginBottom: 14 }}>Change password</h3>
-          {pwMsg && (
-            <div className={pwMsg.kind === 'err' ? 'error-banner' : ''} style={pwMsg.kind === 'ok' ? styles.ok : {}}>{pwMsg.text}</div>
-          )}
-          <div style={{ marginBottom: 12 }}>
-            <label>Current password</label>
-            <input type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <label>New password</label>
-            <input type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label>Confirm new password</label>
-            <input type="password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
-          </div>
-          <button type="submit" className="primary">Update password</button>
-        </form>
-
-        <div className="card">
-          <h3 style={{ marginBottom: 6 }}>Account sessions</h3>
-          <div className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
-            Each linked account uses its own isolated browser session. Clearing one logs it out without affecting others.
-          </div>
-          {accounts.length === 0 ? (
-            <div className="empty-state" style={{ padding: 22 }}>No accounts yet.</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {accounts.map((a) => (
-                <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13 }}>
-                      <span className="mono dim" style={{ fontSize: 10, marginRight: 6, padding: '1px 5px', background: 'var(--bg-2)', borderRadius: 3, textTransform: 'uppercase' }}>{a.platform || 'reddit'}</span>
-                      <span className="mono dim">{a.platform === 'redgifs' ? '@' : 'u/'}</span>{a.username}
+          <Subcard
+            title="Account sessions"
+            description="Each linked social account uses its own isolated browser session (cookies, storage, partition). Clearing one logs that account out without affecting the others.">
+            {accounts.length === 0 ? (
+              <div className="empty-state" style={{ padding: 16 }}>No accounts yet.</div>
+            ) : (
+              <div>
+                {accounts.map((a) => (
+                  <div key={a.id} style={sessionRow}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13 }}>
+                        <span style={platformChip}>{a.platform || 'reddit'}</span>
+                        <span className="mono dim">{a.platform === 'redgifs' ? '@' : 'u/'}</span>
+                        {a.username}
+                      </div>
+                      <div className="muted" style={{ fontSize: 11 }}>{a.profile_name}</div>
                     </div>
-                    <div className="muted" style={{ fontSize: 11 }}>{a.profile_name}</div>
+                    <button className="ghost" onClick={() => clearSession(a.partition_key)}>
+                      Clear
+                    </button>
                   </div>
-                  <button className="ghost" onClick={() => clearSession(a.partition_key)}>Clear</button>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </Subcard>
         </div>
-      </div>
-      </>}
+      </Section>
     </div>
   );
 }
 
-/* --- Post Scheduling Configuration tab --- */
-function SchedulingConfig({ token, navigate }) {
-  const [profiles, setProfiles] = useState([]);
-  const [templates, setTemplates] = useState([]);
-  const [accounts, setAccounts] = useState([]);
-  const [openId, setOpenId] = useState(null);
+// ──────────────────────────────────────────────────────────── helpers
 
-  async function load() {
-    const [p, t, a] = await Promise.all([
-      window.api.profiles.list({ token }),
-      window.api.templates.list({ token }).catch(() => ({ ok: false })),
-      window.api.accounts.listForUser({ token }),
-    ]);
-    if (p.ok) setProfiles(p.profiles || []);
-    if (t.ok) setTemplates(t.templates || []);
-    if (a.ok) setAccounts(a.accounts || []);
+function Section({ title, subtitle, children }) {
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <div style={{ marginBottom: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontFamily: 'var(--font-display)', fontWeight: 600 }}>
+          {title}
+        </h2>
+        {subtitle && (
+          <div className="muted" style={{ fontSize: 12, marginTop: 4, maxWidth: 760, lineHeight: 1.5 }}>
+            {subtitle}
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{children}</div>
+    </div>
+  );
+}
+
+// One reusable card for every API key in the app.
+function KeyCard({
+  title, description, placeholder,
+  recommended, badge,
+  configured,
+  onSave, onClear,
+}) {
+  const [value, setValue] = useState('');
+  const [busy,  setBusy]  = useState(false);
+  const [msg,   setMsg]   = useState(null);
+
+  useEffect(() => {
+    if (!msg) return;
+    const t = setTimeout(() => setMsg(null), 3500);
+    return () => clearTimeout(t);
+  }, [msg]);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!value.trim()) { setMsg({ kind: 'err', text: 'Paste a key first.' }); return; }
+    setBusy(true);
+    try {
+      await onSave(value.trim());
+      setValue('');
+      setMsg({ kind: 'ok', text: 'Key saved and encrypted.' });
+    } catch (err) {
+      setMsg({ kind: 'err', text: err.message || 'Save failed.' });
+    } finally { setBusy(false); }
   }
-  useEffect(() => { load(); }, []);
-
-  // Map account.id → profile.id for grouping templates by class.
-  const profileOfAccount = React.useMemo(() => {
-    const m = new Map();
-    for (const a of accounts) m.set(a.id, a.profile_id);
-    return m;
-  }, [accounts]);
-
-  // Group templates by the profile of their first account (templates carry
-  // accountIds, not profile_id directly; this is a sensible roll-up).
-  const byProfile = React.useMemo(() => {
-    const g = new Map();
-    for (const t of templates) {
-      const accId = (t.accountIds || [])[0];
-      const pid = profileOfAccount.get(accId) || 0;
-      if (!g.has(pid)) g.set(pid, []);
-      g.get(pid).push(t);
+  async function remove() {
+    if (!confirm(`Remove the saved ${title} key?`)) return;
+    try {
+      await onClear();
+      setMsg({ kind: 'ok', text: 'Key removed.' });
+    } catch (err) {
+      setMsg({ kind: 'err', text: err.message || 'Remove failed.' });
     }
-    return g;
-  }, [templates, profileOfAccount]);
-
-  async function del(id) {
-    if (!confirm('Delete this schedule template?')) return;
-    const r = await window.api.templates.delete({ token, id });
-    if (r.ok) load();
   }
 
   return (
-    <div>
-      <div className="card" style={{ padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{ flex: 1 }}>
-          <h3 style={{ marginTop: 0, marginBottom: 4 }}>Post Scheduling Configuration</h3>
-          <div className="muted" style={{ fontSize: 12 }}>
-            Schedule templates grouped by class (model). Click a class to expand its schedules.
-          </div>
-        </div>
-        {navigate && (
-          <button className="primary" onClick={() => navigate('scheduler-pro', { tab: 'run' })}>+ Create New Schedule</button>
-        )}
+    <div className="card" style={{ ...cardBase, borderColor: configured ? 'var(--ok)' : 'var(--border)' }}>
+      <div style={cardHeader}>
+        <h3 style={{ margin: 0, fontSize: 14 }}>{title}</h3>
+        {configured && <Pill tone="ok">✓ configured</Pill>}
+        {recommended && <Pill tone="rec">Recommended</Pill>}
+        {badge && <Pill tone="neutral">{badge}</Pill>}
       </div>
-
-      {profiles.length === 0 ? (
-        <div className="empty-state">No model profiles yet.</div>
-      ) : profiles.map((p) => {
-        const tps = byProfile.get(p.id) || [];
-        const open = openId === p.id;
-        return (
-          <div key={p.id} className="card" style={{ marginBottom: 12, padding: 0, overflow: 'hidden' }}>
-            <button
-              onClick={() => setOpenId(open ? null : p.id)}
-              style={{
-                width: '100%', textAlign: 'left', background: 'transparent', border: 'none',
-                padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer',
-              }}
-            >
-              <span style={{ width: 32, height: 32, borderRadius: '50%', display: 'grid', placeItems: 'center', background: p.avatar_color || 'var(--green-bright)', color: '#fff', fontWeight: 700 }}>
-                {(p.name || '?').charAt(0).toUpperCase()}
-              </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 700, color: 'var(--text-0)' }}>{p.name}</div>
-                <div className="muted" style={{ fontSize: 11 }}>{tps.length} schedule{tps.length === 1 ? '' : 's'}</div>
-              </div>
-              <span style={{ color: 'var(--text-3)', fontSize: 18 }}>{open ? '▾' : '▸'}</span>
-            </button>
-            {open && (
-              <div style={{ padding: '0 18px 14px 18px' }}>
-                {tps.length === 0 ? (
-                  <div className="muted" style={{ fontSize: 12, padding: 10 }}>No schedules for this class yet.</div>
-                ) : tps.map((t) => {
-                  const subs = t.subreddits || [];
-                  const shown = subs.slice(0, 3);
-                  const more = subs.length - shown.length;
-                  return (
-                    <div key={t.id} style={{
-                      border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
-                      padding: '10px 12px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10,
-                      background: 'var(--bg-1)',
-                    }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
-                          <span style={{ fontWeight: 600 }}>{t.name}</span>
-                          <span className="muted" style={{ fontSize: 11 }}>({subs.length} subreddit{subs.length === 1 ? '' : 's'})</span>
-                          {t.status === 'running' && <Tag tone="green">● running</Tag>}
-                        </div>
-                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          {shown.map((s) => <Tag key={s} tone="blue">r/{s}</Tag>)}
-                          {more > 0 && <Tag tone="neutral">+{more} more</Tag>}
-                        </div>
-                      </div>
-                      <button className="ghost" onClick={() => del(t.id)} style={{ fontSize: 11, padding: '4px 10px' }}>Delete</button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })}
+      <p style={cardDesc}>{description}</p>
+      {msg && (
+        <div className={msg.kind === 'err' ? 'error-banner' : ''}
+             style={msg.kind === 'ok' ? styles.ok : { marginBottom: 10 }}>
+          {msg.text}
+        </div>
+      )}
+      <form onSubmit={submit} style={{ display: 'flex', gap: 8 }}>
+        <input
+          type="password"
+          placeholder={configured ? '••••••••••••••••  (paste a new key to replace)' : placeholder}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          style={{ flex: 1 }}
+          autoComplete="off"
+        />
+        <button type="submit" className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+        {configured && (
+          <button type="button" className="danger" onClick={remove} disabled={busy}>Remove</button>
+        )}
+      </form>
     </div>
   );
 }
 
+// Card-shaped container for non-key UI (sub-feature inside a Section).
+function Subcard({ title, description, badge, children }) {
+  return (
+    <div className="card" style={cardBase}>
+      <div style={cardHeader}>
+        <h3 style={{ margin: 0, fontSize: 14 }}>{title}</h3>
+        {badge && <Pill tone="neutral">{badge}</Pill>}
+      </div>
+      {description && <p style={cardDesc}>{description}</p>}
+      {children}
+    </div>
+  );
+}
+
+function Pill({ tone, children }) {
+  const tones = {
+    ok:      { background: 'rgba(122,154,90,0.18)',  color: '#bdd5a3' },
+    rec:     { background: 'rgba(212,166,74,0.18)',  color: 'var(--gold-bright)' },
+    neutral: { background: 'rgba(255,255,255,0.06)', color: 'var(--text-2)' },
+  };
+  return (
+    <span style={{
+      ...tones[tone] || tones.neutral,
+      fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+      letterSpacing: '0.04em', padding: '2px 8px', borderRadius: 4,
+    }}>{children}</span>
+  );
+}
+
+function Toggle({ active, label, onClick, disabled }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={active ? 'primary' : 'ghost'}
+      style={{ fontSize: 12 }}
+    >{label}</button>
+  );
+}
+
+// Placeholder pills for future boost integrations. Disabled, with a
+// tooltip explaining what each provider type will cover. Kept here
+// (not deleted) so the seam stays visible — when an adapter lands,
+// it slots into this row without restructuring the page.
+function ComingSoonProviders() {
+  const slots = [
+    { v: 'tiktok-views',    label: 'TikTok views',          color: '#25f4ee' },
+    { v: 'instagram-likes', label: 'Instagram likes',       color: '#e1306c' },
+    { v: 'x-engagement',    label: 'X engagement',          color: '#1d9bf0' },
+    { v: 'reddit-other',    label: 'Other Reddit provider', color: '#ff4500' },
+  ];
+  return (
+    <div className="card" style={{ ...cardBase, background: 'transparent', borderStyle: 'dashed' }}>
+      <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+        Coming soon
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {slots.map((p) => (
+          <span key={p.v} title={`${p.label} — provider slot coming soon`} style={{
+            background: 'var(--bg-1)', border: '1px dashed var(--border)',
+            borderRadius: 999, padding: '4px 12px', fontSize: 11, fontWeight: 600,
+            color: 'var(--text-3)', display: 'inline-flex', alignItems: 'center', gap: 6,
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.color, opacity: 0.55 }} />
+            {p.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────── styles
+
+const cardBase = {
+  padding: 16,
+  borderRadius: 'var(--radius-lg)',
+};
+const cardHeader = {
+  display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
+};
+const cardDesc = {
+  margin: '0 0 12px',
+  fontSize: 12, color: 'var(--text-2)', lineHeight: 1.55,
+  maxWidth: 760,
+};
+const sessionRow = {
+  display: 'flex', alignItems: 'center', gap: 10,
+  padding: '10px 0', borderBottom: '1px solid var(--border)',
+};
+const platformChip = {
+  fontFamily: 'var(--font-mono)', fontSize: 10, marginRight: 6,
+  padding: '1px 5px', background: 'var(--bg-2)', borderRadius: 3,
+  textTransform: 'uppercase', color: 'var(--text-3)',
+};
 const styles = {
   ok: {
     background: 'rgba(122,154,90,0.12)',
