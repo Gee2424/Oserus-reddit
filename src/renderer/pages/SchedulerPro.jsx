@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
+import AccountSelector from '../components/AccountSelector.jsx';
 import { Banner } from '../components/ui.jsx';
 
 const PLATFORM_ICON = { reddit: '◈', redgifs: '▮', x: '𝕏', instagram: '◉', tiktok: '♪' };
@@ -33,47 +34,34 @@ function timeLabel(s) {
   } catch { return s; }
 }
 
-const PRO_TABS = [
-  { key: 'configure',    icon: '⚙', title: 'Configure Pro Schedules', desc: 'Create and manage schedule templates' },
-  { key: 'run',          icon: '▷', title: 'Run Pro Schedules',       desc: 'Select accounts and schedules, then start execution' },
-  { key: 'monitor',      icon: '◉', title: 'Monitor Pro Schedules',   desc: 'Watch status and logs of running schedules' },
-  { key: 'replenish',    icon: '⊕', title: 'Realtime Replenishment',  desc: 'Replace banned accounts with backups in realtime' },
-];
 
-export default function SchedulerProPage({ initialProTab, navigate }) {
+// ────────────────────────────────────────────────── Scheduler page
+//
+// Account-driven workflow. The operator picks Model → Platform →
+// Account at the top, and the composer + timeline + history kanban
+// below all filter to that account. No more 4-tab Configure / Run /
+// Monitor / Replenish flow — that was a wrapper around the same data.
+
+export default function SchedulerProPage() {
   const { token } = useAuth();
   const { accounts } = useActiveAccount();
 
-  // Basic mode was removed — there's just one Scheduler now. Keep the state
-  // around so legacy mode === 'advanced' checks below keep evaluating true
-  // without having to touch every reference.
-  const [mode, setMode] = useState('advanced');
-  useEffect(() => { localStorage.setItem('scheduler_mode', 'advanced'); }, []);
-  useEffect(() => { localStorage.setItem('scheduler_mode', mode); }, [mode]);
-  const [proTab, setProTab] = useState(initialProTab && PRO_TABS.some((t) => t.key === initialProTab) ? initialProTab : 'configure');
+  const [profiles, setProfiles] = useState([]);
+  const [sel, setSel] = useState({ profileId: null, platform: null, accountId: null });
   const [posts, setPosts] = useState([]);
-  const [filters, setFilters] = useState({ platform: '', profileId: '', accountId: '', status: '' });
-  const [viewMode, setViewMode] = useState(() => localStorage.getItem('sched.viewMode') || 'timeline');
-  useEffect(() => { localStorage.setItem('sched.viewMode', viewMode); }, [viewMode]);
   const [msg, setMsg] = useState(null);
   const [err, setErr] = useState(null);
-  const [dragOverDay, setDragOverDay] = useState(null); // YYYY-MM-DD highlighted as drop target
-  // Scheduler now lands directly on the merged composer + AI settings view.
-  // Configure/Run/Monitor/Replenish tiles still navigate from the row above.
-  // Composer + AI Settings are always-visible sections of the page now —
-  // no toggles. They live inline as one merged workspace.
+
+  useEffect(() => {
+    window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
+  }, [token]);
 
   const load = useCallback(async () => {
-    const res = await window.api.scheduled.list({
-      token,
-      platform: filters.platform || undefined,
-      profileId: filters.profileId || undefined,
-      accountId: filters.accountId || undefined,
-      status: filters.status || undefined,
-    });
+    if (!sel.accountId) { setPosts([]); return; }
+    const res = await window.api.scheduled.list({ token, accountId: sel.accountId });
     if (res.ok) setPosts(res.posts || []);
     else setErr(res.error);
-  }, [token, filters]);
+  }, [token, sel.accountId]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
@@ -82,111 +70,88 @@ export default function SchedulerProPage({ initialProTab, navigate }) {
   }, [load]);
   useEffect(() => {
     if (!msg && !err) return;
-    const t = setTimeout(() => { setMsg(null); setErr(null); }, 4500);
+    const t = setTimeout(() => { setMsg(null); setErr(null); }, 4000);
     return () => clearTimeout(t);
   }, [msg, err]);
 
-  // Build model + platform option lists from the accounts we can see.
-  const profiles = useMemo(() => {
-    const map = new Map();
-    for (const a of accounts) if (a.profile_id) map.set(a.profile_id, a.profile_name || `Model ${a.profile_id}`);
-    return [...map.entries()].map(([id, name]) => ({ id, name }));
-  }, [accounts]);
-  const platforms = useMemo(() => {
-    const set = new Set(accounts.map((a) => a.platform || 'reddit'));
-    return [...set];
-  }, [accounts]);
-
-  // Group posts by day for the timeline.
-  const grouped = useMemo(() => {
-    const g = {};
-    for (const p of posts) {
-      const k = (p.scheduled_for || '').slice(0, 10);
-      (g[k] = g[k] || []).push(p);
-    }
-    return Object.entries(g).sort(([a], [b]) => a.localeCompare(b));
-  }, [posts]);
-
-  const pendingConflicts = posts.filter((p) => p.status === 'pending' && p.conflicts?.length).length;
-
-  async function reschedule(id, dtLocal) {
-    const res = await window.api.scheduled.reschedule({ token, id, scheduledFor: toStored(dtLocal) });
-    if (res.ok) { setMsg('Rescheduled.'); load(); } else setErr(res.error);
-  }
-  async function rescheduleToDay(id, dayIso, originalStored) {
-    // Keep the original HH:MM:SS, change the date to dayIso (YYYY-MM-DD).
-    const hms = (originalStored || '').slice(11, 19) || '12:00:00';
-    const next = `${dayIso} ${hms}`;
-    const res = await window.api.scheduled.reschedule({ token, id, scheduledFor: next });
-    if (res.ok) { setMsg(`Moved to ${dayIso}.`); load(); } else setErr(res.error);
-  }
   async function cancel(id) {
-    const res = await window.api.scheduled.cancel({ token, id });
-    if (res.ok) { setMsg('Cancelled.'); load(); } else setErr(res.error);
+    const r = await window.api.scheduled.cancel({ token, id });
+    if (r.ok) { setMsg('Cancelled.'); load(); } else setErr(r.error);
   }
   async function del(id) {
     if (!confirm('Delete this scheduled post?')) return;
-    const res = await window.api.scheduled.delete({ token, id });
-    if (res.ok) { load(); } else setErr(res.error);
+    const r = await window.api.scheduled.delete({ token, id });
+    if (r.ok) load(); else setErr(r.error);
   }
+
+  // Composer needs the full account list narrowed by the selector. The
+  // existing Composer component already has its own platform pill row,
+  // but we hide it visually by pre-filtering accounts here.
+  const composerAccounts = useMemo(() => {
+    if (!sel.profileId) return accounts;
+    return accounts.filter((a) =>
+      a.profile_id === sel.profileId &&
+      (!sel.platform || (a.platform || 'reddit') === sel.platform)
+    );
+  }, [accounts, sel]);
+
+  const pendingConflicts = posts.filter((p) => p.status === 'pending' && p.conflicts?.length).length;
 
   return (
     <div>
       <div className="title-block">
         <div>
-          <div className="eyebrow">Workspace</div>
-          <h1>Scheduler Pro</h1>
+          <div className="eyebrow">Automation</div>
+          <h1>Scheduler</h1>
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Every scheduled post across all accounts and platforms in one timeline.
-            Due posts fire automatically while the app is open.
+            Schedule posts for a specific account. Due posts fire automatically while the app is open.
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ marginLeft: 'auto' }}>
           <PopOutButton route="scheduler-pro" title="Scheduler" />
         </div>
       </div>
 
+      <AccountSelector
+        profiles={profiles}
+        accounts={accounts}
+        value={sel}
+        onChange={setSel}
+        requireAccount={true}
+      />
+
       {err && <Banner kind="err">{err}</Banner>}
       {msg && <Banner kind="ok">{msg}</Banner>}
       {pendingConflicts > 0 && (
-        <div style={warnBanner}>⚠ {pendingConflicts} scheduled post{pendingConflicts > 1 ? 's' : ''} conflict with posting protocols.</div>
+        <div style={warnBanner}>
+          ⚠ {pendingConflicts} scheduled post{pendingConflicts > 1 ? 's' : ''} conflict with this account's posting protocol.
+        </div>
       )}
 
-      {/* Pro-tab selector cards (Advanced only) */}
-      {mode === 'advanced' && <div style={proTabRow}>
-        {PRO_TABS.map((t) => (
-          <button key={t.key} onClick={() => setProTab(t.key)}
-            style={{ ...proTabCard, ...(proTab === t.key ? proTabCardActive : {}) }}>
-            <span style={{ fontSize: 18, color: 'var(--gold)' }}>{t.icon}</span>
-            <div style={{ marginTop: 8, fontSize: 13, fontWeight: 600, color: 'var(--text-0)' }}>{t.title}</div>
-            <div style={{ marginTop: 2, fontSize: 11, color: 'var(--text-2)', lineHeight: 1.4 }}>{t.desc}</div>
-          </button>
-        ))}
-      </div>}
+      {!sel.accountId ? (
+        <div className="card" style={{ padding: 20, color: 'var(--text-3)', fontSize: 13 }}>
+          Pick a model, platform, and account to compose and view scheduled posts.
+        </div>
+      ) : (
+        <>
+          <Composer
+            token={token}
+            accounts={composerAccounts}
+            preselectAccountId={sel.accountId}
+            onDone={() => { load(); setMsg('Scheduled.'); }}
+            onError={setErr}
+          />
 
-      {mode === 'advanced' && proTab === 'run' && <RunProSchedules token={token} accounts={accounts} onMsg={setMsg} onError={setErr} />}
-      {mode === 'advanced' && proTab === 'monitor' && <MonitorProSchedules token={token} />}
-      {mode === 'advanced' && proTab === 'replenish' && <ReplenishProSchedules accounts={accounts} posts={posts} />}
+          <AISettings token={token} onMsg={setMsg} onError={setErr} />
 
-      {(mode === 'basic' || proTab === 'configure') ? <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0 10px' }}>
+            <h3 style={{ margin: 0, fontSize: 15 }}>Queue for this account</h3>
+            <button className="ghost" onClick={load}>↻ Refresh</button>
+          </div>
 
-      {/* Merged workspace: Composer + AI Settings always visible, no toggles. */}
-      <Composer
-          token={token}
-          accounts={accounts}
-          onDone={() => { load(); setMsg('Scheduled.'); }}
-          onError={setErr}
-        />
-
-      <AISettings token={token} onMsg={setMsg} onError={setErr} />
-
-      {/* Refresh control (filter row + Timeline view removed — Columns only) */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
-        <button className="ghost" onClick={load}>↻ Refresh</button>
-      </div>
-
-      <StatusColumns posts={posts} onCancel={cancel} onDelete={del} />
-      </> : null}
+          <StatusColumns posts={posts} onCancel={cancel} onDelete={del} />
+        </>
+      )}
     </div>
   );
 }
@@ -275,387 +240,6 @@ function StatusColumns({ posts, onCancel, onDelete }) {
 
 /* --------------------- Run / Monitor / Replenishment --------------------- */
 
-function RunProSchedules({ token, accounts, onMsg, onError }) {
-  const [templates, setTemplates] = useState([]);
-  const [showCreate, setShowCreate] = useState(false);
-  const [editing, setEditing] = useState(null); // template object or null
-  const [selected, setSelected] = useState(() => new Set());
-  const [search, setSearch] = useState('');
-  const [progress, setProgress] = useState(null); // { done, total, label }
-
-  const load = async () => {
-    const r = await window.api.templates.list({ token });
-    if (r.ok) setTemplates(r.templates || []);
-  };
-  useEffect(() => {
-    load();
-    const id = setInterval(load, 10000);
-    return () => clearInterval(id);
-    /* eslint-disable-next-line */
-  }, [token]);
-
-  const filtered = templates.filter((t) =>
-    !search.trim() || t.name.toLowerCase().includes(search.toLowerCase())
-  );
-  const running = templates.filter((t) => t.status === 'running' || t.pendingPosts > 0);
-  const idle = templates.filter((t) => t.status !== 'running' && t.pendingPosts === 0);
-
-  function toggle(id) {
-    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  }
-  function selectAll() { setSelected(new Set(filtered.map((t) => t.id))); }
-  function unselectAll() { setSelected(new Set()); }
-
-  async function startSelected() {
-    const ids = [...selected];
-    if (!ids.length) { onError('Select at least one template.'); return; }
-    setProgress({ done: 0, total: ids.length, label: 'Starting' });
-    let failed = 0;
-    for (let i = 0; i < ids.length; i++) {
-      const r = await window.api.templates.start({ token, id: ids[i] });
-      if (!r.ok) failed++;
-      setProgress({ done: i + 1, total: ids.length, label: 'Starting' });
-    }
-    setProgress(null);
-    onMsg(`Started ${ids.length - failed}/${ids.length} template${ids.length === 1 ? '' : 's'}.${failed ? ` ${failed} failed.` : ''}`);
-    load();
-  }
-  async function stopSelected() {
-    const ids = [...selected];
-    if (!ids.length) { onError('Select at least one template.'); return; }
-    setProgress({ done: 0, total: ids.length, label: 'Stopping' });
-    for (let i = 0; i < ids.length; i++) {
-      await window.api.templates.stop({ token, id: ids[i] });
-      setProgress({ done: i + 1, total: ids.length, label: 'Stopping' });
-    }
-    setProgress(null);
-    onMsg(`Stopped ${ids.length} template${ids.length === 1 ? '' : 's'}.`);
-    load();
-  }
-
-  async function start(id) {
-    const r = await window.api.templates.start({ token, id });
-    if (r.ok) { onMsg(`Started — ${r.created} posts queued.`); load(); } else onError(r.error);
-  }
-  async function stop(id) {
-    const r = await window.api.templates.stop({ token, id });
-    if (r.ok) { onMsg(`Stopped — ${r.cancelled} pending posts cancelled.`); load(); } else onError(r.error);
-  }
-  async function del(id) {
-    if (!confirm('Delete this template? Pending posts from it will be cancelled.')) return;
-    const r = await window.api.templates.delete({ token, id });
-    if (r.ok) { load(); } else onError(r.error);
-  }
-
-  return (
-    <div>
-      <SectionHeader title="Run Pro Schedules" desc="Click templates to select (multi-select supported), then run or stop them. State is shared across the app." />
-
-      {/* Batch action bar */}
-      <div className="card" style={{ padding: 12, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <input placeholder="Search templates…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 220 }} />
-        {search && <button className="ghost" onClick={() => setSearch('')} style={{ fontSize: 11, padding: '4px 8px' }}>✕</button>}
-        <button className="ghost" onClick={selectAll} disabled={!filtered.length}>Select all</button>
-        <button className="ghost" onClick={unselectAll} disabled={!selected.size}>Unselect all</button>
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-2)' }}>
-          {selected.size} of {filtered.length} selected
-        </span>
-        <button
-          onClick={startSelected}
-          disabled={!selected.size || !!progress}
-          style={{ background: 'var(--green)', borderColor: 'var(--green-bright)', color: '#fff', fontWeight: 600 }}
-        >▷ Start</button>
-        <button
-          onClick={stopSelected}
-          disabled={!selected.size || !!progress}
-          style={{ background: '#6e2c2c', borderColor: 'var(--danger)', color: '#fff', fontWeight: 600 }}
-        >■ Stop</button>
-        <button className="primary" onClick={() => setShowCreate((v) => !v)}>{showCreate ? 'Close' : '+ New Template'}</button>
-      </div>
-
-      {/* Progress bar when batching */}
-      {progress && (
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 6 }}>
-            {progress.label} {progress.total} template{progress.total === 1 ? '' : 's'}… {progress.done}/{progress.total}
-          </div>
-          <div style={{ height: 6, background: 'var(--bg-3)', borderRadius: 999, overflow: 'hidden' }}>
-            <div style={{
-              height: '100%', width: `${(progress.done / progress.total) * 100}%`,
-              background: 'linear-gradient(90deg, var(--green-bright), var(--gold))',
-              transition: 'width 0.25s',
-            }} />
-          </div>
-        </div>
-      )}
-
-      {/* Status pills */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: 'rgba(79,138,100,0.18)', color: '#7fd99a', fontSize: 11, fontWeight: 700 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#7fd99a', boxShadow: '0 0 6px #7fd99a' }} />
-          {running.length} running
-        </span>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.05)', color: 'var(--text-2)', fontSize: 11, fontWeight: 700 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--text-3)' }} />
-          {idle.length} idle
-        </span>
-      </div>
-
-      {showCreate && (
-        <TemplateForm token={token} accounts={accounts}
-          onDone={() => { setShowCreate(false); onMsg('Template saved.'); load(); }}
-          onError={onError} />
-      )}
-      {editing && (
-        <TemplateForm token={token} accounts={accounts} initial={editing}
-          onDone={() => { setEditing(null); onMsg('Template updated.'); load(); }}
-          onError={onError} />
-      )}
-      {filtered.length === 0 ? (
-        <div className="card" style={{ padding: 30, textAlign: 'center', color: 'var(--text-2)' }}>
-          {search ? `No templates match "${search}".` : 'No templates yet. Create one above to bundle accounts × subreddits × cadence.'}
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
-          {filtered.map((t) => {
-            const isRunning = t.status === 'running' || t.pendingPosts > 0;
-            const isSel = selected.has(t.id);
-            return (
-              <div key={t.id} onClick={() => toggle(t.id)} style={{
-                ...runCard,
-                borderColor: isSel ? 'var(--gold)' : (isRunning ? 'var(--green)' : 'var(--border)'),
-                boxShadow: isSel
-                  ? '0 0 0 1px var(--gold) inset, 0 0 14px -4px var(--gold-soft)'
-                  : (isRunning ? '0 0 12px -6px var(--green-glow)' : 'none'),
-                cursor: 'pointer',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: isRunning ? 'var(--green-bright)' : 'var(--text-3)', boxShadow: isRunning ? '0 0 8px var(--green-bright)' : 'none' }} />
-                  <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-0)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</span>
-                  <button onClick={(e) => { e.stopPropagation(); setEditing(t); }} className="ghost" title="Edit template" style={{ fontSize: 11, padding: '3px 8px' }}>✎</button>
-                  <button onClick={(e) => { e.stopPropagation(); del(t.id); }} className="ghost" title="Delete template" style={{ fontSize: 11, padding: '3px 8px' }}>✕</button>
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.6 }}>
-                  {t.accountIds.length} account{t.accountIds.length === 1 ? '' : 's'} · {t.subreddits.length} subreddit{t.subreddits.length === 1 ? '' : 's'}<br />
-                  Cadence {t.cadenceMinH}–{t.cadenceMaxH}h · {t.postsPerAccount}/account<br />
-                  Pending: <span style={{ color: t.pendingPosts > 0 ? 'var(--gold)' : 'var(--text-3)' }}>{t.pendingPosts}</span>
-                </div>
-                <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
-                  {isRunning
-                    ? <button onClick={(e) => { e.stopPropagation(); stop(t.id); }} className="danger" style={{ flex: 1 }}>Stop</button>
-                    : <button onClick={(e) => { e.stopPropagation(); start(t.id); }} className="primary" style={{ flex: 1 }}>▷ Start</button>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TemplateForm({ token, accounts, onDone, onError, initial }) {
-  const [name, setName] = useState(initial?.name || '');
-  const [subs, setSubs] = useState((initial?.subreddits || []).join('\n'));
-  const [accIds, setAccIds] = useState(initial?.accountIds || []);
-  const [minH, setMinH] = useState(initial?.cadenceMinH ?? 4);
-  const [maxH, setMaxH] = useState(initial?.cadenceMaxH ?? 8);
-  const [perAccount, setPerAccount] = useState(initial?.postsPerAccount ?? 3);
-  const [busy, setBusy] = useState(false);
-  const isEdit = !!initial;
-
-  function toggleAcc(id) {
-    setAccIds((cur) => cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]);
-  }
-  async function save() {
-    setBusy(true);
-    const payload = {
-      name, accountIds: accIds,
-      subreddits: subs.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
-      cadenceMinH: Number(minH), cadenceMaxH: Number(maxH),
-      postsPerAccount: Number(perAccount),
-    };
-    const r = isEdit
-      ? await window.api.templates.update({ token, id: initial.id, updates: payload })
-      : await window.api.templates.create({ token, ...payload });
-    setBusy(false);
-    if (r.ok) onDone(); else onError(r.error);
-  }
-
-  return (
-    <div className="card bordered-glow" style={{ padding: 18, marginBottom: 16 }}>
-      <h3 style={{ marginTop: 0, marginBottom: 14 }}>{isEdit ? `Edit Template — ${initial.name}` : 'New Template'}</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
-        <div>
-          <label>Name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mia · main run" />
-        </div>
-        <div>
-          <label>Posts per account</label>
-          <input type="number" min={1} value={perAccount} onChange={(e) => setPerAccount(e.target.value)} />
-        </div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 12 }}>
-        <div>
-          <label>Cadence min (hours)</label>
-          <input type="number" min={0.25} step={0.25} value={minH} onChange={(e) => setMinH(e.target.value)} />
-        </div>
-        <div>
-          <label>Cadence max (hours)</label>
-          <input type="number" min={0.5} step={0.25} value={maxH} onChange={(e) => setMaxH(e.target.value)} />
-        </div>
-      </div>
-      <div style={{ marginTop: 14 }}>
-        <label>Subreddits (one per line, no r/)</label>
-        <textarea value={subs} onChange={(e) => setSubs(e.target.value)} style={{ minHeight: 90, fontFamily: 'var(--font-mono)', fontSize: 13 }} placeholder={'gonewild\ntittydrop\nnsfw'} />
-      </div>
-      <div style={{ marginTop: 14 }}>
-        <label>Accounts {accIds.length > 0 && <span className="dim">({accIds.length} selected)</span>}</label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 130, overflowY: 'auto', marginTop: 6 }}>
-          {accounts.filter((a) => (a.platform || 'reddit') === 'reddit').map((a) => {
-            const on = accIds.includes(a.id);
-            return (
-              <button key={a.id} onClick={() => toggleAcc(a.id)} className={on ? 'primary' : 'ghost'} style={{ fontSize: 12, padding: '4px 10px' }}>
-                u/{a.username}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-        <button className="primary" onClick={save} disabled={busy || !name.trim()}>
-          {busy ? 'Saving…' : isEdit ? 'Save changes' : 'Save Template'}
-        </button>
-        {isEdit && <button className="ghost" onClick={() => onDone()} disabled={busy}>Cancel</button>}
-      </div>
-    </div>
-  );
-}
-
-function MonitorProSchedules({ token }) {
-  const [events, setEvents] = useState([]);
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      const r = await window.api.protocols.events({ token, limit: 100 });
-      if (!cancelled && r.ok) setEvents(r.events || []);
-    };
-    load();
-    const id = setInterval(load, 8000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [token]);
-
-  return (
-    <div>
-      <SectionHeader title="Monitor Pro Schedules" desc="Live console of every autopilot / scheduled post the app has handled. Refreshes every ~8s." />
-      <div style={consoleBox}>
-        {events.length === 0 && <div style={{ color: 'var(--text-3)' }}>No events yet.</div>}
-        {events.map((e) => (
-          <div key={e.id} style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
-            <span style={{ color: e.status === 'posted' ? '#7fd99a' : e.status === 'failed' ? '#e2a3a3' : 'var(--text-3)' }}>●</span>
-            <span className="mono" style={{ color: 'var(--text-3)' }}>{(e.created_at || '').replace(' ', ' ')}</span>
-            <span className="mono" style={{ color: 'var(--text-2)' }}>{e.source}</span>
-            <span style={{ color: 'var(--gold)' }}>r/{e.subreddit || '—'}</span>
-            <span style={{ color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{e.title || e.error || '—'}</span>
-            <span style={{ color: 'var(--text-3)' }}>u/{e.account_username || e.account_id}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ReplenishProSchedules({ accounts, posts }) {
-  const pendingByAccount = new Set(posts.filter((p) => p.status === 'pending').map((p) => p.account_id));
-  const operating = accounts.filter((a) => pendingByAccount.has(a.id) && a.status !== 'banned');
-  const banned = accounts.filter((a) => a.status === 'banned');
-  const backup = accounts.filter((a) => a.status === 'warming' && !pendingByAccount.has(a.id));
-
-  return (
-    <div>
-      <SectionHeader title="Realtime Replenishment" desc="Spot banned accounts in your schedules and swap in warming/backup accounts." />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        <ReplenishCol title={`Operating · ${operating.length}`} accounts={operating} statusLabel="LIVE" statusFg="#7fd99a" />
-        <ReplenishCol title={`Banned · ${banned.length}`} accounts={banned} statusLabel="BANNED" statusFg="#e2a3a3" />
-      </div>
-      <div style={{ marginTop: 14 }}>
-        <ReplenishCol title={`Backup pool (warming) · ${backup.length}`} accounts={backup} statusLabel="WARMING" statusFg="var(--gold)" />
-      </div>
-    </div>
-  );
-}
-
-function ReplenishCol({ title, accounts, statusLabel, statusFg }) {
-  return (
-    <div className="card" style={{ padding: 14 }}>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 10 }}>{title}</div>
-      {accounts.length === 0
-        ? <div style={{ color: 'var(--text-3)', fontSize: 12 }}>None.</div>
-        : accounts.map((a) => (
-          <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderTop: '1px solid var(--border)' }}>
-            <span style={{ fontSize: 13 }}>u/{a.username}</span>
-            <span style={{ marginLeft: 'auto', fontSize: 10, color: statusFg, fontWeight: 700, letterSpacing: '0.05em' }}>{statusLabel}</span>
-          </div>
-        ))}
-    </div>
-  );
-}
-
-function SectionHeader({ title, desc }) {
-  return (
-    <div className="card" style={{ padding: '14px 18px', marginBottom: 14, background: 'linear-gradient(135deg, rgba(58,111,140,0.10), transparent)' }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-0)' }}>{title}</div>
-      {desc && <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>{desc}</div>}
-    </div>
-  );
-}
-
-const proTabRow = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginBottom: 18 };
-const proTabCard = {
-  background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
-  padding: 14, textAlign: 'left', cursor: 'pointer', display: 'flex', flexDirection: 'column',
-};
-const proTabCardActive = {
-  borderColor: 'var(--blue)',
-  background: 'linear-gradient(135deg, rgba(58,111,140,0.16), rgba(212,166,74,0.06))',
-  boxShadow: 'inset 0 0 0 1px var(--blue)',
-};
-const runCard = {
-  background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
-  padding: 12, boxShadow: '0 0 12px -8px var(--green-glow)',
-};
-const consoleBox = {
-  background: '#0a0a0a', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
-  padding: 14, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-1)',
-  maxHeight: '60vh', overflowY: 'auto',
-};
-
-function Toggle({ label, value, onChange }) {
-  return (
-    <button
-      onClick={() => onChange(!value)}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
-        background: 'transparent', border: '1px solid var(--border)', borderRadius: 8,
-        color: 'var(--text-1)', cursor: 'pointer', textAlign: 'left',
-      }}
-    >
-      <span style={{
-        width: 32, height: 18, borderRadius: 999, position: 'relative', flexShrink: 0,
-        background: value ? 'var(--blue)' : 'var(--bg-3)',
-        border: '1px solid ' + (value ? 'var(--blue-bright)' : 'var(--border-strong)'),
-        transition: 'background 0.15s, border-color 0.15s',
-      }}>
-        <span style={{
-          position: 'absolute', top: 1, left: value ? 14 : 1,
-          width: 14, height: 14, borderRadius: '50%', background: '#fff',
-          transition: 'left 0.15s',
-        }} />
-      </span>
-      <span style={{ fontSize: 12 }}>{label}</span>
-    </button>
-  );
-}
 
 function AISettings({ token, onMsg, onError }) {
   const [cfg, setCfg] = useState({
@@ -875,10 +459,25 @@ function AISettings({ token, onMsg, onError }) {
   );
 }
 
-function Composer({ token, accounts, onDone, onError }) {
-  const [platform, setPlatform] = useState('reddit');
+function Composer({ token, accounts, onDone, onError, preselectAccountId }) {
+  // When the page passes a pre-selected account, snap to its platform
+  // and seed targets so the composer drops the operator straight into
+  // the form for that account.
+  const preselectedAccount = preselectAccountId
+    ? accounts.find((a) => a.id === preselectAccountId)
+    : null;
+  const [platform, setPlatform] = useState(preselectedAccount?.platform || 'reddit');
   const [form, setForm] = useState({ subreddit: '', title: '', body: '', kind: 'self', url: '', when: '' });
-  const [targets, setTargets] = useState([]); // account ids for "send to all"
+  const [targets, setTargets] = useState(preselectAccountId ? [preselectAccountId] : []);
+
+  // Resync when the page swaps which account is selected.
+  useEffect(() => {
+    if (!preselectAccountId) return;
+    const acc = accounts.find((a) => a.id === preselectAccountId);
+    if (acc) setPlatform(acc.platform || 'reddit');
+    setTargets([preselectAccountId]);
+  }, [preselectAccountId, accounts]);
+
   // Accounts visible in the picker are filtered to the selected platform.
   const platformAccounts = useMemo(() => accounts.filter((a) => (a.platform || 'reddit') === platform), [accounts, platform]);
   const [conflicts, setConflicts] = useState([]);
