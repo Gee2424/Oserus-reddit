@@ -1,103 +1,104 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
-import { useActiveAccount } from '../lib/activeAccount.jsx';
-import { Banner, Tag } from '../components/ui.jsx';
+import { Banner } from '../components/ui.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
+import AccountSelector from '../components/AccountSelector.jsx';
 
-const INNER_TABS = [
-  { k: 'requirements', l: 'Requirements',  d: 'Karma/age gates & rules' },
-  { k: 'compat',       l: 'Compatibility', d: 'Which subs qualify for an account' },
-  // Scraper + Research + Plan rolled into one workflow: scrape posts/users/
-  // mods/flairs, analyze them for trending words + posting times, then
-  // synthesize the plan with Grok. All in one tab so you can flow.
-  { k: 'discover',     l: 'Discover',      d: 'Scraper · Research · Plan in one workflow' },
-];
+// Intelligence.
+//
+// Account-driven research workspace. The operator picks Model →
+// Platform → Account at the top; everything below adapts to that
+// selection's native terminology and runs the right backend.
+//
+//   • Reddit         — Discover, Requirements scrape, Compatibility check
+//   • X / IG / TikTok — Discover (browser-driven DOM scrape via
+//                       services/discover.js), with platform-native
+//                       labels (handle / hashtag / sound / reel / etc.)
+//
+// What was removed (dead duplicates from older rewrites)
+//   • ScraperPanel, ResearchPanel, PlanPanel — defined but never
+//     rendered (3 redundant copies of the same scrape→analyze→plan
+//     flow that UnifiedDiscoverPanel already covered).
+//   • AccountSelect, ExportRow, PostsResult, UserResult, ModsResult,
+//     FlairsResult, StatCard — only consumed by those dead panels.
+//
+// What was fixed
+//   • Account list is now per-platform. The old page filtered to
+//     `forPlatform('reddit')` once at the top, so picking X still
+//     left a Reddit account in the dropdown — and the X scraper
+//     would silently use the wrong session. Now the AccountSelector
+//     swaps the account list to the chosen platform.
 
-function fmt(n) { return n == null ? '—' : n.toLocaleString(); }
+const PLATFORM_LANG = {
+  reddit: {
+    target:        { label: 'Subreddit',     placeholder: 'e.g. fitness, r/fitness, or full URL' },
+    query:         { label: 'Search keywords (optional)', placeholder: 'e.g. espresso' },
+    targetEmpty:   'Enter a subreddit.',
+    runLabel:      'Scrape · Analyze · Plan',
+    resultUnit:    'posts',
+    targetPrefix:  'r/',
+    supportsSort:  true,
+  },
+  x: {
+    target:        { label: 'Handle or topic', placeholder: '#fitness or @handle' },
+    query:         { label: 'Optional extra keyword', placeholder: 'e.g. running' },
+    targetEmpty:   'Enter a hashtag or @handle.',
+    runLabel:      'Scrape posts · Analyze · Plan',
+    resultUnit:    'posts',
+    targetPrefix:  '',
+    supportsSort:  false,
+  },
+  instagram: {
+    target:        { label: 'Hashtag or @handle', placeholder: '#cosplay or @handle' },
+    query:         { label: 'Optional extra keyword', placeholder: 'e.g. studio' },
+    targetEmpty:   'Enter a hashtag or @handle.',
+    runLabel:      'Scrape reels · Analyze · Plan',
+    resultUnit:    'reels',
+    targetPrefix:  '',
+    supportsSort:  false,
+  },
+  tiktok: {
+    target:        { label: 'Hashtag, sound, or @handle', placeholder: '#fyp, sound, or @handle' },
+    query:         { label: 'Optional extra keyword', placeholder: 'e.g. dance' },
+    targetEmpty:   'Enter a hashtag, sound, or @handle.',
+    runLabel:      'Scrape videos · Analyze · Plan',
+    resultUnit:    'videos',
+    targetPrefix:  '',
+    supportsSort:  false,
+  },
+  redgifs: {
+    target:        { label: 'Tag',           placeholder: 'e.g. cosplay' },
+    query:         { label: 'Optional extra keyword', placeholder: '' },
+    targetEmpty:   'Enter a tag.',
+    runLabel:      'Scrape clips · Analyze · Plan',
+    resultUnit:    'clips',
+    targetPrefix:  '',
+    supportsSort:  false,
+  },
+};
 
-// Best-effort gender filter — Reddit doesn't expose this, but a huge chunk of
-// NSFW/dating subs encode it as flair text or title brackets ([F], (M), F22,
-// etc). We scan flair_text + title + link_flair_text + author_flair_text and
-// fall back to whole-word female/male/woman/man matches.
-function filterByGender(posts, gender) {
-  if (gender === 'all' || !gender) return posts;
-  const female = /\b(?:\[?F\]?|\(F\)|female|woman|girl|gal|girls?|gw|wife|her)\b|\bF\d{2}/i;
-  const male   = /\b(?:\[?M\]?|\(M\)|male|man|guy|dude|boyfriend|husband|him)\b|\bM\d{2}/i;
-  const re = gender === 'female' ? female : male;
-  return posts.filter((p) => {
-    const hay = `${p.title || ''} ${p.flair_text || ''} ${p.link_flair_text || ''} ${p.author_flair_text || ''}`;
-    return re.test(hay);
-  });
-}
-function ago(unixSec) {
-  if (!unixSec) return '';
-  const s = Math.floor(Date.now() / 1000 - unixSec);
-  if (s < 3600) return `${Math.floor(s/60)}m`;
-  if (s < 86400) return `${Math.floor(s/3600)}h`;
-  return `${Math.floor(s/86400)}d`;
-}
-function downloadFile(name, data, mime) {
-  const blob = new Blob([data], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = name; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-function toCSV(rows) {
-  if (!rows.length) return '';
-  const keys = Object.keys(rows[0]);
-  const esc = (v) => {
-    if (v == null) return '';
-    const s = String(v).replace(/"/g, '""');
-    return /[",\n]/.test(s) ? `"${s}"` : s;
-  };
-  return [keys.join(','), ...rows.map((r) => keys.map((k) => esc(r[k])).join(','))].join('\n');
-}
-
-export default function IntelligencePage({ initialTab }) {
+export default function IntelligencePage() {
   const { token } = useAuth();
-  const { forPlatform } = useActiveAccount();
-  const { accounts } = forPlatform('reddit');
 
-  const [accountId, setAccountId] = useState('');
-  const [subs, setSubs] = useState('');
-  const [rows, setRows] = useState([]);
-  const [busy, setBusy] = useState(false);
+  const [profiles, setProfiles] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [sel, setSel] = useState({ profileId: null, platform: 'reddit', accountId: null });
   const [msg, setMsg] = useState(null);
   const [err, setErr] = useState(null);
-  const [fetchKarma, setFetchKarma] = useState(true);
-  const [fetchOther, setFetchOther] = useState(true);
-  const [tab, setTab] = useState(initialTab && INNER_TABS.some((t) => t.k === initialTab) ? initialTab : 'requirements');
 
-  const load = useCallback(async () => {
-    const res = await window.api.intel.list({ token });
-    if (res.ok) setRows(res.subs || []);
+  useEffect(() => {
+    window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
+    window.api.accounts.listForUser({ token }).then((r) => { if (r.ok) setAccounts(r.accounts || []); });
   }, [token]);
-  useEffect(() => { load(); }, [load]);
+
   useEffect(() => {
     if (!msg && !err) return;
     const t = setTimeout(() => { setMsg(null); setErr(null); }, 5000);
     return () => clearTimeout(t);
   }, [msg, err]);
 
-  async function run() {
-    if (!accountId) { setErr('Pick a scraper account first.'); return; }
-    if (!subs.trim()) { setErr('Enter at least one subreddit.'); return; }
-    setBusy(true); setErr(null);
-    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
-    const res = await window.api.intel.fetch({ token, accountId: Number(accountId), subreddits: subs });
-    setBusy(false);
-    if (res.ok) {
-      setMsg(`Fetched ${res.fetched} subreddit(s).${res.errors?.length ? ` ${res.errors.length} failed.` : ''}`);
-      if (res.errors?.length) setErr(res.errors.join(' · '));
-      load();
-    } else setErr(res.error);
-  }
-
-  async function del(name) {
-    await window.api.intel.delete({ token, name });
-    load();
-  }
+  const platform = sel.platform || 'reddit';
+  const lang = PLATFORM_LANG[platform] || PLATFORM_LANG.reddit;
 
   return (
     <div>
@@ -106,144 +107,391 @@ export default function IntelligencePage({ initialTab }) {
           <div className="eyebrow">Research</div>
           <h1>Intelligence</h1>
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Scrape subreddit requirements (subscribers, karma/age gates, rules) using a logged-in account.
+            Scrape, analyze, and plan content using a logged-in account. The platform you pick
+            decides which session is used and what to call things.
           </div>
         </div>
         <div style={{ marginLeft: 'auto' }}><PopOutButton route="intel" title="Intelligence" /></div>
       </div>
 
-      <div style={{ background: 'rgba(60,110,180,0.10)', border: '1px solid #2c4a6e', borderRadius: 'var(--radius-lg)', padding: '10px 14px', marginBottom: 18, fontSize: 13, color: '#9fc0ea' }}>
-        ⓘ Beta: karma/age gates depend on what each subreddit exposes — some hide them, so those columns may be blank.
-      </div>
+      <AccountSelector
+        profiles={profiles}
+        accounts={accounts}
+        value={sel}
+        onChange={setSel}
+        requireAccount={false}
+      />
 
       {err && <Banner kind="err">{err}</Banner>}
       {msg && <Banner kind="ok">{msg}</Banner>}
 
-      {/* Inner tabs: Requirements (existing) · Scraper (new) · Research (new) */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
-        {INNER_TABS.map((t) => (
-          <button
-            key={t.k}
-            onClick={() => setTab(t.k)}
-            title={t.d}
-            style={{
-              background: 'transparent', border: 'none',
-              borderBottom: '2px solid ' + (tab === t.k ? 'var(--gold)' : 'transparent'),
-              color: tab === t.k ? 'var(--gold-bright)' : 'var(--text-2)',
-              padding: '10px 16px', fontSize: 13, fontWeight: 600,
-              cursor: 'pointer', marginBottom: -1,
-            }}
-          >{t.l}</button>
-        ))}
-      </div>
-
-      {tab === 'compat' && (
-        <CompatibilityPanel token={token} accountId={accountId} accounts={accounts} onAccount={setAccountId} />
-      )}
-      {tab === 'discover' && (
-        <UnifiedDiscoverPanel
-          token={token} accountId={accountId} accounts={accounts}
-          onAccount={setAccountId} onMsg={setMsg} onError={setErr}
-        />
-      )}
-
-      {tab === 'requirements' && (<>
-      <div className="card" style={{ marginBottom: 22, padding: 18 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
-          <div>
-            <label>Scraper account</label>
-            <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-              <option value="">— select an account —</option>
-              {accounts.map((a) => <option key={a.id} value={a.id}>u/{a.username} · {a.profile_name}</option>)}
-            </select>
-            <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-              The logged-in account used to fetch the data.
-            </div>
-          </div>
-          <div>
-            <label>Subreddits (one per line)</label>
-            <textarea
-              value={subs}
-              onChange={(e) => setSubs(e.target.value)}
-              placeholder={'tittydrop\ngonewild\nnsfw'}
-              style={{ minHeight: 120, fontFamily: 'var(--font-mono)', fontSize: 13 }}
-            />
-            <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
-              Enter subreddit names (without r/), one per line.
-            </div>
-          </div>
+      {!sel.accountId ? (
+        <div className="card" style={{ padding: 20, color: 'var(--text-3)', fontSize: 13 }}>
+          Pick a model and platform above, then an account on that platform. Scraping uses that
+          account's logged-in session so the platform serves real data (not the visitor wall).
         </div>
+      ) : (
+        <>
+          <DiscoverPanel
+            token={token}
+            accountId={sel.accountId}
+            profileId={sel.profileId}
+            platform={platform}
+            lang={lang}
+            onMsg={setMsg}
+            onError={setErr}
+          />
 
-        <div style={{ marginTop: 18 }}>
-          <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Fetch Options</div>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: 13, color: 'var(--text-1)', fontWeight: 400 }}>
-            <input type="checkbox" checked={fetchKarma} onChange={(e) => setFetchKarma(e.target.checked)} style={{ width: 'auto' }} />
-            Fetch Karma Requirements
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', cursor: 'pointer', textTransform: 'none', letterSpacing: 0, fontSize: 13, color: 'var(--text-1)', fontWeight: 400 }}>
-            <input type="checkbox" checked={fetchOther} onChange={(e) => setFetchOther(e.target.checked)} style={{ width: 'auto' }} />
-            Fetch other Post Requirements
-          </label>
-        </div>
-
-        <button onClick={run} disabled={busy} style={{
-          marginTop: 18, width: '100%', padding: '14px 18px', borderRadius: 'var(--radius-lg)',
-          border: 'none', cursor: busy ? 'not-allowed' : 'pointer',
-          background: busy ? 'var(--bg-3)' : 'linear-gradient(90deg, #3a6f8c 0%, #6a4fc4 100%)',
-          color: '#fff', fontWeight: 700, fontSize: 14, letterSpacing: '0.02em',
-          boxShadow: busy ? 'none' : '0 4px 18px -6px rgba(106,79,196,0.6)',
-        }}>
-          {busy ? 'Fetching…' : 'Start Intelligence Fetch'}
-        </button>
-      </div>
-
-      {rows.length > 0 && (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: 'var(--bg-2)' }}>
-                  <th style={th}>Subreddit</th>
-                  <th style={{ ...th, textAlign: 'right' }}>Subscribers</th>
-                  <th style={th}>NSFW</th>
-                  <th style={th}>Type</th>
-                  <th style={{ ...th, textAlign: 'right' }}>Min age</th>
-                  <th style={{ ...th, textAlign: 'right' }}>Min post k</th>
-                  <th style={{ ...th, textAlign: 'right' }}>Min cmt k</th>
-                  <th style={th}>Rules</th>
-                  <th style={th}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.name} style={{ borderTop: '1px solid var(--border)' }}>
-                    <td style={td}><span style={{ color: 'var(--gold)' }}>r/{r.name}</span></td>
-                    <td style={{ ...td, textAlign: 'right' }} className="mono">{r.subscribers != null ? r.subscribers.toLocaleString() : '—'}</td>
-                    <td style={td}>{r.over18 ? <span style={{ color: '#d9a3d9' }}>NSFW</span> : <span className="dim">SFW</span>}</td>
-                    <td style={td} className="mono" >{r.submission_type || 'any'}</td>
-                    <td style={{ ...td, textAlign: 'right' }} className="mono">{r.min_account_age_days ?? '—'}</td>
-                    <td style={{ ...td, textAlign: 'right' }} className="mono">{r.min_post_karma ?? '—'}</td>
-                    <td style={{ ...td, textAlign: 'right' }} className="mono">{r.min_comment_karma ?? '—'}</td>
-                    <td style={td}>{r.rules?.length ? <span className="dim">{r.rules.length} rule{r.rules.length > 1 ? 's' : ''}</span> : <span className="dim">—</span>}</td>
-                    <td style={{ ...td, textAlign: 'right' }}><button className="ghost" onClick={() => del(r.name)} style={{ fontSize: 11, padding: '3px 8px' }}>✕</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+          {platform === 'reddit' && (
+            <>
+              <RequirementsPanel
+                token={token}
+                accountId={sel.accountId}
+                onMsg={setMsg}
+                onError={setErr}
+              />
+              <CompatibilityPanel token={token} accountId={sel.accountId} accounts={accounts} />
+            </>
+          )}
+        </>
       )}
-      </>)}
     </div>
   );
 }
 
-/* --------------------- COMPATIBILITY (account × intel) ------------------ */
-function CompatibilityPanel({ token, accountId, accounts, onAccount }) {
+// ─────────────────────────────────────────────────── Discover (per platform)
+
+function DiscoverPanel({ token, accountId, profileId, platform, lang, onMsg, onError }) {
+  const [target, setTarget] = useState('');
+  const [query,  setQuery]  = useState('');
+  // Reddit-only.
+  const [sort,    setSort]    = useState('hot');
+  const [tWindow, setTWindow] = useState('week');
+  const [limit,   setLimit]   = useState(50);
+
+  const [savePlanProfileId, setSavePlanProfileId] = useState('');
+  const [profiles, setProfiles] = useState([]);
+  useEffect(() => {
+    window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
+  }, [token]);
+  // If a model is already picked upstream, default the save-target to it.
+  useEffect(() => {
+    if (profileId) setSavePlanProfileId(String(profileId));
+  }, [profileId]);
+
+  // Reset form when platform / account changes — keeps the wrong-terminology
+  // text from a previous platform out of view.
+  useEffect(() => {
+    setTarget(''); setQuery(''); setPosts([]); setAnalysis(null); setPlan(null);
+  }, [platform, accountId]);
+
+  const [posts, setPosts]       = useState([]);
+  const [analysis, setAnalysis] = useState(null);
+  const [plan, setPlan]         = useState(null);
+  const [stage, setStage]       = useState('idle');   // idle | scraping | analyzing | planning
+  const [busy, setBusy]         = useState(false);
+
+  async function run() {
+    if (!target.trim()) { onError(lang.targetEmpty); return; }
+    setBusy(true); setPosts([]); setAnalysis(null); setPlan(null);
+    try {
+      // 1) Scrape
+      setStage('scraping');
+      // Make sure the partition is fresh — proxy / UA / antidetect get
+      // re-applied before the scrape opens a network connection.
+      await window.api.session.prepareForAccount({ accountId: Number(accountId) });
+      let r;
+      if (platform === 'reddit') {
+        r = await window.api.intel.scrapePosts({
+          token, accountId: Number(accountId),
+          subreddit: target, sort, t: tWindow,
+          limit: Number(limit) || 50,
+          query: query.trim() || undefined,
+        });
+      } else {
+        // X / IG / TikTok all share the discover.js browser scraper. We
+        // hand it whichever combined search term the operator typed.
+        const keyword = [target, query].map((s) => s.trim()).filter(Boolean).join(' ').trim();
+        r = await window.api.intel.discoverScrape({
+          token, accountId: Number(accountId), platform, keyword,
+        });
+      }
+      if (!r.ok) { onError(r.error || 'Scrape failed'); return; }
+      const fetched = r.posts || [];
+      setPosts(fetched);
+      if (!fetched.length) {
+        onMsg(platform === 'reddit'
+          ? 'No posts came back from that subreddit.'
+          : `No ${lang.resultUnit} surfaced. Either the page didn't load (try again — sessions cold-start slow) or ${platform} changed its DOM.`);
+        return;
+      }
+
+      // 2) Analyze (trend words + best post-hour)
+      setStage('analyzing');
+      const an = await window.api.intel.analyze({ token, posts: fetched });
+      if (an.ok) setAnalysis(an);
+
+      // 3) Plan via AI
+      setStage('planning');
+      const findings = fetched.slice(0, 12).map((p) => ({
+        subreddit: p.subreddit || (platform === 'reddit' ? target : platform),
+        title: p.title, ups: p.score, num_comments: p.num_comments,
+      }));
+      const pl = await window.api.intel.synthesizePlan({
+        token,
+        profileId: savePlanProfileId ? Number(savePlanProfileId) : null,
+        findings,
+        save: !!savePlanProfileId,
+      });
+      if (pl.ok) setPlan(pl);
+      else onError(pl.error || 'Plan synthesis failed');
+    } catch (e) {
+      onError(e.message);
+    } finally {
+      setStage('idle'); setBusy(false);
+    }
+  }
+
+  const stageLabel = {
+    idle:      lang.runLabel,
+    scraping:  `Scraping ${lang.resultUnit}…`,
+    analyzing: 'Analyzing trends…',
+    planning:  'Synthesizing plan with AI…',
+  }[stage];
+
+  return (
+    <div className="card" style={{ padding: 18, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 15 }}>Discover</h3>
+        <span className="muted" style={{ fontSize: 12 }}>
+          scrape → trend analysis → AI content plan
+        </span>
+      </div>
+
+      {platform !== 'reddit' && (
+        <div style={infoNote}>
+          ⓘ {platform} discover opens a hidden browser on this account's session, lands on the
+          {platform === 'tiktok' ? ' hashtag or @handle' : platform === 'instagram' ? ' tag or profile' : ' search'}
+          {' '}page, scrolls, and scrapes the visible cards. Selectors are best-effort — if
+          results come back empty repeatedly, {platform} likely changed its DOM.
+        </div>
+      )}
+
+      {/* Top row: target + optional save-to-model */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+        <div>
+          <label>{lang.target.label}</label>
+          <input
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+            placeholder={lang.target.placeholder}
+          />
+        </div>
+        <div>
+          <label>Save plan to model (optional)</label>
+          <select value={savePlanProfileId} onChange={(e) => setSavePlanProfileId(e.target.value)}>
+            <option value="">— don't save (preview only) —</option>
+            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Second row: per-platform fields */}
+      {platform === 'reddit' ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', gap: 10 }}>
+          <div>
+            <label>{lang.query.label}</label>
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={lang.query.placeholder} />
+          </div>
+          <div>
+            <label>Sort</label>
+            <select value={sort} onChange={(e) => setSort(e.target.value)}>
+              <option>hot</option><option>top</option><option>rising</option><option>new</option>
+            </select>
+          </div>
+          <div>
+            <label>Window</label>
+            <select value={tWindow} onChange={(e) => setTWindow(e.target.value)} disabled={sort !== 'top'}>
+              <option>hour</option><option>day</option><option>week</option><option>month</option><option>year</option><option>all</option>
+            </select>
+          </div>
+          <div>
+            <label>Limit</label>
+            <input type="number" min={5} max={100} value={limit} onChange={(e) => setLimit(e.target.value)} />
+          </div>
+        </div>
+      ) : (
+        <div>
+          <label>{lang.query.label}</label>
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={lang.query.placeholder} />
+        </div>
+      )}
+
+      <button
+        onClick={run}
+        disabled={busy}
+        className="primary"
+        style={{
+          width: '100%', padding: '12px 18px', marginTop: 14,
+          background: busy ? 'var(--bg-1)' : 'linear-gradient(90deg, #3a6f8c, #6a4fc4)',
+        }}
+      >
+        {busy ? <><Spinner /> {stageLabel}</> : `→ ${stageLabel}`}
+      </button>
+
+      {posts.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div style={subhead}>{lang.resultUnit[0].toUpperCase() + lang.resultUnit.slice(1)} · {posts.length}</div>
+          <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {posts.slice(0, 60).map((p) => (
+              <a key={p.id || p.url || p.title} href={p.url} target="_blank" rel="noreferrer" style={resultRow}>
+                <span className="mono" style={{ minWidth: 60, color: 'var(--gold)' }}>
+                  {(p.score ?? 0).toLocaleString()}{platform === 'reddit' ? '↑' : ''}
+                </span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {p.title || '(no caption)'}
+                </span>
+                <span className="dim" style={{ minWidth: 70, textAlign: 'right' }}>
+                  {p.author ? `@${p.author}` : ''}
+                </span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {analysis && (
+        <div style={trendBox}>
+          <div style={subhead}>Trends</div>
+          {Array.isArray(analysis.topWords) && analysis.topWords.length > 0 && (
+            <div style={{ fontSize: 12, marginBottom: 8 }}>
+              <span className="muted">Top words: </span>
+              {analysis.topWords.slice(0, 12).map((w, i) => (
+                <span key={i} style={chip}>{w.word} <span className="dim">×{w.count}</span></span>
+              ))}
+            </div>
+          )}
+          {analysis.bestHour != null && (
+            <div style={{ fontSize: 12 }}>
+              <span className="muted">Best posting hour (UTC):</span>{' '}
+              <span className="mono" style={{ color: 'var(--gold)' }}>{analysis.bestHour}:00</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {plan && (
+        <div style={planBox}>
+          <div style={subhead}>AI content plan {plan.savedDocId ? '· saved to docs' : ''}</div>
+          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.55 }}>
+            {plan.plan || plan.text || JSON.stringify(plan)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────── Reddit-only: requirements scrape
+
+function RequirementsPanel({ token, accountId, onMsg, onError }) {
+  const [subs, setSubs] = useState('');
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    const r = await window.api.intel.list({ token });
+    if (r.ok) setRows(r.subs || []);
+  }, [token]);
+  useEffect(() => { load(); }, [load]);
+
+  async function run() {
+    if (!subs.trim()) { onError('Enter at least one subreddit.'); return; }
+    setBusy(true);
+    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
+    const r = await window.api.intel.fetch({ token, accountId: Number(accountId), subreddits: subs });
+    setBusy(false);
+    if (r.ok) {
+      onMsg(`Fetched ${r.fetched} subreddit(s).${r.errors?.length ? ` ${r.errors.length} failed.` : ''}`);
+      if (r.errors?.length) onError(r.errors.join(' · '));
+      load();
+    } else onError(r.error);
+  }
+  async function del(name) {
+    await window.api.intel.delete({ token, name });
+    load();
+  }
+
+  return (
+    <div className="card" style={{ padding: 18, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 15 }}>Subreddit requirements</h3>
+        <span className="muted" style={{ fontSize: 12 }}>
+          karma + age gates + rules — cached for the Scheduler / Autopilot eligibility checks
+        </span>
+      </div>
+
+      <label>Subreddits (one per line)</label>
+      <textarea
+        value={subs}
+        onChange={(e) => setSubs(e.target.value)}
+        placeholder={'tittydrop\ngonewild\nnsfw'}
+        style={{ minHeight: 100, fontFamily: 'var(--font-mono)', fontSize: 13 }}
+      />
+
+      <button
+        onClick={run}
+        disabled={busy}
+        style={primaryGradientBtn(busy)}
+      >
+        {busy ? 'Fetching…' : 'Scrape requirements'}
+      </button>
+
+      {rows.length > 0 && (
+        <div style={{ marginTop: 18, overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: 'var(--bg-2)' }}>
+                <th style={th}>Subreddit</th>
+                <th style={{ ...th, textAlign: 'right' }}>Subscribers</th>
+                <th style={th}>NSFW</th>
+                <th style={th}>Type</th>
+                <th style={{ ...th, textAlign: 'right' }}>Min age (d)</th>
+                <th style={{ ...th, textAlign: 'right' }}>Min post k</th>
+                <th style={{ ...th, textAlign: 'right' }}>Min cmt k</th>
+                <th style={th}>Rules</th>
+                <th style={th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.name} style={{ borderTop: '1px solid var(--border)' }}>
+                  <td style={td}><span style={{ color: 'var(--gold)' }}>r/{r.name}</span></td>
+                  <td style={{ ...td, textAlign: 'right' }} className="mono">{r.subscribers != null ? r.subscribers.toLocaleString() : '—'}</td>
+                  <td style={td}>{r.over18 ? <span style={{ color: '#d9a3d9' }}>NSFW</span> : <span className="dim">SFW</span>}</td>
+                  <td style={td} className="mono">{r.submission_type || 'any'}</td>
+                  <td style={{ ...td, textAlign: 'right' }} className="mono">{r.min_account_age_days ?? '—'}</td>
+                  <td style={{ ...td, textAlign: 'right' }} className="mono">{r.min_post_karma ?? '—'}</td>
+                  <td style={{ ...td, textAlign: 'right' }} className="mono">{r.min_comment_karma ?? '—'}</td>
+                  <td style={td}>{r.rules?.length ? <span className="dim">{r.rules.length}</span> : <span className="dim">—</span>}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>
+                    <button className="ghost" onClick={() => del(r.name)} style={{ fontSize: 11, padding: '3px 8px' }}>✕</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────── Reddit-only: account × subreddit gates
+
+function CompatibilityPanel({ token, accountId, accounts }) {
   const [subs, setSubs] = useState([]);
   const [karma, setKarma] = useState({});
-  const [acct, setAcct] = useState(null);
-  const [pickedSub, setPickedSub] = useState('');
 
   useEffect(() => {
     window.api.intel.list({ token }).then((r) => { if (r.ok) setSubs(r.subs || []); });
@@ -256,10 +504,10 @@ function CompatibilityPanel({ token, accountId, accounts, onAccount }) {
     });
   }, [token]);
 
-  useEffect(() => {
-    if (!accountId) { setAcct(null); return; }
-    setAcct(accounts.find((a) => String(a.id) === String(accountId)) || null);
-  }, [accountId, accounts]);
+  const acct = useMemo(
+    () => accounts.find((a) => a.id === accountId) || null,
+    [accountId, accounts]
+  );
 
   const rows = useMemo(() => {
     if (!acct) return [];
@@ -280,902 +528,80 @@ function CompatibilityPanel({ token, accountId, accounts, onAccount }) {
   }, [subs, karma, acct]);
 
   const qualifying = rows.filter((r) => r.qualifies);
-  const failing = rows.filter((r) => !r.qualifies);
+  const failing    = rows.filter((r) => !r.qualifies);
 
-  // Reverse lookup: for a picked subreddit, which accounts meet its gates.
-  const recommendedAccounts = useMemo(() => {
-    if (!pickedSub) return [];
-    const intel = subs.find((s) => s.name.toLowerCase() === pickedSub.toLowerCase());
-    if (!intel) return [];
-    return accounts
-      .filter((a) => (a.platform || 'reddit') === 'reddit')
-      .map((a) => {
-        const k = karma[a.id] || {};
-        const ageDays = a.created_at
-          ? Math.floor((Date.now() - new Date(a.created_at.replace(' ', 'T') + 'Z').getTime()) / 86400000)
-          : null;
-        const reasons = [];
-        if (intel.min_post_karma != null && (k.post_karma == null || k.post_karma < intel.min_post_karma))
-          reasons.push(`post karma`);
-        if (intel.min_comment_karma != null && (k.comment_karma == null || k.comment_karma < intel.min_comment_karma))
-          reasons.push(`comment karma`);
-        if (intel.min_account_age_days != null && (ageDays == null || ageDays < intel.min_account_age_days))
-          reasons.push(`age`);
-        return { ...a, k, ageDays, qualifies: reasons.length === 0, reasons };
-      })
-      .sort((a, b) => Number(b.qualifies) - Number(a.qualifies));
-  }, [pickedSub, subs, accounts, karma]);
+  if (!acct) return null;
+  if (subs.length === 0) {
+    return (
+      <div className="card muted" style={{ padding: 24, textAlign: 'center', fontSize: 13, marginBottom: 16 }}>
+        Scrape some subreddit requirements first — then this panel shows which qualify for u/{acct.username}.
+      </div>
+    );
+  }
 
   return (
-    <div>
-      <div className="card" style={{ padding: 18, marginBottom: 14 }}>
-        <label>Check account</label>
-        <select value={accountId} onChange={(e) => onAccount(e.target.value)}>
-          <option value="">— pick an account —</option>
-          {accounts.map((a) => <option key={a.id} value={a.id}>u/{a.username} · {a.profile_name}</option>)}
-        </select>
-        {acct && (
-          <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-            Post karma {karma[acct.id]?.post_karma ?? '—'} · Comment karma {karma[acct.id]?.comment_karma ?? '—'} · Age {acct.created_at ? Math.floor((Date.now() - new Date(acct.created_at.replace(' ', 'T') + 'Z').getTime()) / 86400000) + 'd' : '—'}
-          </div>
-        )}
+    <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 15 }}>Compatibility</h3>
+        <span className="muted" style={{ fontSize: 12 }}>
+          u/{acct.username} · post karma {karma[acct.id]?.post_karma ?? '—'} · comment karma {karma[acct.id]?.comment_karma ?? '—'}
+        </span>
       </div>
 
-      {/* Recommended accounts for a subreddit */}
-      <div className="card" style={{ padding: 18, marginBottom: 14 }}>
-        <label>Recommended accounts for a subreddit</label>
-        <select value={pickedSub} onChange={(e) => setPickedSub(e.target.value)}>
-          <option value="">— pick a subreddit —</option>
-          {subs.map((s) => <option key={s.name} value={s.name}>r/{s.name}</option>)}
-        </select>
-        {pickedSub && recommendedAccounts.length > 0 && (
-          <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {recommendedAccounts.slice(0, 24).map((a) => (
-              <span key={a.id} style={{
-                padding: '4px 10px', borderRadius: 999, fontSize: 12,
-                border: '1px solid ' + (a.qualifies ? 'var(--green)' : 'var(--border)'),
-                background: a.qualifies ? 'var(--green-soft)' : 'var(--bg-1)',
-                color: a.qualifies ? 'var(--green-bright)' : 'var(--text-3)',
-              }} title={a.qualifies ? 'Meets all gates' : `Missing: ${a.reasons.join(', ')}`}>
-                {a.qualifies ? '✓ ' : '✗ '}u/{a.username}
-              </span>
-            ))}
-            {recommendedAccounts.length > 24 && (
-              <span className="muted" style={{ fontSize: 11, alignSelf: 'center' }}>…and {recommendedAccounts.length - 24} more</span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {!acct ? null : subs.length === 0 ? (
-        <div className="card muted" style={{ padding: 30, textAlign: 'center' }}>
-          No subreddit intel yet. Fetch some under the Requirements tab first.
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <div className="card" style={{ padding: 14 }}>
-            <div style={{ fontSize: 11, color: 'var(--green-bright)', marginBottom: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
-              ✓ Qualifies · {qualifying.length}
-            </div>
-            {qualifying.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>None.</div>
-              : qualifying.map((s) => (
-                <div key={s.name} style={{ padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        <div style={{ padding: 12, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ ...subhead, color: 'var(--green-bright)' }}>✓ Qualifies · {qualifying.length}</div>
+          {qualifying.length === 0
+            ? <div className="muted" style={{ fontSize: 12 }}>None.</div>
+            : qualifying.map((s) => (
+                <div key={s.name} style={compatRow}>
                   <span style={{ color: 'var(--gold)' }}>r/{s.name}</span>
-                  <span className="muted" style={{ marginLeft: 8, fontSize: 11 }}>{s.subscribers ? `${s.subscribers.toLocaleString()} subs` : ''}</span>
+                  <span className="muted" style={{ marginLeft: 8, fontSize: 11 }}>
+                    {s.subscribers ? `${s.subscribers.toLocaleString()} subs` : ''}
+                  </span>
                 </div>
               ))}
-          </div>
-          <div className="card" style={{ padding: 14 }}>
-            <div style={{ fontSize: 11, color: '#e2a3a3', marginBottom: 10, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
-              ✗ Fails · {failing.length}
-            </div>
-            {failing.length === 0 ? <div className="muted" style={{ fontSize: 12 }}>None.</div>
-              : failing.map((s) => (
-                <div key={s.name} style={{ padding: '8px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
+        </div>
+        <div style={{ padding: 12, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ ...subhead, color: '#e2a3a3' }}>✗ Fails · {failing.length}</div>
+          {failing.length === 0
+            ? <div className="muted" style={{ fontSize: 12 }}>None.</div>
+            : failing.map((s) => (
+                <div key={s.name} style={compatRow}>
                   <div><span style={{ color: 'var(--gold)' }}>r/{s.name}</span></div>
                   <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{s.reasons.join(' · ')}</div>
                 </div>
               ))}
-          </div>
         </div>
-      )}
-    </div>
-  );
-}
-
-/* ----------------------- SCRAPER (inside Intelligence) ------------------- */
-function AccountSelect({ accounts, accountId, onAccount }) {
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <label>Scraper account</label>
-      <select value={accountId} onChange={(e) => onAccount(e.target.value)}>
-        <option value="">— select an account —</option>
-        {accounts.map((a) => <option key={a.id} value={a.id}>u/{a.username} · {a.profile_name}</option>)}
-      </select>
-    </div>
-  );
-}
-
-function ScraperPanel({ token, accountId, accounts, onAccount, onMsg, onError }) {
-  // Platform tab — Reddit ships end-to-end; the others are scaffolded with
-  // "Coming soon" placeholders so the surface exists and we can hook each
-  // adapter (TikTok hashtag search, IG reels, X trending) without a UI
-  // rewrite.
-  const [scraperPlatform, setScraperPlatform] = useState('reddit');
-  const [mode, setMode] = useState('posts'); // posts | user | mods | flairs
-  const [subreddit, setSubreddit] = useState('');
-  const [username, setUsername] = useState('');
-  const [sort, setSort] = useState('hot');
-  const [tWin, setTWin] = useState('day');
-  const [limit, setLimit] = useState(25);
-  // Search input doubles as keyword, hashtag, song title, or dance term.
-  const [query, setQuery] = useState('');
-  // Client-side filter applied AFTER fetch. Looks at flair text + title for
-  // [F]/[M]/(F)/(M)/female/male markers since Reddit doesn't expose gender.
-  const [gender, setGender] = useState('all'); // all | female | male
-  const [posts, setPosts] = useState([]);
-  const [userData, setUserData] = useState(null);
-  const [mods, setMods] = useState([]);
-  const [flairs, setFlairs] = useState([]);
-  const [busy, setBusy] = useState(false);
-
-  const requireAccount = () => {
-    if (!accountId) { onError('Pick a scraper account first.'); return false; }
-    return true;
-  };
-
-  async function runPosts() {
-    if (!requireAccount() || !subreddit.trim()) { onError('Enter a subreddit.'); return; }
-    setBusy(true);
-    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
-    // "Trending" is a UX shortcut for top/day with a wider net.
-    const effSort = sort === 'trending' ? 'top' : sort;
-    const effTWin = sort === 'trending' ? 'day'  : tWin;
-    const effLim  = sort === 'trending' ? Math.max(Number(limit) || 25, 50) : Number(limit);
-    const r = await window.api.intel.scrapePosts({
-      token, accountId: Number(accountId),
-      subreddit, sort: effSort, t: effTWin, limit: effLim,
-      query: query.trim() || undefined,
-    });
-    setBusy(false);
-    if (r.ok) { setPosts(r.posts); onMsg(`Fetched ${r.posts.length} posts.`); } else onError(r.error);
-  }
-  async function runUser() {
-    if (!requireAccount() || !username.trim()) { onError('Enter a username.'); return; }
-    setBusy(true);
-    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
-    const r = await window.api.intel.scrapeUser({ token, accountId: Number(accountId), username });
-    setBusy(false);
-    if (r.ok) { setUserData(r); onMsg(`Loaded u/${r.user.username}.`); } else onError(r.error);
-  }
-  async function runMods() {
-    if (!requireAccount() || !subreddit.trim()) { onError('Enter a subreddit.'); return; }
-    setBusy(true);
-    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
-    const r = await window.api.intel.scrapeMods({ token, accountId: Number(accountId), subreddit });
-    setBusy(false);
-    if (r.ok) { setMods(r.mods); onMsg(`Fetched ${r.mods.length} moderators.`); } else onError(r.error);
-  }
-  async function runFlairs() {
-    if (!requireAccount() || !subreddit.trim()) { onError('Enter a subreddit.'); return; }
-    setBusy(true);
-    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
-    const r = await window.api.intel.scrapeFlairs({ token, accountId: Number(accountId), subreddit });
-    setBusy(false);
-    if (r.ok) { setFlairs(r.flairs); onMsg(`Fetched ${r.flairs.length} flairs.`); } else onError(r.error);
-  }
-
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-        {[
-          { v: 'reddit',    label: 'Reddit',    color: '#ff4500', live: true,  hint: 'Posts · Users · Mods · Flairs' },
-          { v: 'tiktok',    label: 'TikTok',    color: '#25f4ee', live: false, hint: 'Hashtag / sound / creator scrape — coming soon' },
-          { v: 'instagram', label: 'Instagram', color: '#e1306c', live: false, hint: 'Reels / hashtags — coming soon' },
-          { v: 'x',         label: 'X',         color: '#1d9bf0', live: false, hint: 'Trending topics / creators — coming soon' },
-        ].map((p) => {
-          const active = scraperPlatform === p.v;
-          return (
-            <button
-              key={p.v}
-              onClick={() => p.live && setScraperPlatform(p.v)}
-              disabled={!p.live}
-              title={p.hint}
-              style={{
-                background: active ? p.color : 'var(--bg-1)',
-                color: active ? '#fff' : (p.live ? 'var(--text-1)' : 'var(--text-3)'),
-                border: `1px solid ${active ? p.color : 'var(--border)'}`,
-                borderRadius: 999, padding: '5px 14px', fontSize: 12, fontWeight: 600,
-                cursor: p.live ? 'pointer' : 'not-allowed', opacity: p.live ? 1 : 0.55,
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-              }}
-            >
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: p.color }} />
-              {p.label}
-              {!p.live && <span style={{ fontSize: 9, opacity: 0.85 }}>soon</span>}
-            </button>
-          );
-        })}
-      </div>
-
-      {scraperPlatform !== 'reddit' && (
-        <div className="card muted" style={{ padding: 28, textAlign: 'center', fontSize: 13, marginBottom: 18 }}>
-          {scraperPlatform === 'tiktok'    && 'TikTok scraper — hashtag / sound / creator search ships when the adapter lands.'}
-          {scraperPlatform === 'instagram' && 'Instagram scraper — reels / hashtags / creators ships when the adapter lands.'}
-          {scraperPlatform === 'x'         && 'X scraper — trending topics / creators / keywords ships when the adapter lands.'}
-          <div className="dim" style={{ fontSize: 11, marginTop: 6 }}>UI is in place; the network adapter for this platform is the next batch.</div>
-        </div>
-      )}
-
-      {scraperPlatform === 'reddit' && <>
-      <div className="card" style={{ padding: 18, marginBottom: 16 }}>
-        <AccountSelect accounts={accounts} accountId={accountId} onAccount={onAccount} />
-
-        <div style={{ display: 'flex', gap: 4, marginBottom: 14, flexWrap: 'wrap' }}>
-          {[
-            { k: 'posts',  l: '🔥 Posts' },
-            { k: 'user',   l: '👤 User' },
-            { k: 'mods',   l: '🛡 Mods' },
-            { k: 'flairs', l: '🏷 Flairs' },
-          ].map((m) => (
-            <button key={m.k} onClick={() => setMode(m.k)}
-              className={mode === m.k ? 'primary' : 'ghost'}
-              style={{ fontSize: 12, padding: '6px 12px' }}>{m.l}</button>
-          ))}
-        </div>
-
-        {mode === 'posts' && (
-          <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 1fr 1fr 1fr', gap: 10 }}>
-              <div>
-                <label>Subreddit</label>
-                <input value={subreddit} onChange={(e) => setSubreddit(e.target.value)} placeholder="e.g. gonewild" />
-              </div>
-              <div>
-                <label>Search · keyword / #hashtag / song / dance</label>
-                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder='e.g. "espresso" or #fyp or twerk' />
-              </div>
-              <div>
-                <label>Sort</label>
-                <select value={sort} onChange={(e) => setSort(e.target.value)}>
-                  <option value="trending">Trending</option>
-                  <option value="hot">Hot</option>
-                  <option value="top">Top</option>
-                  <option value="rising">Rising</option>
-                  <option value="new">New</option>
-                </select>
-              </div>
-              {(sort === 'top' || sort === 'trending') ? (
-                <div>
-                  <label>Window</label>
-                  <select value={tWin} onChange={(e) => setTWin(e.target.value)} disabled={sort === 'trending'} title={sort === 'trending' ? 'Trending fixes window to day' : ''}>
-                    {['hour','day','week','month','year','all'].map((x) => <option key={x} value={x}>{x}</option>)}
-                  </select>
-                </div>
-              ) : <div />}
-              <div>
-                <label>Limit</label>
-                <input type="number" min={1} max={100} value={limit} onChange={(e) => setLimit(e.target.value)} />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-              <span className="dim" style={{ fontSize: 11, marginRight: 4 }}>Filter:</span>
-              {[
-                { v: 'all',    l: 'All',    c: 'var(--text-2)' },
-                { v: 'female', l: 'Female', c: '#e1306c' },
-                { v: 'male',   l: 'Male',   c: '#1d9bf0' },
-              ].map((g) => {
-                const active = gender === g.v;
-                return (
-                  <button key={g.v} onClick={() => setGender(g.v)} style={{
-                    padding: '4px 12px', borderRadius: 999, border: `1px solid ${active ? g.c : 'var(--border)'}`,
-                    background: active ? g.c : 'var(--bg-1)', color: active ? '#fff' : 'var(--text-1)',
-                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                  }}>{g.l}</button>
-                );
-              })}
-              <span className="dim" style={{ fontSize: 10, marginLeft: 4 }}>
-                Filters fetched posts by flair/title (looks for [F], [M], female, male, woman, man).
-              </span>
-              <button onClick={runPosts} disabled={busy} className="primary" style={{ marginLeft: 'auto' }}>
-                {busy ? 'Fetching…' : 'Fetch posts'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {mode === 'user' && (
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-            <div style={{ flex: 1 }}>
-              <label>Username</label>
-              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. spez" />
-            </div>
-            <button onClick={runUser} disabled={busy} className="primary">{busy ? 'Loading…' : 'Load profile'}</button>
-          </div>
-        )}
-
-        {(mode === 'mods' || mode === 'flairs') && (
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-            <div style={{ flex: 1 }}>
-              <label>Subreddit</label>
-              <input value={subreddit} onChange={(e) => setSubreddit(e.target.value)} placeholder="e.g. nsfw" />
-            </div>
-            <button onClick={mode === 'mods' ? runMods : runFlairs} disabled={busy} className="primary">
-              {busy ? 'Fetching…' : (mode === 'mods' ? 'List moderators' : 'List flairs')}
-            </button>
-          </div>
-        )}
-      </div>
-
-      {mode === 'posts' && posts.length > 0 && (
-        <PostsResult posts={filterByGender(posts, gender)} subreddit={subreddit} />
-      )}
-      {mode === 'user' && userData && <UserResult data={userData} />}
-      {mode === 'mods' && mods.length > 0 && <ModsResult mods={mods} subreddit={subreddit} />}
-      {mode === 'flairs' && flairs.length > 0 && <FlairsResult flairs={flairs} subreddit={subreddit} />}
-      </>}
-    </div>
-  );
-}
-
-function ExportRow({ name, rows }) {
-  if (!rows || !rows.length) return null;
-  return (
-    <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-      <button className="ghost" onClick={() => navigator.clipboard.writeText(JSON.stringify(rows, null, 2))}>📋 Copy JSON</button>
-      <button className="ghost" onClick={() => downloadFile(`${name}.json`, JSON.stringify(rows, null, 2), 'application/json')}>⬇ JSON</button>
-      <button className="ghost" onClick={() => downloadFile(`${name}.csv`, toCSV(rows), 'text/csv')}>⬇ CSV</button>
-    </div>
-  );
-}
-
-function PostsResult({ posts, subreddit }) {
-  return (
-    <div className="card" style={{ padding: 14 }}>
-      <ExportRow name={`r-${subreddit || 'posts'}`} rows={posts} />
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead><tr style={{ background: 'var(--bg-2)' }}>
-            <th style={th}>Title</th>
-            <th style={th}>Author</th>
-            <th style={{ ...th, textAlign: 'right' }}>Score</th>
-            <th style={{ ...th, textAlign: 'right' }}>Comments</th>
-            <th style={th}>Flair</th>
-            <th style={th}>Age</th>
-            <th style={th}></th>
-          </tr></thead>
-          <tbody>{posts.map((p) => (
-            <tr key={p.id} style={{ borderTop: '1px solid var(--border)' }}>
-              <td style={td}>{p.title}{p.over_18 ? <Tag tone="pink" style={{ marginLeft: 6 }}>NSFW</Tag> : null}</td>
-              <td style={td} className="mono dim">u/{p.author}</td>
-              <td style={{ ...td, textAlign: 'right' }} className="mono">{fmt(p.score)}</td>
-              <td style={{ ...td, textAlign: 'right' }} className="mono">{fmt(p.num_comments)}</td>
-              <td style={td}>{p.link_flair_text ? <Tag tone="blue">{p.link_flair_text}</Tag> : <span className="dim">—</span>}</td>
-              <td style={td} className="mono dim">{ago(p.created)}</td>
-              <td style={td}><a href={p.permalink} target="_blank" rel="noreferrer">↗</a></td>
-            </tr>
-          ))}</tbody>
-        </table>
       </div>
     </div>
   );
 }
 
-function UserResult({ data }) {
-  const u = data.user || {};
-  return (
-    <div className="card" style={{ padding: 16 }}>
-      <ExportRow name={`u-${u.username || 'profile'}`} rows={[u]} />
-      <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 14 }}>
-        {u.icon_url
-          ? <img src={u.icon_url} alt={u.username} style={{ width: 56, height: 56, borderRadius: '50%' }} />
-          : <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--bg-3)' }} />}
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 700 }}>u/{u.username}</div>
-          <div className="muted" style={{ fontSize: 12 }}>
-            Total karma {fmt(u.total_karma)} · Posts {fmt(u.link_karma)} · Comments {fmt(u.comment_karma)} · Created {ago(u.created)} ago
-            {u.is_gold ? ' · ★ Gold' : ''}{u.verified ? ' · ✓ Verified' : ''}
-          </div>
-        </div>
-      </div>
-      {data.recentPosts && data.recentPosts.length > 0 && (
-        <>
-          <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Recent posts ({data.recentPosts.length})</div>
-          <PostsResult posts={data.recentPosts} subreddit={`u-${u.username}`} />
-        </>
-      )}
-    </div>
-  );
+// ─────────────────────────────────────────────────── small helpers
+
+function Spinner() {
+  return <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--gold)', display: 'inline-block', marginRight: 6, animation: 'pulse 1s ease-in-out infinite' }} />;
 }
 
-function ModsResult({ mods, subreddit }) {
-  return (
-    <div className="card" style={{ padding: 14 }}>
-      <ExportRow name={`mods-${subreddit}`} rows={mods} />
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {mods.map((m) => (
-          <div key={m.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 999 }}>
-            <span style={{ fontWeight: 600 }}>u/{m.name}</span>
-            {(m.permissions || []).map((p) => <Tag key={p} tone="blue" style={{ marginLeft: 2 }}>{p}</Tag>)}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function FlairsResult({ flairs, subreddit }) {
-  return (
-    <div className="card" style={{ padding: 14 }}>
-      <ExportRow name={`flairs-${subreddit}`} rows={flairs} />
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {flairs.map((f) => (
-          <span key={f.id} style={{
-            padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600,
-            background: f.background_color || 'var(--bg-2)', color: f.text_color === 'light' ? '#fff' : '#1a1a14',
-            border: '1px solid var(--border-strong)',
-          }}>{f.text || '(unnamed)'}{f.mod_only ? ' 🛡' : ''}</span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ----------------------- RESEARCH (analysis of scraped) ----------------- */
-function ResearchPanel({ token, accountId, accounts, onAccount, onMsg, onError }) {
-  const [subreddit, setSubreddit] = useState('');
-  const [sort, setSort] = useState('top');
-  const [tWin, setTWin] = useState('week');
-  const [busy, setBusy] = useState(false);
-  const [insight, setInsight] = useState(null);
-
-  async function go() {
-    if (!accountId) { onError('Pick a scraper account first.'); return; }
-    if (!subreddit.trim()) { onError('Enter a subreddit.'); return; }
-    setBusy(true);
-    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
-    const r = await window.api.intel.scrapePosts({ token, accountId: Number(accountId), subreddit, sort, t: tWin, limit: 100 });
-    if (!r.ok) { setBusy(false); onError(r.error); return; }
-    const a = await window.api.intel.analyze({ token, posts: r.posts });
-    setBusy(false);
-    if (a.ok) { setInsight({ ...a, subreddit }); onMsg(`Analyzed ${a.sample} posts.`); } else onError(a.error);
-  }
-
-  return (
-    <div>
-      <div className="card" style={{ padding: 18, marginBottom: 16 }}>
-        <AccountSelect accounts={accounts} accountId={accountId} onAccount={onAccount} />
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 10, alignItems: 'end' }}>
-          <div>
-            <label>Subreddit</label>
-            <input value={subreddit} onChange={(e) => setSubreddit(e.target.value)} placeholder="e.g. nsfw" />
-          </div>
-          <div>
-            <label>Sort</label>
-            <select value={sort} onChange={(e) => setSort(e.target.value)}>
-              <option value="hot">Hot</option>
-              <option value="top">Top</option>
-              <option value="rising">Rising</option>
-              <option value="new">New</option>
-            </select>
-          </div>
-          <div>
-            <label>Window</label>
-            <select value={tWin} onChange={(e) => setTWin(e.target.value)}>
-              {['day','week','month','year','all'].map((x) => <option key={x} value={x}>{x}</option>)}
-            </select>
-          </div>
-          <button onClick={go} disabled={busy} className="primary">{busy ? 'Analyzing…' : 'Analyze 100 posts'}</button>
-        </div>
-      </div>
-
-      {insight && (
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 14 }}>
-            <StatCard label="Sample" value={insight.sample} />
-            <StatCard label="Avg score" value={insight.avgScore} accent="green" />
-            <StatCard label="Avg comments" value={insight.avgComments} accent="blue" />
-            <StatCard label="Best hour (UTC)" value={`${insight.bestHourUTC?.hour ?? '—'}:00`} accent="gold" />
-          </div>
-          <div className="card" style={{ padding: 14, marginBottom: 14 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Top words in titles</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {insight.topWords.map((w) => (
-                <span key={w.word} style={{
-                  padding: '4px 10px', borderRadius: 999, fontSize: 12,
-                  background: 'var(--bg-1)', border: '1px solid var(--border)',
-                }}>{w.word} <span style={{ color: 'var(--gold)', fontWeight: 700 }}>{w.n}</span></span>
-              ))}
-            </div>
-          </div>
-          <div className="card" style={{ padding: 14 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Avg score by hour (UTC)</div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 80 }}>
-              {insight.hourly.map((h) => {
-                const max = Math.max(1, ...insight.hourly.map((x) => x.avg));
-                const pct = (h.avg / max) * 100;
-                return (
-                  <div key={h.hour} title={`${h.hour}:00 UTC · avg ${h.avg}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{ width: '100%', height: `${pct}%`, background: 'linear-gradient(0deg, var(--blue), var(--gold))', borderRadius: 3 }} />
-                    <div style={{ fontSize: 9, color: 'var(--text-3)', marginTop: 4 }}>{h.hour}</div>
-                  </div>
-                );
-              })}
-            </div>
-            <ExportRow name={`research-${insight.subreddit}`} rows={insight.hourly} />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function StatCard({ label, value, accent = 'neutral' }) {
-  const fg = ({
-    blue: '#7fa8e0', green: 'var(--green-bright)', gold: 'var(--gold-bright)', neutral: 'var(--text-0)',
-  })[accent];
-  return (
-    <div style={{
-      flex: 1, border: '1px solid var(--border)', background: 'var(--bg-elev)',
-      borderRadius: 'var(--radius-lg)', padding: '14px 16px',
-    }}>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.15em', textTransform: 'uppercase', color: 'var(--text-3)' }}>{label}</div>
-      <div style={{ fontFamily: 'var(--font-display)', fontSize: 26, fontWeight: 600, color: fg, marginTop: 4 }}>{value}</div>
-    </div>
-  );
-}
-
-const th = { textAlign: 'left', padding: '10px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)' };
-const td = { padding: '9px 12px', verticalAlign: 'middle' };
-
-// Content planning workflow — fetch some posts from a sub, tick the ones
-// you want included, Grok synthesizes a 1-page plan (themes, title
-// formulas, posting windows, captions). Saved as a doc on the chosen
-// model so it's reviewable later. User-in-the-loop, not autonomous.
-function PlanPanel({ token, accountId, accounts, onAccount, onMsg, onError }) {
-  const [subreddit, setSubreddit] = React.useState('');
-  const [profiles, setProfiles] = React.useState([]);
-  const [profileId, setProfileId] = React.useState('');
-  const [posts, setPosts] = React.useState([]);
-  const [picked, setPicked] = React.useState(() => new Set());
-  const [plan, setPlan] = React.useState('');
-  const [busy, setBusy] = React.useState(false);
-  const [saved, setSaved] = React.useState(false);
-
-  React.useEffect(() => {
-    window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
-  }, [token]);
-
-  async function fetchTop() {
-    if (!accountId) { onError('Pick a scraper account first.'); return; }
-    if (!subreddit.trim()) { onError('Enter a subreddit.'); return; }
-    setBusy(true);
-    await window.api.session.prepareForAccount({ accountId: Number(accountId) });
-    const r = await window.api.intel.scrapePosts({
-      token, accountId: Number(accountId),
-      subreddit, sort: 'top', t: 'week', limit: 25,
-    });
-    setBusy(false);
-    if (r.ok) { setPosts(r.posts); setPicked(new Set()); onMsg(`Fetched ${r.posts.length} top posts.`); }
-    else onError(r.error);
-  }
-
-  function toggle(id) {
-    setPicked((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  }
-
-  async function synthesize() {
-    if (picked.size === 0) { onError('Tick at least one post first.'); return; }
-    setBusy(true);
-    setSaved(false);
-    const findings = posts.filter((p) => picked.has(p.id)).map((p) => ({
-      subreddit: p.subreddit || subreddit,
-      title: p.title,
-      ups: p.score || p.ups || 0,
-      num_comments: p.num_comments || 0,
-    }));
-    const r = await window.api.intel.synthesizePlan({
-      token, profileId: profileId ? Number(profileId) : null, findings, save: !!profileId,
-    });
-    setBusy(false);
-    if (r.ok) { setPlan(r.plan); setSaved(!!profileId); onMsg(profileId ? 'Plan generated and saved to model docs.' : 'Plan generated (pick a model to save it).'); }
-    else onError(r.error);
-  }
-
-  return (
-    <div>
-      <div className="card" style={{ padding: 18, marginBottom: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 2fr auto', gap: 12, alignItems: 'end' }}>
-          <div>
-            <label>Scraper account</label>
-            <select value={accountId} onChange={(e) => onAccount(e.target.value)}>
-              <option value="">— select an account —</option>
-              {accounts.map((a) => <option key={a.id} value={a.id}>{a.username}</option>)}
-            </select>
-          </div>
-          <div>
-            <label>Subreddit</label>
-            <input value={subreddit} onChange={(e) => setSubreddit(e.target.value)} placeholder="e.g. gonewild" />
-          </div>
-          <div>
-            <label>Save plan to model</label>
-            <select value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-              <option value="">— don't save (preview only) —</option>
-              {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </div>
-          <button onClick={fetchTop} disabled={busy} className="primary">{busy ? 'Working…' : 'Pull top week'}</button>
-        </div>
-      </div>
-
-      {posts.length > 0 && (
-        <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <strong style={{ fontSize: 13 }}>Tick findings to include</strong>
-            <span className="dim" style={{ fontSize: 11 }}>{picked.size} of {posts.length} selected</span>
-            <div style={{ flex: 1 }} />
-            <button className="ghost" onClick={() => setPicked(new Set(posts.map((p) => p.id)))} style={{ fontSize: 11 }}>Select all</button>
-            <button className="ghost" onClick={() => setPicked(new Set())} style={{ fontSize: 11 }}>Clear</button>
-            <button className="primary" onClick={synthesize} disabled={busy || picked.size === 0}>
-              {busy ? 'Synthesizing…' : `✦ Synthesize plan${picked.size ? ` from ${picked.size}` : ''}`}
-            </button>
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <tbody>
-              {posts.map((p) => {
-                const on = picked.has(p.id);
-                return (
-                  <tr key={p.id} onClick={() => toggle(p.id)}
-                      style={{ borderTop: '1px solid var(--border)', cursor: 'pointer', background: on ? 'rgba(212,166,74,0.06)' : 'transparent' }}>
-                    <td style={{ ...td, width: 30 }}><input type="checkbox" checked={on} onChange={() => toggle(p.id)} /></td>
-                    <td style={td}>{p.title}</td>
-                    <td style={{ ...td, textAlign: 'right' }} className="mono dim">{(p.score || p.ups || 0).toLocaleString()} ups</td>
-                    <td style={{ ...td, textAlign: 'right' }} className="mono dim">{(p.num_comments || 0).toLocaleString()} c</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {plan && (
-        <div className="card" style={{ padding: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <strong style={{ fontSize: 14 }}>Content plan</strong>
-            {saved && <span className="mono" style={{ fontSize: 10, color: 'var(--ok)' }}>✓ saved to model docs</span>}
-          </div>
-          <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--font-body)', fontSize: 13, lineHeight: 1.6, margin: 0 }}>{plan}</pre>
-        </div>
-      )}
-    </div>
-  );
-}
-function UnifiedDiscoverPanel({ token, accountId, accounts, onAccount, onMsg, onError }) {
-  const [platform, setPlatform] = useState('reddit');
-  const [subreddit, setSubreddit] = useState('');
-  const [query, setQuery] = useState('');
-  const [sort, setSort] = useState('hot');
-  const [tWindow, setTWindow] = useState('week');
-  const [limit, setLimit] = useState(50);
-  const [posts, setPosts] = useState([]);
-  const [analysis, setAnalysis] = useState(null);
-  const [plan, setPlan] = useState(null);
-  const [profileId, setProfileId] = useState('');
-  const [profiles, setProfiles] = useState([]);
-  const [stage, setStage] = useState('idle');  // idle | scraping | analyzing | planning
-  const [busy, setBusy] = useState(false);
-
-  React.useEffect(() => {
-    window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
-  }, [token]);
-
-  async function run() {
-    if (!accountId) { onError('Pick a scraper account first.'); return; }
-    const term = (platform === 'reddit' ? subreddit : (subreddit || query)).trim();
-    if (!term) { onError(platform === 'reddit' ? 'Enter a subreddit.' : 'Enter a hashtag / handle / keyword.'); return; }
-    setBusy(true); setPosts([]); setAnalysis(null); setPlan(null);
-    try {
-      setStage('scraping');
-      let r;
-      if (platform === 'reddit') {
-        r = await window.api.intel.scrapePosts({
-          token, accountId: Number(accountId),
-          subreddit: subreddit.trim(), sort, t: tWindow,
-          limit: Number(limit) || 50, query: query.trim() || undefined,
-        });
-      } else {
-        // X / Instagram / TikTok use the browser-driven discover scraper.
-        r = await window.api.intel.discoverScrape({
-          token, accountId: Number(accountId),
-          platform, keyword: term,
-        });
-      }
-      if (!r.ok) { onError(r.error || 'Scrape failed'); setStage('idle'); setBusy(false); return; }
-      const fetched = r.posts || [];
-      setPosts(fetched);
-      if (!fetched.length) {
-        onMsg(platform === 'reddit'
-          ? 'No posts came back.'
-          : `No ${platform} results — try a different hashtag, or selectors may need updating (the platform may have changed its markup).`);
-        setStage('idle'); setBusy(false); return;
-      }
-
-      setStage('analyzing');
-      const an = await window.api.intel.analyze({ token, posts: fetched });
-      if (an.ok) setAnalysis(an);
-
-      setStage('planning');
-      const findings = fetched.slice(0, 12).map((p) => ({
-        subreddit: p.subreddit || (platform === 'reddit' ? subreddit : platform),
-        title: p.title, ups: p.score, num_comments: p.num_comments,
-      }));
-      const pl = await window.api.intel.synthesizePlan({ token, profileId: profileId || null, findings, save: !!profileId });
-      if (pl.ok) setPlan(pl); else onError(pl.error || 'Plan synth failed');
-    } finally {
-      setStage('idle'); setBusy(false);
-    }
-  }
-
-  const stageLabel = {
-    idle: 'Ready',
-    scraping: 'Scraping posts…',
-    analyzing: 'Analyzing trends…',
-    planning: 'Synthesizing plan with AI…',
-  }[stage];
-
-  return (
-    <div className="card" style={{ padding: 18 }}>
-      {/* Platform tabs */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
-        {[
-          { k: 'reddit',    l: 'Reddit',    c: '#ff4500', live: true },
-          { k: 'x',         l: 'X',         c: '#fff',    live: true },
-          { k: 'instagram', l: 'Instagram', c: '#e2497d', live: true },
-          { k: 'tiktok',    l: 'TikTok',    c: '#69c9d0', live: true },
-        ].map((p) => {
-          const isActive = platform === p.k;
-          return (
-            <button
-              key={p.k}
-              onClick={() => setPlatform(p.k)}
-              style={{
-                background: isActive ? 'rgba(255,255,255,0.06)' : 'transparent',
-                border: `1px solid ${isActive ? p.c : 'var(--border)'}`,
-                borderRadius: 999, padding: '5px 12px',
-                color: isActive ? '#fff' : 'var(--text-2)',
-                fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-              }}
-            >
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: p.c }} />
-              {p.l}
-              {!p.live && <span style={{ fontSize: 9, opacity: 0.7 }}>soon</span>}
-            </button>
-          );
-        })}
-      </div>
-
-      {platform !== 'reddit' && (
-        <div style={{
-          background: 'rgba(60,110,180,0.10)', border: '1px solid #2c4a6e',
-          borderRadius: 'var(--radius-lg)', padding: '10px 14px', marginBottom: 14,
-          fontSize: 12, color: '#9fc0ea',
-        }}>
-          ⓘ {platform} discover opens a hidden browser on the chosen account's session, navigates to the hashtag/handle page, scrolls + scrapes the visible cards. Selectors are best-effort — if results come back empty, the platform likely changed its DOM (let us know).
-        </div>
-      )}
-
-      {/* Unified form: scraper account · subreddit / keywords · sort · save plan to model */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <div>
-          <label>Scraper account</label>
-          <select value={accountId || ''} onChange={(e) => onAccount(e.target.value)}>
-            <option value="">— pick an account —</option>
-            {accounts.map((a) => <option key={a.id} value={a.id}>u/{a.username} · {a.profile_name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label>Save plan to model (optional)</label>
-          <select value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-            <option value="">— don't save (preview only) —</option>
-            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: platform === 'reddit' ? '1.5fr 1fr 0.7fr 0.7fr 0.7fr' : '1fr 1fr', gap: 10, marginTop: 10 }}>
-        <div>
-          <label>{platform === 'reddit' ? 'Subreddit' : platform === 'x' ? 'Topic / handle' : 'Hashtag'}</label>
-          <input
-            placeholder={platform === 'reddit' ? 'pics, r/pics, or full URL' : platform === 'x' ? '#fitness or @handle' : '#trending'}
-            value={subreddit}
-            onChange={(e) => setSubreddit(e.target.value)}
-          />
-        </div>
-        <div>
-          <label>Search · keywords (optional)</label>
-          <input placeholder='e.g. espresso or #fyp' value={query} onChange={(e) => setQuery(e.target.value)} />
-        </div>
-        {platform === 'reddit' && <>
-          <div>
-            <label>Sort</label>
-            <select value={sort} onChange={(e) => setSort(e.target.value)}>
-              <option>hot</option><option>top</option><option>rising</option><option>new</option>
-            </select>
-          </div>
-          <div>
-            <label>Window</label>
-            <select value={tWindow} onChange={(e) => setTWindow(e.target.value)}>
-              <option>hour</option><option>day</option><option>week</option><option>month</option><option>year</option><option>all</option>
-            </select>
-          </div>
-          <div>
-            <label>Limit</label>
-            <input type="number" min={5} max={100} value={limit} onChange={(e) => setLimit(e.target.value)} />
-          </div>
-        </>}
-      </div>
-
-      <div style={{ marginTop: 14 }}>
-        <button
-          onClick={run}
-          disabled={busy}
-          className="primary"
-          style={{ width: '100%', padding: '12px 18px', background: busy ? 'var(--bg-1)' : 'linear-gradient(90deg, #3a6f8c, #6a4fc4)' }}
-        >
-          {busy ? stageLabel : '→ Scrape · Analyze · Synthesize Plan'}
-        </button>
-      </div>
-
-      {/* Posts */}
-      {posts.length > 0 && (
-        <div style={{ marginTop: 18 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: 'var(--gold-bright)' }}>Posts ({posts.length})</div>
-          <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {posts.slice(0, 50).map((p) => (
-              <div key={p.id} style={{ display: 'flex', gap: 8, fontSize: 12, padding: '4px 8px', borderBottom: '1px dashed var(--border)' }}>
-                <span className="mono" style={{ minWidth: 60 }}>{p.score?.toLocaleString() || 0}↑</span>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</span>
-                <span className="dim" style={{ minWidth: 60, textAlign: 'right' }}>{p.num_comments} cmt</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Analysis */}
-      {analysis && (
-        <div style={{ marginTop: 18, padding: 14, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 10 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--gold-bright)' }}>Trends</div>
-          {Array.isArray(analysis.topWords) && analysis.topWords.length > 0 && (
-            <div style={{ fontSize: 12, marginBottom: 8 }}>
-              <span className="muted">Top words: </span>
-              {analysis.topWords.slice(0, 12).map((w, i) => (
-                <span key={i} style={{ display: 'inline-block', marginRight: 6, padding: '2px 8px', borderRadius: 999, background: 'var(--bg-elev)', border: '1px solid var(--border)' }}>
-                  {w.word} <span className="dim">×{w.count}</span>
-                </span>
-              ))}
-            </div>
-          )}
-          {analysis.bestHour != null && (
-            <div style={{ fontSize: 12 }}>
-              <span className="muted">Best posting hour (UTC):</span> <span className="mono" style={{ color: 'var(--gold)' }}>{analysis.bestHour}:00</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Plan */}
-      {plan && (
-        <div style={{ marginTop: 18, padding: 14, background: 'var(--bg-1)', border: '1px solid var(--gold)', borderRadius: 10 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--gold-bright)' }}>
-            AI content plan {plan.savedDocId ? '· saved to docs' : ''}
-          </div>
-          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.5 }}>{plan.plan || plan.text || JSON.stringify(plan)}</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
+const infoNote = {
+  background: 'rgba(60,110,180,0.10)',
+  border: '1px solid #2c4a6e',
+  borderRadius: 'var(--radius-lg)',
+  padding: '10px 14px', marginBottom: 14,
+  fontSize: 12, color: '#9fc0ea',
+};
+const subhead   = { fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8 };
+const resultRow = { display: 'flex', gap: 8, fontSize: 12, padding: '6px 8px', borderBottom: '1px dashed var(--border)', color: 'inherit', textDecoration: 'none' };
+const chip      = { display: 'inline-block', marginRight: 6, marginBottom: 4, padding: '2px 8px', borderRadius: 999, background: 'var(--bg-elev)', border: '1px solid var(--border)', fontSize: 11 };
+const trendBox  = { marginTop: 18, padding: 14, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 10 };
+const planBox   = { marginTop: 18, padding: 14, background: 'var(--bg-1)', border: '1px solid var(--gold)', borderRadius: 10 };
+const th        = { textAlign: 'left', padding: '8px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 600, fontFamily: 'var(--font-mono)' };
+const td        = { padding: '7px 12px', verticalAlign: 'middle' };
+const compatRow = { padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: 12 };
+const primaryGradientBtn = (busy) => ({
+  marginTop: 14, width: '100%', padding: '12px 18px', borderRadius: 'var(--radius-lg)',
+  border: 'none', cursor: busy ? 'not-allowed' : 'pointer',
+  background: busy ? 'var(--bg-3)' : 'linear-gradient(90deg, #3a6f8c 0%, #6a4fc4 100%)',
+  color: '#fff', fontWeight: 700, fontSize: 13, letterSpacing: '0.02em',
+});
