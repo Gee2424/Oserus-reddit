@@ -125,6 +125,8 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {isAdmin && <CloudSyncSection />}
+
       {/* ═══════════════════════════════════════════════════ AI ═════ */}
       {isAdmin && (
         <Section
@@ -429,6 +431,169 @@ function ComingSoonProviders() {
       </div>
     </div>
   );
+}
+
+function CloudSyncSection() {
+  const [cfg, setCfg] = useState({ url: '', anonKey: '', deviceName: '', enabled: false });
+  const [status, setStatus] = useState({ connected: false, lastSyncAt: null, lastError: null, pushed: 0, pulled: 0, peers: [] });
+  const [showKey, setShowKey] = useState(false);
+  const [testMsg, setTestMsg] = useState(null);
+  const [saveMsg, setSaveMsg] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!window.api?.cloud) return;
+    window.api.cloud.getConfig().then((c) => c && setCfg((prev) => ({ ...prev, ...c, anonKey: '' })));
+    window.api.cloud.getStatus().then((s) => s && setStatus(s));
+    const off = window.api.cloud.onStatus((s) => setStatus(s));
+    return () => { try { off && off(); } catch {} };
+  }, []);
+
+  async function onTest() {
+    setTestMsg(null);
+    setBusy(true);
+    try {
+      const r = await window.api.cloud.test({ url: cfg.url, anonKey: cfg.anonKey });
+      setTestMsg(r.ok ? { kind: 'ok', text: 'Connection OK.' } : { kind: 'err', text: r.error || 'Connection failed.' });
+    } finally { setBusy(false); }
+  }
+  async function onSave() {
+    setSaveMsg(null);
+    setBusy(true);
+    try {
+      const r = await window.api.cloud.setConfig({ url: cfg.url, anonKey: cfg.anonKey, deviceName: cfg.deviceName, enabled: true });
+      if (r && r.ok === false) setSaveMsg({ kind: 'err', text: r.error || 'Save failed.' });
+      else setSaveMsg({ kind: 'ok', text: 'Saved. Connecting…' });
+      const c = await window.api.cloud.getConfig();
+      if (c) setCfg((prev) => ({ ...prev, ...c, anonKey: '' }));
+    } finally { setBusy(false); }
+  }
+  async function onDisconnect() {
+    setBusy(true);
+    try {
+      await window.api.cloud.setConfig({ enabled: false });
+      await window.api.cloud.stop();
+      setSaveMsg({ kind: 'ok', text: 'Disconnected.' });
+    } finally { setBusy(false); }
+  }
+  async function onCopySql() {
+    try {
+      const sql = await window.api.cloud.getSchemaSql();
+      await navigator.clipboard.writeText(sql);
+      setSaveMsg({ kind: 'ok', text: 'Setup SQL copied to clipboard.' });
+    } catch (e) {
+      setSaveMsg({ kind: 'err', text: e.message || 'Copy failed.' });
+    }
+  }
+
+  const pillBg = status.connected ? 'rgba(122,154,90,0.18)'
+    : status.lastError ? 'rgba(200,90,90,0.18)' : 'rgba(255,255,255,0.06)';
+  const pillColor = status.connected ? '#bdd5a3'
+    : status.lastError ? '#e8b4b4' : 'var(--text-2)';
+  const pillText = status.connected ? 'Connected'
+    : status.lastError ? 'Error' : 'Disconnected';
+
+  return (
+    <Section
+      title="Cloud Sync"
+      subtitle="Mirror activity, posts, comments, and engagement sessions to Supabase so multiple computers stay in sync in near-realtime. Paste your project URL + anon key, run the setup SQL once, then save."
+    >
+      <Subcard title="Supabase">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          <span
+            title={status.lastError || ''}
+            style={{
+              background: pillBg, color: pillColor,
+              fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+              letterSpacing: '0.04em', padding: '3px 10px', borderRadius: 4,
+            }}
+          >
+            {pillText}
+          </span>
+          <span className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>
+            Pushed {status.pushed || 0} · Pulled {status.pulled || 0}
+            {status.lastSyncAt ? ` · Last sync ${relTime(status.lastSyncAt)}` : ''}
+            {' · '}Peers online {Array.isArray(status.peers) ? status.peers.length : 0}
+          </span>
+        </div>
+
+        {saveMsg && (
+          <div className={saveMsg.kind === 'err' ? 'error-banner' : ''}
+               style={saveMsg.kind === 'ok' ? styles.ok : { marginBottom: 10 }}>
+            {saveMsg.text}
+          </div>
+        )}
+        {testMsg && (
+          <div className={testMsg.kind === 'err' ? 'error-banner' : ''}
+               style={testMsg.kind === 'ok' ? styles.ok : { marginBottom: 10 }}>
+            {testMsg.text}
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <div>
+            <label>Supabase URL</label>
+            <input
+              type="text"
+              placeholder="https://xxxx.supabase.co"
+              value={cfg.url}
+              onChange={(e) => setCfg({ ...cfg, url: e.target.value })}
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label>Device name</label>
+            <input
+              type="text"
+              placeholder="e.g. Studio iMac"
+              value={cfg.deviceName}
+              onChange={(e) => setCfg({ ...cfg, deviceName: e.target.value })}
+              autoComplete="off"
+            />
+          </div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <label>Anon key</label>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input
+              type={showKey ? 'text' : 'password'}
+              placeholder="paste anon public key (leave blank to keep existing)"
+              value={cfg.anonKey}
+              onChange={(e) => setCfg({ ...cfg, anonKey: e.target.value })}
+              style={{ flex: 1 }}
+              autoComplete="off"
+            />
+            <button type="button" className="ghost" onClick={() => setShowKey((v) => !v)}>
+              {showKey ? 'Hide' : 'Show'}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="ghost" onClick={onTest} disabled={busy}>Test connection</button>
+          <button type="button" className="primary" onClick={onSave} disabled={busy}>Save and connect</button>
+          <button type="button" className="danger" onClick={onDisconnect} disabled={busy}>Disconnect</button>
+          <button type="button" className="ghost" onClick={onCopySql} disabled={busy}>Copy setup SQL</button>
+        </div>
+
+        <p style={{ ...cardDesc, marginTop: 12, marginBottom: 0 }}>
+          Paste the URL and anon key from your Supabase project (Project Settings → API).
+          Click "Copy setup SQL", run it once in the SQL editor, then click "Save and connect".
+        </p>
+      </Subcard>
+    </Section>
+  );
+}
+
+function relTime(iso) {
+  try {
+    const t = new Date(iso).getTime();
+    const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+    if (s < 60) return `${s}s ago`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  } catch { return ''; }
 }
 
 // ─────────────────────────────────────────────── styles

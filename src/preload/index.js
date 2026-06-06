@@ -261,6 +261,20 @@ const api = {
     openAccount:        (data) => ipcRenderer.invoke('oserus-browser:openAccount', data),
     openAllForProfile:  (data) => ipcRenderer.invoke('oserus-browser:openAllForProfile', data),
   },
+  cloud: {
+    getStatus: () => ipcRenderer.invoke('cloud:getStatus'),
+    getConfig: () => ipcRenderer.invoke('cloud:getConfig'),
+    setConfig: (cfg) => ipcRenderer.invoke('cloud:setConfig', cfg),
+    test: (cfg) => ipcRenderer.invoke('cloud:test', cfg),
+    start: () => ipcRenderer.invoke('cloud:start'),
+    stop: () => ipcRenderer.invoke('cloud:stop'),
+    getSchemaSql: () => ipcRenderer.invoke('cloud:getSchemaSql'),
+    onStatus: (cb) => {
+      const fn = (_e, s) => cb(s);
+      ipcRenderer.on('cloud:status', fn);
+      return () => ipcRenderer.removeListener('cloud:status', fn);
+    },
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);

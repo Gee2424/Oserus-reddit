@@ -1,6 +1,6 @@
 {
   "name": "oserus-management",
-  "version": "0.63.0",
+  "version": "0.64.0",
   "description": "Oserus Management — team Reddit & RedGifs account management for OnlyFans agencies",
   "main": "src/main/index.js",
   "scripts": {
@@ -17,6 +17,7 @@
   "author": "Oserus Management",
   "license": "UNLICENSED",
   "dependencies": {
+    "@supabase/supabase-js": "^2.107.0",
     "adm-zip": "^0.5.16",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.3.0",

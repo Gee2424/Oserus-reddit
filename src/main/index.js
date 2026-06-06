@@ -65,6 +65,7 @@ const registerExamplesHandlers = require('./ipc/examples');
 const registerEngagementHandlers = require('./ipc/engagement');
 const registerAutoCommentHandlers = require('./ipc/autoComment');
 const registerAutopilotProtocolHandlers = require('./ipc/autopilotProtocol');
+const registerCloudHandlers = require('./ipc/cloud');
 const coordinator = require('./services/coordinator');
 const oserusBrowser = require('./browser');
 const { buildAutofillScript } = require('./autofill');
@@ -365,6 +366,7 @@ app.whenReady().then(() => {
   registerEngagementHandlers(ipcMain);
   registerAutoCommentHandlers(ipcMain);
   registerAutopilotProtocolHandlers(ipcMain);
+  registerCloudHandlers(ipcMain);
 
   // Oserus Browser (v0.62 soft-cut: optional, launched on demand from
   // Management). The module manages a single window — picker or session
@@ -378,6 +380,16 @@ app.whenReady().then(() => {
   // Autopilot coordinator — only acts when an admin has enabled it AND a
   // protocol is enabled. Starting the timer here is harmless when disabled.
   coordinator.start();
+
+  try {
+    const cloud = require('./sync/supabase');
+    const { getKv } = require('./db');
+    if (getKv('cloud.enabled') === '1' && getKv('cloud.supabase.url') && getKv('cloud.supabase.anon_key')) {
+      cloud.start().catch((e) => elog.warn('[cloud] auto-start failed:', e?.message));
+    }
+  } catch (e) {
+    elog.warn('[cloud] init skipped:', e?.message);
+  }
   // Tray "Install update" item triggers the same quit-and-install path the
   // renderer banner uses. The tray is created first so setUpdateReady is wired
   // by the time the updater fires its first downloaded event.

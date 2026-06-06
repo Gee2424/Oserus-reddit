@@ -369,6 +369,12 @@ function initDatabase() {
       error TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS app_kv (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   // Migration: if users.role constraint is the old ('admin','creator') one, rebuild the table.
@@ -792,4 +798,20 @@ function initDatabase() {
   }
 }
 
-module.exports = { initDatabase, getDb, encryptSecret, decryptSecret };
+function getKv(key) {
+  try {
+    const row = getDb().prepare('SELECT value FROM app_kv WHERE key = ?').get(key);
+    return row ? row.value : null;
+  } catch {
+    return null;
+  }
+}
+
+function setKv(key, value) {
+  getDb().prepare(
+    `INSERT INTO app_kv (key, value, updated_at) VALUES (?, ?, datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`
+  ).run(key, value == null ? null : String(value));
+}
+
+module.exports = { initDatabase, getDb, encryptSecret, decryptSecret, getKv, setKv };

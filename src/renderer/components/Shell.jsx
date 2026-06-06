@@ -28,11 +28,19 @@ export default function Shell({ route, navigate, children }) {
   const can = useCan();
   const { previewing, effectiveRole, exitPreview } = usePermissions();
   const [version, setVersion] = useState('');
+  const [cloudConnected, setCloudConnected] = useState(false);
 
   useEffect(() => {
     if (window.api?.app?.version) {
       window.api.app.version().then(v => setVersion(v.version));
     }
+  }, []);
+
+  useEffect(() => {
+    if (!window.api?.cloud) return;
+    window.api.cloud.getStatus().then((s) => s && setCloudConnected(!!s.connected));
+    const off = window.api.cloud.onStatus((s) => setCloudConnected(!!s?.connected));
+    return () => { try { off && off(); } catch {} };
   }, []);
 
   const grouped = {};
@@ -89,6 +97,14 @@ export default function Shell({ route, navigate, children }) {
           <button className="ghost" onClick={logout} style={{ width: '100%', marginTop: 6, fontSize: 12 }}>
             Sign out
           </button>
+          <div style={styles.cloudRow} className="mono">
+            <span style={{
+              width: 7, height: 7, borderRadius: '50%',
+              background: cloudConnected ? '#7a9a5a' : '#666',
+              boxShadow: cloudConnected ? '0 0 6px rgba(122,154,90,0.8)' : 'none',
+            }} />
+            <span>{cloudConnected ? 'Cloud synced' : 'Offline'}</span>
+          </div>
           {version && (
             <div style={styles.versionTag} className="mono">v{version}</div>
           )}
@@ -209,6 +225,15 @@ const styles = {
     letterSpacing: '0.15em',
     color: 'var(--text-3)',
     textAlign: 'center',
+  },
+  cloudRow: {
+    marginTop: 8,
+    fontSize: 10,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    color: 'var(--text-2)',
+    justifyContent: 'center',
   },
   main: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
   previewBanner: {
