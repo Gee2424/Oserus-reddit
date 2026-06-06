@@ -48,6 +48,11 @@ const api = {
   activity: {
     list: (data) => ipcRenderer.invoke('activity:list', data),
   },
+  // Management Hub backend — per-user productivity metrics + drill-down.
+  team: {
+    overview:     (data) => ipcRenderer.invoke('team:overview', data),
+    memberDetail: (data) => ipcRenderer.invoke('team:memberDetail', data),
+  },
   reddit: {
     precheckSubreddit: (data) => ipcRenderer.invoke('reddit:precheckSubreddit', data),
   },

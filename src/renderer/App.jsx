@@ -8,11 +8,11 @@ import Shell from './components/Shell.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
 import ProfilesPage from './pages/Profiles.jsx';
 import ModelDetailPage from './pages/ModelDetail.jsx';
-import TeamPage from './pages/Team.jsx';
+// Team page merged into the Management Hub (Dashboard).
 import SettingsPage from './pages/Settings.jsx';
 import DocsPage from './pages/Docs.jsx';
 import AnalyticsPage from './pages/Analytics.jsx';
-import ActivityPage from './pages/Activity.jsx';
+// Activity page merged into the Management Hub (Dashboard).
 import AutopilotPage from './pages/Autopilot.jsx';
 import SchedulerProPage from './pages/SchedulerPro.jsx';
 import AutomationPage from './pages/Automation.jsx';
@@ -78,7 +78,9 @@ function Inner() {
         return <RedditApiPage navigate={navigate} />;
       case 'profiles': return <ProfilesPage navigate={navigate} />;
       case 'model': return <ModelDetailPage modelId={routeParams.modelId} navigate={navigate} />;
-      case 'users': return <TeamPage />;
+      // 'users' + 'activity' both land on the Management Hub now —
+      // each former page is a section inside Dashboard.
+      case 'users':    return <DashboardPage navigate={navigate} />;
       case 'infra':
       case 'proxies':
         return <SettingsPage navigate={navigate} />;
@@ -87,7 +89,7 @@ function Inner() {
       case 'settings': return <SettingsPage navigate={navigate} />;
       case 'docs': return <DocsPage />;
       case 'analytics': return <AnalyticsPage />;
-      case 'activity': return <ActivityPage />;
+      case 'activity': return <DashboardPage navigate={navigate} />;
       case 'automation': return <AutomationPage navigate={navigate} initialSection={routeParams.section} />;
       // Legacy routes — kept so deep links from older versions still resolve.
       case 'autopilot': return <AutomationPage navigate={navigate} initialSection="autopilot" />;
@@ -109,7 +111,7 @@ function Inner() {
         case 'intel': return <IntelligencePage />;
         case 'dashboard': return <DashboardPage navigate={navigate} />;
         case 'redgifs-dashboard': return <RedGifsDashboardPage navigate={navigate} />;
-        case 'activity': return <ActivityPage />;
+        case 'activity': return <DashboardPage navigate={navigate} />;
         default: return <InboxPage embedded standalone />;
       }
     })();

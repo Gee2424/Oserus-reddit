@@ -17,8 +17,7 @@ const NAV = [
   { key: 'automation',    label: 'Automation',          icon: '⟳', group: 'Workspace', perm: 'page.autopilot' },
   { key: 'intel',         label: 'Intelligence',        icon: '◎', group: 'Workspace', perm: 'page.intel' },
 
-  { key: 'users',    label: 'Team',          icon: '◉', group: 'Team', perm: 'page.team' },
-  { key: 'activity', label: 'Activity',      icon: '☷', group: 'Team', perm: 'page.activity' },
+  // Team + Activity merged into the Management Hub (Dashboard).
   { key: 'docs',     label: 'Documentation', icon: '◫', group: 'Team', perm: 'page.docs' },
 
   { key: 'settings', label: 'Configuration', icon: '⚙', group: 'Configure', perm: 'page.settings' },

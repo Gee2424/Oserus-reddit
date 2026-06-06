@@ -52,6 +52,7 @@ const registerDocsHandlers = require('./ipc/docs');
 const registerScheduledHandlers = require('./ipc/scheduled');
 const registerAnalyticsHandlers = require('./ipc/analytics');
 const registerActivityHandlers = require('./ipc/activity');
+const registerTeamHandlers = require('./ipc/team');
 const registerRedditHandlers = require('./ipc/reddit');
 const registerRolesHandlers = require('./ipc/roles');
 const registerInboxHandlers = require('./ipc/inbox');
@@ -351,6 +352,7 @@ app.whenReady().then(() => {
   registerScheduledHandlers(ipcMain);
   registerAnalyticsHandlers(ipcMain);
   registerActivityHandlers(ipcMain);
+  registerTeamHandlers(ipcMain);
   registerRedditHandlers(ipcMain);
   registerRolesHandlers(ipcMain);
   registerInboxHandlers(ipcMain);
