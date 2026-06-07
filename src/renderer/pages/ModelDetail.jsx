@@ -505,23 +505,6 @@ export default function ModelDetailPage({ modelId, navigate }) {
                       style={styles.startBtn}
                       title={`Open ${plat.label} as ${a.username}`}
                     >▶</button>
-                    <button
-                      className="ghost"
-                      onClick={async () => {
-                        try {
-                          const r = await window.api.chrome.launch({
-                            accountId: a.id,
-                            accountUsername: a.username,
-                            profileSlug: model?.name || 'default',
-                            proxyUrl: a.proxy_url || model?.proxy_url || null,
-                            startUrl: 'https://www.reddit.com',
-                          });
-                          if (r && r.ok === false) alert(r.error || 'Real Chrome launch failed.');
-                        } catch (e) { alert(e.message || 'Real Chrome launch failed.'); }
-                      }}
-                      style={{ fontSize: 11, padding: '4px 8px' }}
-                      title="Open this account in real Chrome with its own user-data-dir and proxy"
-                    >Real Chrome</button>
                     <span style={{ ...styles.dot, background: STATUS_COLORS[a.status] }} title={a.status} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 500 }}>
