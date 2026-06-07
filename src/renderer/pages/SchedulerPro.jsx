@@ -901,3 +901,17 @@ const dayHeader = { fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing:
 const row = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--border)' };
 const pill = { fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, textTransform: 'uppercase', flexShrink: 0 };
 const tiny = { fontSize: 11, padding: '4px 8px' };
+
+function Toggle({ label, value, onChange }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', padding: '4px 0' }}>
+      <input
+        type="checkbox"
+        checked={!!value}
+        onChange={(e) => onChange(e.target.checked)}
+        style={{ width: 14, height: 14, cursor: 'pointer' }}
+      />
+      <span>{label}</span>
+    </label>
+  );
+}
