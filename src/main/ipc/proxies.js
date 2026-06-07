@@ -7,9 +7,20 @@ function ensureProxyMigrations() {
   const db = getDb();
   const cols = db.prepare('PRAGMA table_info(proxies)').all();
   const have = (n) => cols.some((c) => c.name === n);
-  if (!have('last_test_ok'))    db.exec('ALTER TABLE proxies ADD COLUMN last_test_ok INTEGER');
-  if (!have('last_test_at'))    db.exec('ALTER TABLE proxies ADD COLUMN last_test_at TEXT');
-  if (!have('last_test_error')) db.exec('ALTER TABLE proxies ADD COLUMN last_test_error TEXT');
+  if (!have('last_test_ok'))      db.exec('ALTER TABLE proxies ADD COLUMN last_test_ok INTEGER');
+  if (!have('last_test_at'))      db.exec('ALTER TABLE proxies ADD COLUMN last_test_at TEXT');
+  if (!have('last_test_error'))   db.exec('ALTER TABLE proxies ADD COLUMN last_test_error TEXT');
+  // Rotating residential support. rotation_minutes = 0 means "sticky
+  // forever" — the upstream username is used verbatim. > 0 generates a
+  // synthetic per-account session id that flips every N minutes, appended
+  // to the username so providers like BrightData / IPRoyal / SOAX
+  // rotate the exit IP on the next request after the TTL.
+  // session_user_template lets the operator pick the join format, e.g.
+  //   "{user}-session-{sid}"  (default, IPRoyal/SOAX)
+  //   "{user}-sessid-{sid}"   (BrightData)
+  //   "user-{sid}-{user}"     (Webshare)
+  if (!have('rotation_minutes'))      db.exec('ALTER TABLE proxies ADD COLUMN rotation_minutes INTEGER NOT NULL DEFAULT 0');
+  if (!have('session_user_template')) db.exec('ALTER TABLE proxies ADD COLUMN session_user_template TEXT');
 }
 
 // Reach the public IP via the proxy. Resolves true if the request comes
@@ -57,7 +68,8 @@ function register(ipcMain) {
     ensureProxyMigrations();
     const rows = getDb()
       .prepare(`SELECT id, label, kind, host, port, username, password_encrypted, created_at,
-                       last_test_ok, last_test_at, last_test_error
+                       last_test_ok, last_test_at, last_test_error,
+                       rotation_minutes, session_user_template
                 FROM proxies ORDER BY label`)
       .all();
     return {
@@ -110,7 +122,8 @@ function register(ipcMain) {
 
   ipcMain.handle('proxies:create', (_e, args) => {
     try {
-      const { token, label, kind, host, port, username, password } = args;
+      const { token, label, kind, host, port, username, password,
+              rotation_minutes, session_user_template } = args;
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'infra.proxies.manage');
@@ -118,9 +131,16 @@ function register(ipcMain) {
       if (!host || !port) throw new Error('Host and port required');
       const info = getDb()
         .prepare(
-          'INSERT INTO proxies (label, kind, host, port, username, password_encrypted) VALUES (?,?,?,?,?,?)'
+          `INSERT INTO proxies
+             (label, kind, host, port, username, password_encrypted,
+              rotation_minutes, session_user_template)
+           VALUES (?,?,?,?,?,?,?,?)`
         )
-        .run(label, kind, host, Number(port), username || null, encryptSecret(password));
+        .run(
+          label, kind, host, Number(port), username || null, encryptSecret(password),
+          Math.max(0, Number(rotation_minutes) || 0),
+          session_user_template || null,
+        );
       return { ok: true, id: info.lastInsertRowid };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -132,7 +152,7 @@ function register(ipcMain) {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'infra.proxies.manage');
-      const allowed = ['label', 'kind', 'host', 'port', 'username'];
+      const allowed = ['label', 'kind', 'host', 'port', 'username', 'rotation_minutes', 'session_user_template'];
       const sets = [], params = [];
       for (const k of allowed) {
         if (updates[k] !== undefined) {

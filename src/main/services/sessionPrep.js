@@ -13,12 +13,32 @@
 
 const { session } = require('electron');
 const elog = require('electron-log');
+const fs = require('fs');
 const { getDb, decryptSecret } = require('../db');
 const fingerprintMod = require('../fingerprint');
 const { writePreloadFor } = require('../antidetectPreload');
 
+// Per-partition tracking so we only loadExtension once per session. The
+// Electron API does not expose listExtensions on a fresh partition, so we
+// remember our own loads. WeakRef-equivalent via partition key string.
+const loadedExtensionsByPartition = new Map(); // partition -> Set<path>
+
 // Track configured partitions so we can skip redundant work on re-prep.
 const configuredPartitions = new Set();
+
+// Build the username sent to the proxy. When rotation_minutes > 0, append
+// a synthetic session id that flips every TTL — the upstream provider
+// rotates the exit IP on the next request after the join changes. Account
+// id is mixed in so different accounts on the same proxy never collide.
+function buildRotatingUsername(account) {
+  const base = account.proxy_username;
+  const mins = Number(account.proxy_rotation_minutes) || 0;
+  if (!base || mins <= 0) return base;
+  const bucket = Math.floor(Date.now() / (mins * 60 * 1000));
+  const sid = `${account.id}${bucket.toString(36)}`;
+  const tmpl = account.proxy_session_user_template || '{user}-session-{sid}';
+  return tmpl.replace('{user}', base).replace('{sid}', sid);
+}
 
 async function prepareSessionForAccount(accountId) {
   if (!accountId) return { ok: false, error: 'No accountId' };
@@ -28,7 +48,9 @@ async function prepareSessionForAccount(accountId) {
   const account = db.prepare(
     `SELECT a.*,
             px.kind AS proxy_kind, px.host AS proxy_host, px.port AS proxy_port,
-            px.username AS proxy_username, px.password_encrypted AS proxy_pw_enc
+            px.username AS proxy_username, px.password_encrypted AS proxy_pw_enc,
+            px.rotation_minutes AS proxy_rotation_minutes,
+            px.session_user_template AS proxy_session_user_template
      FROM reddit_accounts a
      LEFT JOIN model_profiles mp ON mp.id = a.profile_id
      LEFT JOIN proxies px ON px.id = COALESCE(a.proxy_id, mp.proxy_id)
@@ -73,10 +95,11 @@ async function prepareSessionForAccount(accountId) {
     sess.removeAllListeners('login');
     if (account.proxy_username) {
       const password = decryptSecret(account.proxy_pw_enc) || '';
+      const username = buildRotatingUsername(account);
       sess.on('login', (event, _details, authInfo, callback) => {
         if (authInfo && authInfo.isProxy) {
           event.preventDefault();
-          callback(account.proxy_username, password);
+          callback(username, password);
         }
       });
     }
@@ -94,8 +117,36 @@ async function prepareSessionForAccount(accountId) {
     await sess.setProxy({ proxyRules: '' });
   }
 
+  // Chrome extensions opted in by the operator. Loaded per-partition so
+  // each profile gets its own extension state (storage, cookies, badge).
+  await loadEnabledExtensions(sess, partition);
+
   configuredPartitions.add(partition);
   return { ok: true, partition, partitionKey: account.partition_key };
+}
+
+async function loadEnabledExtensions(sess, partition) {
+  let rows = [];
+  try {
+    rows = getDb().prepare(
+      `SELECT id, path FROM browser_extensions WHERE enabled = 1`
+    ).all();
+  } catch {
+    return; // table may not exist yet (first run before any extension added)
+  }
+  if (!rows.length) return;
+  let loaded = loadedExtensionsByPartition.get(partition);
+  if (!loaded) { loaded = new Set(); loadedExtensionsByPartition.set(partition, loaded); }
+  for (const r of rows) {
+    if (loaded.has(r.path)) continue;
+    try {
+      if (!fs.existsSync(r.path)) { elog.warn('[ext] path missing', r.path); continue; }
+      await sess.loadExtension(r.path, { allowFileAccess: true });
+      loaded.add(r.path);
+    } catch (e) {
+      elog.warn('[ext] loadExtension failed', r.path, e?.message);
+    }
+  }
 }
 
 module.exports = { prepareSessionForAccount, configuredPartitions };

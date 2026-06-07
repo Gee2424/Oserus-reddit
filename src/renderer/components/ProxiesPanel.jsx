@@ -9,7 +9,12 @@ const PROXY_KINDS = [
 ];
 
 function blankProxy() {
-  return { label: '', kind: 'http', host: '', port: '', username: '', password: '' };
+  return {
+    label: '', kind: 'http', host: '', port: '',
+    username: '', password: '',
+    rotation_minutes: 0,
+    session_user_template: '',
+  };
 }
 
 // Proxy management. Reused on the Operations page.
@@ -41,6 +46,8 @@ export default function ProxiesPanel() {
       const updates = {
         label: form.label, kind: form.kind, host: form.host, port: Number(form.port),
         username: form.username || null,
+        rotation_minutes: Math.max(0, Number(form.rotation_minutes) || 0),
+        session_user_template: form.session_user_template || null,
       };
       if (form.password) updates.password = form.password;
       res = await window.api.proxies.update({ token, proxyId: editing, updates });
@@ -48,6 +55,8 @@ export default function ProxiesPanel() {
       res = await window.api.proxies.create({
         token, label: form.label, kind: form.kind, host: form.host, port: form.port,
         username: form.username, password: form.password,
+        rotation_minutes: Math.max(0, Number(form.rotation_minutes) || 0),
+        session_user_template: form.session_user_template || null,
       });
     }
     if (!res.ok) { setError(res.error); return; }
@@ -59,6 +68,8 @@ export default function ProxiesPanel() {
     setForm({
       label: p.label, kind: p.kind, host: p.host, port: p.port,
       username: p.username || '', password: '',
+      rotation_minutes: p.rotation_minutes || 0,
+      session_user_template: p.session_user_template || '',
     });
     setShowAdd(true);
   }
@@ -119,6 +130,31 @@ export default function ProxiesPanel() {
               <input type="text" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
             </div>
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 14, marginBottom: 14 }}>
+            <div>
+              <label>Rotation TTL (minutes)</label>
+              <input
+                type="number" min={0}
+                placeholder="0 = sticky"
+                value={form.rotation_minutes}
+                onChange={(e) => setForm({ ...form, rotation_minutes: e.target.value })}
+              />
+              <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>
+                0 = no rotation. Anything &gt; 0 rotates exit IP every N minutes (residential providers).
+              </div>
+            </div>
+            <div>
+              <label>Sticky-session username template (optional)</label>
+              <input
+                placeholder="{user}-session-{sid}"
+                value={form.session_user_template}
+                onChange={(e) => setForm({ ...form, session_user_template: e.target.value })}
+              />
+              <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>
+                Use <code>{'{user}'}</code> and <code>{'{sid}'}</code>. Defaults to <code>{'{user}-session-{sid}'}</code> (IPRoyal / SOAX). BrightData: <code>{'{user}-sessid-{sid}'}</code>.
+              </div>
+            </div>
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="submit" className="primary">{editing ? 'Save changes' : 'Add proxy'}</button>
             <button type="button" className="ghost" onClick={() => { setShowAdd(false); setEditing(null); }}>Cancel</button>
@@ -137,6 +173,7 @@ export default function ProxiesPanel() {
                 <th style={th}>Type</th>
                 <th style={th}>Address</th>
                 <th style={th}>Auth</th>
+                <th style={th}>Rotation</th>
                 <th style={th}></th>
               </tr>
             </thead>
@@ -147,6 +184,11 @@ export default function ProxiesPanel() {
                   <td style={td}><span className="pill">{p.kind}</span></td>
                   <td style={td}><span className="mono">{p.host}:{p.port}</span></td>
                   <td style={td}>{p.username ? <span className="mono">{p.username}</span> : <span className="dim">none</span>}</td>
+                  <td style={td}>
+                    {p.rotation_minutes > 0
+                      ? <span className="pill" style={{ background: 'rgba(122,154,90,0.18)' }}>{p.rotation_minutes}m</span>
+                      : <span className="dim">sticky</span>}
+                  </td>
                   <td style={{ ...td, textAlign: 'right' }}>
                     {canManage && (
                       <>

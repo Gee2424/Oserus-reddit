@@ -19,10 +19,16 @@
 //   • Model "Open all" button → oserus-browser:openAllForProfile,
 //     which spawns one window per account in parallel.
 
-const { BrowserWindow, WebContentsView, ipcMain, shell } = require('electron');
+const { BrowserWindow, WebContentsView, Menu, clipboard, ipcMain, shell } = require('electron');
 const path = require('path');
 const elog = require('electron-log');
 const { getDb } = require('./db');
+
+// Right-side content-list pane width when open. The active tab's
+// WebContentsView shrinks by this amount so the React sidebar
+// (rendered by the chrome window itself) is uncovered on the right.
+const SIDEBAR_WIDTH = 340;
+const FIND_BAR_HEIGHT = 36;
 
 // chromeHeight = CSS pixels of the host renderer's chrome bar
 // (tab strip + omnibox). Content WebContentsViews position with y =
@@ -96,7 +102,7 @@ async function openForAccount(accountId) {
   }
 
   const acct = getDb().prepare(
-    `SELECT a.username, a.platform, p.name AS profile_name
+    `SELECT a.username, a.platform, a.profile_id, p.name AS profile_name
        FROM reddit_accounts a JOIN model_profiles p ON p.id = a.profile_id
       WHERE a.id = ?`
   ).get(accountId);
@@ -121,9 +127,12 @@ async function openForAccount(accountId) {
   windowState.set(win, {
     accountId, partition,
     platform: acct.platform,
-    tabs: [],           // [{ id, view, title, url, loading, canBack, canForward, navigated }]
+    profileId: acct.profile_id || null,
+    tabs: [],           // [{ id, view, title, url, favicon, loading, canBack, canForward }]
     activeId: null,
     nextTabId: 1,
+    sidebarOpen: false,
+    findOpen: false,
   });
   accountWindows.set(accountId, win);
 
@@ -177,9 +186,16 @@ function layoutActiveTab(win) {
   const st = windowState.get(win);
   if (!st) return;
   const [w, h] = win.getContentSize();
+  const sidebar = st.sidebarOpen ? SIDEBAR_WIDTH : 0;
+  const findOffset = st.findOpen ? FIND_BAR_HEIGHT : 0;
+  const top = CHROME_HEIGHT + findOffset;
   for (const t of st.tabs) {
     if (t.id === st.activeId) {
-      t.view.setBounds({ x: 0, y: CHROME_HEIGHT, width: w, height: Math.max(0, h - CHROME_HEIGHT) });
+      t.view.setBounds({
+        x: 0, y: top,
+        width: Math.max(0, w - sidebar),
+        height: Math.max(0, h - top),
+      });
       t.view.setVisible(true);
     } else {
       t.view.setVisible(false);
@@ -192,6 +208,7 @@ function tabSnapshot(t) {
     id: t.id,
     title: t.title || t.url,
     url: t.url,
+    favicon: t.favicon || null,
     loading: t.loading,
     canBack: t.canBack,
     canForward: t.canForward,
@@ -205,6 +222,11 @@ function pushState(win) {
     win.webContents.send('oserus-browser:state', {
       tabs: st.tabs.map(tabSnapshot),
       activeId: st.activeId,
+      sidebarOpen: !!st.sidebarOpen,
+      findOpen: !!st.findOpen,
+      accountId: st.accountId,
+      profileId: st.profileId,
+      platform: st.platform,
     });
   } catch {}
 }
@@ -242,6 +264,97 @@ function openTab(win, url) {
   wc.on('did-navigate', nav);
   wc.on('did-navigate-in-page', nav);
   wc.on('page-title-updated', (_e, t) => { tab.title = t; pushState(win); });
+  wc.on('page-favicon-updated', (_e, favicons) => {
+    tab.favicon = (favicons && favicons[0]) || null;
+    pushState(win);
+  });
+
+  // Chrome-equivalent keyboard shortcuts. before-input-event fires on every
+  // key in the tab's webContents and lets us intercept before the page sees it.
+  wc.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const ctrl = input.control || input.meta;
+    const key = (input.key || '').toLowerCase();
+
+    if (key === 'f12' || (ctrl && input.shift && key === 'i')) {
+      if (wc.isDevToolsOpened()) wc.closeDevTools(); else wc.openDevTools({ mode: 'detach' });
+      event.preventDefault();
+    } else if (ctrl && key === 'f') {
+      openFind(win);
+      event.preventDefault();
+    } else if (key === 'escape' && st.findOpen) {
+      closeFind(win);
+      event.preventDefault();
+    } else if (ctrl && (key === '=' || key === '+')) {
+      wc.setZoomLevel(Math.min(9, wc.getZoomLevel() + 0.5));
+      event.preventDefault();
+    } else if (ctrl && key === '-') {
+      wc.setZoomLevel(Math.max(-7, wc.getZoomLevel() - 0.5));
+      event.preventDefault();
+    } else if (ctrl && key === '0') {
+      wc.setZoomLevel(0);
+      event.preventDefault();
+    } else if (ctrl && key === 'r') {
+      wc.reload();
+      event.preventDefault();
+    } else if (ctrl && key === 't') {
+      openTab(win, homeFor(st.platform));
+      event.preventDefault();
+    } else if (ctrl && key === 'w') {
+      closeTab(win, tab.id);
+      event.preventDefault();
+    } else if (ctrl && key === 'l') {
+      try { win.webContents.send('oserus-browser:focusOmnibox'); } catch {}
+      event.preventDefault();
+    }
+  });
+
+  // Right-click context menu — Chrome-equivalent items, contextual on what
+  // the user clicked. We never spawn a popup window; new-tab requests go
+  // through openTab so they inherit the account partition.
+  wc.on('context-menu', (_event, params) => {
+    const items = [];
+    if (params.linkURL) {
+      items.push({ label: 'Open Link in New Tab', click: () => openTab(win, params.linkURL) });
+      items.push({ label: 'Copy Link Address', click: () => clipboard.writeText(params.linkURL) });
+      items.push({ type: 'separator' });
+    }
+    if (params.srcURL && params.mediaType === 'image') {
+      items.push({ label: 'Open Image in New Tab', click: () => openTab(win, params.srcURL) });
+      items.push({ label: 'Copy Image Address', click: () => clipboard.writeText(params.srcURL) });
+      items.push({ type: 'separator' });
+    }
+    if (params.selectionText) {
+      items.push({ label: 'Copy', role: 'copy' });
+      items.push({
+        label: `Search Google for "${params.selectionText.slice(0, 40)}"`,
+        click: () => openTab(win, `https://www.google.com/search?q=${encodeURIComponent(params.selectionText)}`),
+      });
+      items.push({ type: 'separator' });
+    }
+    if (params.isEditable) {
+      items.push({ label: 'Cut', role: 'cut' });
+      items.push({ label: 'Copy', role: 'copy' });
+      items.push({ label: 'Paste', role: 'paste' });
+      items.push({ type: 'separator' });
+    }
+    items.push({ label: 'Back', enabled: wc.navigationHistory?.canGoBack() ?? wc.canGoBack(), click: () => wc.goBack() });
+    items.push({ label: 'Forward', enabled: wc.navigationHistory?.canGoForward() ?? wc.canGoForward(), click: () => wc.goForward() });
+    items.push({ label: 'Reload', click: () => wc.reload() });
+    items.push({ type: 'separator' });
+    items.push({ label: 'View Page Source', click: () => openTab(win, 'view-source:' + wc.getURL()) });
+    items.push({ label: 'Inspect', click: () => wc.inspectElement(params.x, params.y) });
+    Menu.buildFromTemplate(items).popup({ window: win });
+  });
+
+  wc.on('found-in-page', (_e, result) => {
+    try {
+      win.webContents.send('oserus-browser:findResult', {
+        active: result.activeMatchOrdinal,
+        total: result.matches,
+      });
+    } catch {}
+  });
 
   // window.open / target=_blank → open as a new tab in the same window
   // instead of letting Chromium spawn a popup.
@@ -330,6 +443,30 @@ function withActiveTab(win, fn) {
   if (t) fn(t);
 }
 
+function openFind(win) {
+  const st = windowState.get(win);
+  if (!st || st.findOpen) { try { win.webContents.send('oserus-browser:focusFind'); } catch {} return; }
+  st.findOpen = true;
+  layoutActiveTab(win);
+  pushState(win);
+  setTimeout(() => { try { win.webContents.send('oserus-browser:focusFind'); } catch {} }, 30);
+}
+function closeFind(win) {
+  const st = windowState.get(win);
+  if (!st || !st.findOpen) return;
+  st.findOpen = false;
+  withActiveTab(win, (t) => { try { t.view.webContents.stopFindInPage('clearSelection'); } catch {} });
+  layoutActiveTab(win);
+  pushState(win);
+}
+function setSidebar(win, open) {
+  const st = windowState.get(win);
+  if (!st) return;
+  st.sidebarOpen = !!open;
+  layoutActiveTab(win);
+  pushState(win);
+}
+
 // ---------------------------------------------------------------- tab IPC
 
 let tabIpcRegistered = false;
@@ -398,6 +535,92 @@ function registerTabIpc() {
     if (!win) return { ok: false };
     withActiveTab(win, (t) => { t.view.webContents.reload(); });
     return { ok: true };
+  });
+
+  // Sidebar (Content List pane)
+  ipcMain.handle('oserus-browser:setSidebar', (e, { open }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) setSidebar(win, open);
+    return { ok: true };
+  });
+
+  // Find-in-page
+  ipcMain.handle('oserus-browser:findOpen', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) openFind(win);
+    return { ok: true };
+  });
+  ipcMain.handle('oserus-browser:findClose', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) closeFind(win);
+    return { ok: true };
+  });
+  ipcMain.handle('oserus-browser:find', (e, { text, forward = true, next = false }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return { ok: false };
+    withActiveTab(win, (t) => {
+      const q = String(text || '');
+      if (!q) { try { t.view.webContents.stopFindInPage('clearSelection'); } catch {} return; }
+      t.view.webContents.findInPage(q, { forward, findNext: next });
+    });
+    return { ok: true };
+  });
+
+  // Profile picker — list every account under the same model_profile,
+  // so the chrome dropdown can render sibling accounts.
+  ipcMain.handle('oserus-browser:siblings', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return { ok: false, accounts: [] };
+    const st = windowState.get(win);
+    if (!st?.profileId) return { ok: true, accounts: [] };
+    const rows = getDb().prepare(
+      `SELECT id, platform, username, status
+         FROM reddit_accounts
+        WHERE profile_id = ? AND status != 'banned'
+        ORDER BY platform, username`
+    ).all(st.profileId);
+    return { ok: true, accounts: rows, activeId: st.accountId };
+  });
+
+  // Switch the window to a different account on the same profile. We
+  // close the current window and open the new one — partitions and
+  // proxy/login handlers are bound at WebContentsView creation, so
+  // reopening guarantees clean isolation.
+  ipcMain.handle('oserus-browser:switchAccount', async (e, { accountId }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win || !accountId) return { ok: false };
+    try { win.close(); } catch {}
+    return openForAccount(accountId);
+  });
+
+  // Content list for the Content sidebar — scheduled + drafted posts
+  // for THIS window's account, grouped by week, platform-aware.
+  ipcMain.handle('oserus-browser:contentList', (e, { platform } = {}) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return { ok: false };
+    const st = windowState.get(win);
+    if (!st?.accountId) return { ok: true, items: [] };
+    const db = getDb();
+    const items = [];
+    try {
+      const scheduled = db.prepare(
+        `SELECT id, subreddit, title, body, url, kind, scheduled_for, status
+           FROM scheduled_posts
+          WHERE account_id = ? AND scheduled_for >= datetime('now','-7 days')
+          ORDER BY scheduled_for DESC LIMIT 200`
+      ).all(st.accountId);
+      for (const r of scheduled) items.push({ source: 'scheduled', ...r });
+    } catch {}
+    try {
+      const drafts = db.prepare(
+        `SELECT id, subreddit, title, body, link_url AS url, kind, scheduled_for, status, created_at
+           FROM post_drafts
+          WHERE account_id = ?
+          ORDER BY created_at DESC LIMIT 200`
+      ).all(st.accountId);
+      for (const r of drafts) items.push({ source: 'draft', ...r });
+    } catch {}
+    return { ok: true, platform: st.platform, items };
   });
 }
 

@@ -28,12 +28,6 @@ let timer = null;
 let running = false;
 let lastRun = null;
 let lastSummary = null;
-let engagementTimer = null;
-let topicTimer = null;
-let schedTimer = null;
-let proxyTimer = null;
-let boostTimer = null;
-let karmaTimer = null;
 
 function isEnabled() { return getSetting('autopilot_enabled') === '1'; }
 
@@ -485,39 +479,63 @@ function tick() {
   runOnce().catch((e) => elog.warn('[autopilot] tick failed:', e?.message));
 }
 
+// Single 10s tick. Each job declares its interval + jitter; we run it
+// whenever its next-due time has passed. Consolidates the 7 separate
+// setIntervals into one wake-up loop, removes thundering-herd alignment
+// at start, and stamps each run with random jitter so traffic doesn't
+// pattern on round minute boundaries (a real fingerprint reduction).
+const TICK_MS = 10 * 1000;
+const jobs = []; // [{ name, intervalMs, jitterMs, nextRun, fn, running }]
+
+function addJob(name, intervalMs, jitterMs, initialDelayMs, fn) {
+  jobs.push({
+    name,
+    intervalMs, jitterMs,
+    nextRun: Date.now() + initialDelayMs + Math.floor(Math.random() * jitterMs),
+    fn, running: false,
+  });
+}
+
+async function runJob(job) {
+  if (job.running) return;
+  job.running = true;
+  try { await job.fn(); }
+  catch (e) { elog.warn(`[autopilot] job ${job.name} failed:`, e?.message); }
+  finally {
+    job.running = false;
+    job.nextRun = Date.now() + job.intervalMs + Math.floor(Math.random() * job.jitterMs);
+  }
+}
+
 function start() {
   if (timer) return;
   const mins = Number(getSetting('autopilot_interval_min') || 30);
-  timer = setInterval(tick, Math.max(5, mins) * 60 * 1000);
-  schedTimer = setInterval(() => runDueScheduled().catch(() => {}), 60 * 1000);
-  boostTimer = setInterval(() => runDueBoosts().catch(() => {}), 30 * 1000);
-  proxyTimer = setInterval(autoTestProxies, 30 * 60 * 1000);
-  karmaTimer = setInterval(() => refreshKarmaSnapshots().catch(() => {}), 6 * 60 * 60 * 1000);
-
-  // Engagement tick now owns commenting too — see services/engagement.js
-  // and services/autopilotProtocol.js. The legacy per-platform autoComment
-  // dispatcher is gone; Reddit's API-comment path is invoked inline from
-  // runSession() when the protocol has comment_rate_pct > 0.
   const { engagementTick } = require('./engagement');
-  engagementTimer = setInterval(() => engagementTick().catch(() => {}), 4 * 60 * 1000);
   const { topicTick } = require('./topicDiscovery');
-  topicTimer = setInterval(() => topicTick().catch(() => {}), 4 * 60 * 60 * 1000);
 
-  // First-run staging: scheduled near-immediately, the rest spread out
-  // so we don't slam the network the second the app starts.
-  setTimeout(() => runDueScheduled().catch(() => {}), 15 * 1000);
-  setTimeout(autoTestProxies, 90 * 1000);
-  setTimeout(() => refreshKarmaSnapshots().catch(() => {}), 3 * 60 * 1000);
-  setTimeout(tick, 60 * 1000);
-  setTimeout(() => engagementTick().catch(() => {}), 2 * 60 * 1000);
-  setTimeout(() => topicTick().catch(() => {}), 5 * 60 * 1000);
+  jobs.length = 0;
+  // intervalMs, jitterMs, initialDelayMs
+  addJob('autopilot',     Math.max(5, mins) * 60_000, 60_000,        60_000, () => tick());
+  addJob('scheduled',     60_000,                      5_000,        15_000, () => runDueScheduled());
+  addJob('boosts',        30_000,                      3_000,        20_000, () => runDueBoosts());
+  addJob('proxy-test',    30 * 60_000,                 90_000,       90_000, () => Promise.resolve(autoTestProxies()));
+  addJob('karma',         6 * 60 * 60_000,             5 * 60_000, 3 * 60_000, () => refreshKarmaSnapshots());
+  addJob('engagement',    4 * 60_000,                  30_000,    2 * 60_000, () => engagementTick());
+  addJob('topic',         4 * 60 * 60_000,             10 * 60_000, 5 * 60_000, () => topicTick());
+
+  timer = setInterval(() => {
+    if (!isEnabled()) return;
+    const now = Date.now();
+    for (const j of jobs) {
+      if (!j.running && now >= j.nextRun) runJob(j);
+    }
+  }, TICK_MS);
 }
 
 function stop() {
-  for (const t of [timer, schedTimer, proxyTimer, boostTimer, karmaTimer, engagementTimer, topicTimer]) {
-    if (t) clearInterval(t);
-  }
-  timer = schedTimer = proxyTimer = boostTimer = karmaTimer = engagementTimer = topicTimer = null;
+  if (timer) clearInterval(timer);
+  timer = null;
+  jobs.length = 0;
 }
 
 function status() {

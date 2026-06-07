@@ -65,6 +65,12 @@ const api = {
     testAll: (data) => ipcRenderer.invoke('proxies:testAll', data),
     getForAccount: (data) => ipcRenderer.invoke('proxies:getForAccount', data),
   },
+  extensions: {
+    list:   (data) => ipcRenderer.invoke('extensions:list', data),
+    add:    (data) => ipcRenderer.invoke('extensions:add', data),
+    toggle: (data) => ipcRenderer.invoke('extensions:toggle', data),
+    remove: (data) => ipcRenderer.invoke('extensions:remove', data),
+  },
   webviews: {
     list: (data) => ipcRenderer.invoke('webviews:list', data),
     create: (data) => ipcRenderer.invoke('webviews:create', data),

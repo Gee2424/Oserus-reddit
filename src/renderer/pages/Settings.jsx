@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 import ProxiesPanel from '../components/ProxiesPanel.jsx';
+import ExtensionsPanel from '../components/ExtensionsPanel.jsx';
 import AutopilotAIPanel from '../components/AutopilotAIPanel.jsx';
 
 // Configuration page.
@@ -219,8 +220,14 @@ export default function SettingsPage() {
 
           <Subcard
             title="Proxy pool"
-            description="HTTP / HTTPS / SOCKS5 proxies that can be attached to a model (inherited by its accounts) or to one account. Each Oserus Browser launch routes that account's session through the configured proxy. Health is auto-tested every 30 minutes and the result feeds the PROXY ISSUE pill on the Dashboard.">
+            description="HTTP / HTTPS / SOCKS5 proxies that can be attached to a model (inherited by its accounts) or to one account. Each Oserus Browser launch routes that account's session through the configured proxy. Health is auto-tested every 30 minutes and the result feeds the PROXY ISSUE pill on the Dashboard. Set a rotation TTL for residential providers to flip exit IPs on a sticky-session interval.">
             <ProxiesPanel />
+          </Subcard>
+
+          <Subcard
+            title="Chrome extensions"
+            description="Unpacked extensions loaded into every account's session partition. Each profile gets its own extension storage / cookies / badges, so uBlock, MetaMask, etc. behave correctly per-account.">
+            <ExtensionsPanel />
           </Subcard>
         </Section>
       )}
