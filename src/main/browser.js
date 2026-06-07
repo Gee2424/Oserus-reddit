@@ -30,11 +30,16 @@ const { getDb } = require('./db');
 const SIDEBAR_WIDTH = 340;
 const FIND_BAR_HEIGHT = 36;
 
-// chromeHeight = CSS pixels of the host renderer's chrome bar
-// (tab strip + omnibox). Content WebContentsViews position with y =
-// chromeHeight so chrome stays visible above. Keep in sync with the
-// CSS in src/renderer/browser/BrowserShell.jsx.
-const CHROME_HEIGHT = 78;
+// CHROME_HEIGHT = CSS pixels of host renderer's chrome stack. Content
+// WebContentsViews position with y = CHROME_HEIGHT. Keep in sync with
+// constants in src/renderer/browser/BrowserShell.jsx.
+//
+//   36 tab strip (frameless — IS the title bar, drag region)
+// + 40 chrome row (back/forward/reload + omnibox + actions)
+// + 32 bookmarks bar (quick-launch site icons)
+// = 108
+const CHROME_HEIGHT = 108;
+const TITLE_BAR_HEIGHT = 36;
 
 const accountWindows = new Map();    // accountId -> BrowserWindow
 const windowState = new WeakMap();   // BrowserWindow -> session state
@@ -111,11 +116,22 @@ async function openForAccount(accountId) {
   const partition = `persist:${prep.partitionKey}`;
   const title = `${acct.profile_name} · ${acct.platform}/${acct.username}`;
 
+  // Frameless: the tab strip IS the title bar. On Windows, titleBarOverlay
+  // paints native min/max/close on top of the tab strip's right edge.
+  // On macOS, titleBarStyle:'hidden' exposes the traffic-light buttons.
+  // The renderer marks tab-strip background as -webkit-app-region:drag.
   const win = new BrowserWindow({
     width: 1280, height: 860,
     minWidth: 760, minHeight: 520,
-    backgroundColor: '#0d0c0a',
+    backgroundColor: '#161412',
     title,
+    frame: false,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#161412',
+      symbolColor: '#d7dadc',
+      height: TITLE_BAR_HEIGHT,
+    },
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/browser.js'),
