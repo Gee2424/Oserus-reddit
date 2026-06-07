@@ -346,6 +346,26 @@ function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) 
           <NumField label="Session max (min)" value={proto.session_minutes_max ?? 14} min={1}
                     onChange={(v) => onChange({ session_minutes_max: v })} disabled={!canManage} />
         </Grid>
+        <Grid cols={4}>
+          <NumField label="Hours between (min)" value={proto.hours_between_min ?? 0} min={0} step="0.1"
+                    onChange={(v) => onChange({ hours_between_min: v })} disabled={!canManage} />
+          <NumField label="Hours between (max)" value={proto.hours_between_max ?? 0} min={0} step="0.1"
+                    onChange={(v) => onChange({ hours_between_max: v })} disabled={!canManage} />
+          <NumField label="Daily cap · comments" placeholder="0 = unlimited"
+                    value={proto.daily_cap_comments ?? 0} min={0}
+                    onChange={(v) => onChange({ daily_cap_comments: v })} disabled={!canManage} />
+          <NumField label="Daily cap · posts" placeholder="0 = unlimited"
+                    value={proto.daily_cap_posts ?? 0} min={0}
+                    onChange={(v) => onChange({ daily_cap_posts: v })} disabled={!canManage} />
+        </Grid>
+        <Grid cols={2}>
+          <NumField label="Quiet hours start (0-23)" placeholder="(no quiet hours)"
+                    value={proto.quiet_start ?? ''} min={0} max={23}
+                    onChange={(v) => onChange({ quiet_start: v === '' ? null : v })} disabled={!canManage} />
+          <NumField label="Quiet hours end (0-23)" placeholder="(no quiet hours)"
+                    value={proto.quiet_end ?? ''} min={0} max={23}
+                    onChange={(v) => onChange({ quiet_end: v === '' ? null : v })} disabled={!canManage} />
+        </Grid>
       </Section>
 
       {/* Engagement rates */}
@@ -400,6 +420,26 @@ function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) 
             Only comment on videos
           </CheckLabel>
         </div>
+        {platform === 'reddit' && (
+          <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', marginBottom: 8 }}>
+              Reddit-only targeting
+            </div>
+            <Grid cols={3}>
+              <NumField label="Min upvote ratio (0.0–1.0)"
+                value={proto.min_upvote_ratio ?? 0} min={0} max={1} step="0.05"
+                onChange={(v) => onChange({ min_upvote_ratio: v })} disabled={!canManage} />
+              <NumField label="Min post score (karma)"
+                value={proto.min_post_score ?? 0} min={0}
+                onChange={(v) => onChange({ min_post_score: v })} disabled={!canManage} />
+              <CheckLabel checked={!!proto.nsfw_only}
+                onChange={(b) => onChange({ nsfw_only: b ? 1 : 0 })}
+                disabled={!canManage}>
+                NSFW subs only
+              </CheckLabel>
+            </Grid>
+          </div>
+        )}
         <div style={{ marginTop: 10 }}>
           <label>Exclude posts whose caption contains</label>
           <textarea rows={2} placeholder="onlyfans, fansly, link in bio"
@@ -415,6 +455,20 @@ function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) 
 
       {/* AI comment persona */}
       <Section title="How the AI comments">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <label style={{ fontSize: 11, color: 'var(--text-2)', margin: 0 }}>AI provider</label>
+          <select value={proto.ai_provider || 'claude'}
+                  onChange={(e) => onChange({ ai_provider: e.target.value })}
+                  disabled={!canManage}
+                  style={{ fontSize: 12 }}>
+            <option value="claude">Claude (Anthropic)</option>
+            <option value="openai">OpenAI</option>
+            <option value="grok">Grok (xAI)</option>
+          </select>
+          <span className="muted" style={{ fontSize: 11 }}>
+            Falls back to the Autopilot Anthropic key if the chosen provider isn't configured.
+          </span>
+        </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
           {PERSONAS.map((p) => {
             const active = (proto.comment_persona || 'curious') === p.v;
@@ -707,11 +761,11 @@ function Section({ title, children }) {
 function Grid({ cols = 2, gap = 12, children }) {
   return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap }}>{children}</div>;
 }
-function NumField({ label, value, onChange, min, max, placeholder, disabled }) {
+function NumField({ label, value, onChange, min, max, step, placeholder, disabled }) {
   return (
     <div>
       <label>{label}</label>
-      <input type="number" min={min} max={max}
+      <input type="number" min={min} max={max} step={step}
         value={value === null || value === undefined ? '' : value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}

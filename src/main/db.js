@@ -628,6 +628,23 @@ function initDatabase() {
     if (!have('engagement_sessions', 'comments')) {
       db.exec('ALTER TABLE engagement_sessions ADD COLUMN comments INTEGER NOT NULL DEFAULT 0');
     }
+    const apAdds = [
+      ['min_upvote_ratio',      'REAL NOT NULL DEFAULT 0'],
+      ['min_post_score',        'INTEGER NOT NULL DEFAULT 0'],
+      ['nsfw_only',             'INTEGER NOT NULL DEFAULT 0'],
+      ['hours_between_min',     'REAL NOT NULL DEFAULT 0'],
+      ['hours_between_max',     'REAL NOT NULL DEFAULT 0'],
+      ['daily_cap_comments',    'INTEGER NOT NULL DEFAULT 0'],
+      ['daily_cap_posts',       'INTEGER NOT NULL DEFAULT 0'],
+      ['quiet_start',           'INTEGER'],
+      ['quiet_end',             'INTEGER'],
+      ['ai_provider',           "TEXT NOT NULL DEFAULT 'claude'"],
+    ];
+    for (const [col, def] of apAdds) {
+      if (!have('autopilot_protocols', col)) {
+        try { db.exec(`ALTER TABLE autopilot_protocols ADD COLUMN ${col} ${def}`); } catch {}
+      }
+    }
   } catch (e) {
     console.warn('[db] engagement migration skipped:', e?.message);
   }

@@ -70,6 +70,15 @@ export default function SettingsPage() {
     await window.api.ai.setApiKey({ token, apiKey: null });
     await refreshAI();
   }
+  async function saveOpenAI(key) {
+    const r = await window.api.ai.setProviderKey({ token, provider: 'openai', apiKey: key });
+    if (!r.ok) throw new Error(r.error);
+    await refreshAI();
+  }
+  async function clearOpenAI() {
+    await window.api.ai.setProviderKey({ token, provider: 'openai', apiKey: null });
+    await refreshAI();
+  }
   async function switchProvider(next) {
     await window.api.ai.setProvider({ token, provider: next });
     setProviders((p) => ({ ...p, provider: next }));
@@ -143,6 +152,15 @@ export default function SettingsPage() {
             placeholder="sk-ant-…"
             onSave={saveAnthropic}
             onClear={clearAnthropic}
+          />
+
+          <KeyCard
+            title="OpenAI"
+            configured={providers.openai?.hasKey}
+            description="Optional alternative for autopilot comment generation. The Autopilot page lets you pick which provider each (model, platform) protocol uses; Claude is the default. Get a key at platform.openai.com → API Keys."
+            placeholder="sk-…"
+            onSave={saveOpenAI}
+            onClear={clearOpenAI}
           />
 
           <KeyCard

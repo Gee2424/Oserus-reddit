@@ -6,17 +6,18 @@
 const { getDb } = require('../db');
 const { request, modhashFor } = require('./redditSession');
 
-async function callAIWrap(system, user) {
+async function callAIWrap(system, user, provider) {
   const { callAutopilotAI } = require('./postgen');
-  return callAutopilotAI(system, user, { maxTokens: 600 });
+  return callAutopilotAI(system, user, { maxTokens: 600, provider });
 }
 
-async function pickPostFromSub(partition, sub) {
+async function pickPostFromSub(partition, sub, { allowNsfw = false } = {}) {
   const url = `https://www.reddit.com/r/${encodeURIComponent(sub)}/hot.json?limit=25&raw_json=1`;
   const data = await request(partition, url);
   const kids = (data?.data?.children || []).map((c) => c.data).filter(Boolean);
-  // skip stickies and locked threads
-  return kids.filter((p) => !p.stickied && !p.locked && !p.over_18 && !p.archived);
+  // skip stickies and locked threads. nsfw filter is delegated to the caller
+  // so the protocol's nsfw_only flag can require, not just forbid, over_18.
+  return kids.filter((p) => !p.stickied && !p.locked && !p.archived && (allowNsfw || !p.over_18));
 }
 
 async function fetchPostThread(partition, permalink) {
@@ -71,7 +72,7 @@ async function runOnce(accountId, { dryRun = false, protocol = null } = {}) {
   // Pick a sub at random, fetch candidate posts.
   const sub = subs[Math.floor(Math.random() * subs.length)];
   let posts;
-  try { posts = await pickPostFromSub(part, sub); }
+  try { posts = await pickPostFromSub(part, sub, { allowNsfw: !!proto.nsfw_only }); }
   catch (e) {
     db.prepare(`INSERT INTO auto_comment_runs (account_id, subreddit, status, error) VALUES (?,?,?,?)`)
       .run(accountId, sub, 'failed', `fetch hot: ${e.message}`);
@@ -83,8 +84,21 @@ async function runOnce(accountId, { dryRun = false, protocol = null } = {}) {
   const alreadyReplied = new Set(
     db.prepare(`SELECT post_id FROM auto_comment_runs WHERE account_id = ? AND status = 'posted' AND post_id IS NOT NULL`).all(accountId).map((r) => r.post_id)
   );
-  const candidates = posts.filter((p) => !alreadyReplied.has(p.id));
-  if (!candidates.length) return { ok: false, error: 'All posts already replied to' };
+  const minRatio = Number(proto.min_upvote_ratio) || 0;
+  const minScore = Number(proto.min_post_score) || 0;
+  const nsfwOnly = !!proto.nsfw_only;
+  const candidates = posts.filter((p) => {
+    if (alreadyReplied.has(p.id)) return false;
+    if (minRatio > 0 && typeof p.upvote_ratio === 'number' && p.upvote_ratio < minRatio) return false;
+    if (minScore > 0 && typeof p.score === 'number' && p.score < minScore) return false;
+    if (nsfwOnly && !p.over_18) return false;
+    return true;
+  });
+  if (!candidates.length) {
+    db.prepare(`INSERT INTO auto_comment_runs (account_id, subreddit, status, error) VALUES (?,?,?,?)`)
+      .run(accountId, sub, 'skipped', `no posts passed filters (ratio>=${minRatio}, score>=${minScore}${nsfwOnly ? ', nsfw_only' : ''})`);
+    return { ok: false, error: 'No posts passed targeting filters' };
+  }
 
   const post = candidates[Math.floor(Math.random() * Math.min(8, candidates.length))];
 
@@ -120,7 +134,7 @@ async function runOnce(accountId, { dryRun = false, protocol = null } = {}) {
   const userMsg = `Subreddit: r/${sub}\nPost title: "${post.title}"\n${(thread.post?.selftext || post.selftext) ? `Post body: ${String(thread.post?.selftext || post.selftext).slice(0, 600)}\n` : ''}${top ? `\nExisting top replies:\n${top}\n` : ''}\nWrite your one-comment reply now.`;
 
   let commentText = '';
-  try { commentText = (await callAIWrap(system, userMsg) || '').trim(); }
+  try { commentText = (await callAIWrap(system, userMsg, proto.ai_provider) || '').trim(); }
   catch (e) {
     db.prepare(`INSERT INTO auto_comment_runs (account_id, subreddit, post_id, post_title, status, error) VALUES (?,?,?,?,?,?)`)
       .run(accountId, sub, post.id, post.title, 'failed', `ai: ${e.message}`);

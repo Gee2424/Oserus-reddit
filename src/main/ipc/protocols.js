@@ -189,10 +189,20 @@ function register(ipcMain) {
         return res;
       }
 
-      // System-wide: coordinator pass.
+      // System-wide: coordinator pass + a single engagement tick so the
+      // unified loop actually moves even when no scope is selected.
       const summary = await coordinator.runOnce({ dryRun: !!dryRun });
-      log(user, 'autopilot.runNow', 'system', null, dryRun ? 'dry-run' : `posted=${summary.posted} skipped=${summary.skipped} failed=${summary.failed}`);
-      return { ok: true, summary };
+      let engagementTicked = false;
+      try {
+        const { engagementTick } = require('../services/engagement');
+        await engagementTick();
+        engagementTicked = true;
+      } catch (e) {
+        // engagement loop is best-effort; coordinator result still useful.
+      }
+      log(user, 'autopilot.runNow', 'system', null,
+        dryRun ? 'dry-run' : `posted=${summary.posted} skipped=${summary.skipped} failed=${summary.failed} engagement=${engagementTicked ? 'yes' : 'no'}`);
+      return { ok: true, summary, engagementTicked };
     } catch (err) {
       return { ok: false, error: err.message };
     }

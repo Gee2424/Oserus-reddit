@@ -241,6 +241,7 @@ const api = {
     set:      (data) => ipcRenderer.invoke('engagement:set', data),
     runNow:   (data) => ipcRenderer.invoke('engagement:runNow', data),
     sessions: (data) => ipcRenderer.invoke('engagement:sessions', data),
+    recent:   (data) => ipcRenderer.invoke('engagement:recent', data),
   },
   autoComment: {
     get:    (data) => ipcRenderer.invoke('autoComment:get', data),

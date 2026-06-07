@@ -37,13 +37,15 @@ function register(ipcMain) {
     }
   });
 
-  // Multi-provider: provider ∈ {'anthropic','grok'}. apiKey=null clears.
+  // Multi-provider: provider ∈ {'anthropic','grok','openai'}. apiKey=null clears.
   ipcMain.handle('ai:setProviderKey', (_e, { token, provider, apiKey }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'ai.admin');
-      const key = provider === 'anthropic' ? 'anthropic_api_key' : 'grok_api_key';
+      const map = { anthropic: 'anthropic_api_key', grok: 'grok_api_key', openai: 'openai_api_key' };
+      const key = map[provider];
+      if (!key) throw new Error('Unknown provider');
       setSetting(key, apiKey ? encryptSecret(apiKey) : null);
       return { ok: true };
     } catch (err) { return { ok: false, error: err.message }; }
@@ -57,6 +59,7 @@ function register(ipcMain) {
         provider: getSetting('ai_provider') || 'anthropic',
         anthropic: { hasKey: !!getSetting('anthropic_api_key'), model: getSetting('anthropic_model') || 'claude-haiku-4-5' },
         grok: { hasKey: !!getSetting('grok_api_key'), model: getSetting('grok_model') || 'grok-2-latest' },
+        openai: { hasKey: !!getSetting('openai_api_key'), model: getSetting('openai_model') || 'gpt-4o-mini' },
       };
     } catch (err) { return { ok: false, error: err.message }; }
   });

@@ -49,6 +49,16 @@ const DEFAULTS = Object.freeze({
   target_subs_json: '[]',
   comment_persona: 'curious',
   comment_prompt: null,
+  min_upvote_ratio: 0,
+  min_post_score: 0,
+  nsfw_only: 0,
+  hours_between_min: 0,
+  hours_between_max: 0,
+  daily_cap_comments: 0,
+  daily_cap_posts: 0,
+  quiet_start: null,
+  quiet_end: null,
+  ai_provider: 'claude',
 });
 
 function rowFor(profileId, platform) {
@@ -86,6 +96,16 @@ function upsert(profileId, platform, patch) {
     target_subs_json:   next.target_subs_json   ?? '[]',
     comment_persona:    String(next.comment_persona || 'curious').slice(0, 40),
     comment_prompt:     next.comment_prompt || null,
+    min_upvote_ratio:   Math.max(0, Math.min(1, Number(next.min_upvote_ratio) || 0)),
+    min_post_score:     Math.max(0, Number(next.min_post_score) || 0),
+    nsfw_only:          next.nsfw_only ? 1 : 0,
+    hours_between_min:  Math.max(0, Number(next.hours_between_min) || 0),
+    hours_between_max:  Math.max(0, Number(next.hours_between_max) || 0),
+    daily_cap_comments: Math.max(0, Number(next.daily_cap_comments) || 0),
+    daily_cap_posts:    Math.max(0, Number(next.daily_cap_posts) || 0),
+    quiet_start:        next.quiet_start === null || next.quiet_start === '' || next.quiet_start == null ? null : Math.max(0, Math.min(23, Number(next.quiet_start))),
+    quiet_end:          next.quiet_end === null || next.quiet_end === '' || next.quiet_end == null ? null : Math.max(0, Math.min(23, Number(next.quiet_end))),
+    ai_provider:        String(next.ai_provider || 'claude').toLowerCase().slice(0, 16),
   };
   getDb().prepare(
     `INSERT INTO autopilot_protocols
@@ -94,13 +114,23 @@ function upsert(profileId, platform, patch) {
         like_rate_pct, follow_rate_pct, watch_full_rate_pct,
         comment_rate_pct, comment_videos_only,
         hashtags_json, follow_list_json, target_filter_json, target_subs_json,
-        comment_persona, comment_prompt, updated_at)
+        comment_persona, comment_prompt,
+        min_upvote_ratio, min_post_score, nsfw_only,
+        hours_between_min, hours_between_max,
+        daily_cap_comments, daily_cap_posts,
+        quiet_start, quiet_end, ai_provider,
+        updated_at)
      VALUES (@profile_id, @platform, @enabled,
              @sessions_per_day, @session_minutes_min, @session_minutes_max,
              @like_rate_pct, @follow_rate_pct, @watch_full_rate_pct,
              @comment_rate_pct, @comment_videos_only,
              @hashtags_json, @follow_list_json, @target_filter_json, @target_subs_json,
-             @comment_persona, @comment_prompt, datetime('now'))
+             @comment_persona, @comment_prompt,
+             @min_upvote_ratio, @min_post_score, @nsfw_only,
+             @hours_between_min, @hours_between_max,
+             @daily_cap_comments, @daily_cap_posts,
+             @quiet_start, @quiet_end, @ai_provider,
+             datetime('now'))
      ON CONFLICT(profile_id, platform) DO UPDATE SET
        enabled=excluded.enabled,
        sessions_per_day=excluded.sessions_per_day,
@@ -117,6 +147,16 @@ function upsert(profileId, platform, patch) {
        target_subs_json=excluded.target_subs_json,
        comment_persona=excluded.comment_persona,
        comment_prompt=excluded.comment_prompt,
+       min_upvote_ratio=excluded.min_upvote_ratio,
+       min_post_score=excluded.min_post_score,
+       nsfw_only=excluded.nsfw_only,
+       hours_between_min=excluded.hours_between_min,
+       hours_between_max=excluded.hours_between_max,
+       daily_cap_comments=excluded.daily_cap_comments,
+       daily_cap_posts=excluded.daily_cap_posts,
+       quiet_start=excluded.quiet_start,
+       quiet_end=excluded.quiet_end,
+       ai_provider=excluded.ai_provider,
        updated_at=datetime('now')`
   ).run(params);
   return rowFor(profileId, platform);

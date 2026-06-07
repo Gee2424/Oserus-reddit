@@ -91,6 +91,32 @@ function register(ipcMain) {
     } catch (err) { return { ok: false, error: err.message }; }
   });
 
+  // Recent engagement sessions scoped to (profileId, platform[, accountId]).
+  // Used by the Autopilot activity card next to post_events.
+  ipcMain.handle('engagement:recent', (_e, { token, profileId, platform, accountId, limit }) => {
+    try {
+      if (!userFromToken(token)) throw new Error('Not authenticated');
+      const lim = Math.max(1, Math.min(200, Number(limit) || 25));
+      const where = [];
+      const params = [];
+      if (accountId) { where.push('s.account_id = ?'); params.push(accountId); }
+      else {
+        if (profileId) { where.push('a.profile_id = ?'); params.push(profileId); }
+        if (platform)  { where.push('s.platform = ?');   params.push(platform); }
+      }
+      const sql = `SELECT s.id, s.account_id, s.platform, s.started_at, s.ended_at,
+                          s.seconds, s.posts_seen, s.likes, s.follows, s.comments, s.error,
+                          a.username AS account_username, a.profile_id
+                     FROM engagement_sessions s
+                     LEFT JOIN reddit_accounts a ON a.id = s.account_id
+                    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+                    ORDER BY s.id DESC
+                    LIMIT ?`;
+      const rows = getDb().prepare(sql).all(...params, lim);
+      return { ok: true, sessions: rows };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
   ipcMain.handle('engagement:sessions', (_e, { token, accountId, limit }) => {
     try {
       if (!userFromToken(token)) throw new Error('Not authenticated');

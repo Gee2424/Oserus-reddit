@@ -88,18 +88,65 @@ async function callAI(system, userMessage, options = {}) {
   throw new Error('No AI API key configured — set Anthropic or Grok in Configuration.');
 }
 
-// Autopilot-only Claude call. Uses a SEPARATE Anthropic key
-// (`autopilot_anthropic_api_key`) so agencies can isolate autopilot spend on a
-// dedicated workspace. Fails closed when the key is missing — no fallback to
-// the main Anthropic key, by user choice.
+// OpenAI chat-completions (used when autopilot protocol picks openai).
+async function callOpenAI(apiKey, system, userMessage, options = {}) {
+  const body = {
+    model: options.model || getSetting('openai_model') || 'gpt-4o-mini',
+    max_tokens: options.maxTokens || 1500,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: userMessage },
+    ],
+  };
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || `OpenAI API error: ${res.status}`);
+  return data.choices?.[0]?.message?.content || '';
+}
+
+// Autopilot AI dispatcher. Provider preference order:
+//   1. options.provider (the autopilot_protocols row's ai_provider)
+//   2. autopilot_ai_provider app_kv setting
+//   3. 'claude'
+// Each provider has its own key in app_kv. If the chosen provider's
+// key is missing but the dedicated autopilot Anthropic key is set, we
+// fall back to it so the loop keeps moving instead of failing closed.
 async function callAutopilotAI(system, userMessage, options = {}) {
-  const encKey = getSetting('autopilot_anthropic_api_key');
-  if (!encKey) {
-    throw new Error('Autopilot AI key not configured. Set it in Settings → Autopilot AI.');
-  }
   const { decryptSecret } = require('../db');
-  const model = options.model || getSetting('autopilot_anthropic_model') || 'claude-haiku-4-5';
-  return callClaude(decryptSecret(encKey), system, userMessage, { ...options, model });
+  const wanted = String(options.provider || getSetting('autopilot_ai_provider') || 'claude').toLowerCase();
+
+  const claudeEnc = getSetting('autopilot_anthropic_api_key') || getSetting('anthropic_api_key');
+  const openaiEnc = getSetting('autopilot_openai_api_key')    || getSetting('openai_api_key');
+  const grokEnc   = getSetting('autopilot_grok_api_key')      || getSetting('grok_api_key');
+
+  if (wanted === 'openai' && openaiEnc) {
+    const model = options.model || getSetting('autopilot_openai_model') || 'gpt-4o-mini';
+    return callOpenAI(decryptSecret(openaiEnc), system, userMessage, { ...options, model });
+  }
+  if (wanted === 'grok' && grokEnc) {
+    const model = options.model || getSetting('autopilot_grok_model') || 'grok-2-latest';
+    return callGrok(decryptSecret(grokEnc), system, userMessage, { ...options, model });
+  }
+  if (wanted === 'claude' && claudeEnc) {
+    const model = options.model || getSetting('autopilot_anthropic_model') || 'claude-haiku-4-5';
+    return callClaude(decryptSecret(claudeEnc), system, userMessage, { ...options, model });
+  }
+
+  // Fallbacks: any configured key, Claude preferred.
+  if (claudeEnc) {
+    const model = options.model || getSetting('autopilot_anthropic_model') || 'claude-haiku-4-5';
+    return callClaude(decryptSecret(claudeEnc), system, userMessage, { ...options, model });
+  }
+  if (openaiEnc) return callOpenAI(decryptSecret(openaiEnc), system, userMessage, options);
+  if (grokEnc)   return callGrok(decryptSecret(grokEnc),   system, userMessage, options);
+  throw new Error(`Autopilot AI key not configured for provider "${wanted}". Add one in Settings → AI.`);
 }
 
 // Default system-prompt templates for each autopilot job. These get used when

@@ -286,7 +286,7 @@ function registerBridge() {
         '\nWrite your one-line reaction now.',
       ].filter(Boolean).join('\n');
       const raw = await Promise.race([
-        callAutopilotAI(system, userMsg, { maxTokens: 120 }),
+        callAutopilotAI(system, userMsg, { maxTokens: 120, provider: proto?.ai_provider }),
         new Promise((_, rej) => setTimeout(() => rej(new Error('ai timeout')), 12000)),
       ]);
       const text = String(raw || '').trim()
