@@ -47,7 +47,7 @@ function initDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('admin','manager','reddit_va','chatter')),
+      role TEXT NOT NULL,
       display_name TEXT,
       email TEXT,
       phone TEXT,
@@ -390,7 +390,7 @@ function initDatabase() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
-            role TEXT NOT NULL CHECK(role IN ('admin','manager','reddit_va','chatter')),
+            role TEXT NOT NULL,
             display_name TEXT,
             email TEXT,
             phone TEXT,
@@ -532,15 +532,28 @@ function initDatabase() {
         }
       }
     }
-    // Admin is the safety floor — every launch, ensure admin holds every perm
-    // key that exists in code. Without this, admin DBs seeded before newer
-    // perms were added (page.autopilot, page.scheduler, page.intel, etc.)
-    // permanently miss those nav items even after upgrade.
+    // admin is the safety floor — top up every perm on every launch.
     try {
       const adminPerms = (BUILTIN_ROLES.find((r) => r.key === 'admin') || {}).permissions || [];
       for (const p of adminPerms) insertRolePerm.run('admin', p);
     } catch (e) {
       console.error('[db] Admin top-up failed:', e.message);
+    }
+
+    // Migrate away from the old manager/reddit_va/chatter builtins.
+    // Unused → delete. In use → unflag is_builtin so the owner can edit/delete.
+    try {
+      const legacy = ['manager', 'reddit_va', 'chatter'];
+      const usedStmt = db.prepare('SELECT 1 FROM users WHERE role = ? LIMIT 1');
+      const dropRole = db.prepare('DELETE FROM roles WHERE key = ? AND is_builtin = 1');
+      const dropPerms = db.prepare('DELETE FROM role_permissions WHERE role_key = ?');
+      const unflag = db.prepare('UPDATE roles SET is_builtin = 0 WHERE key = ?');
+      for (const k of legacy) {
+        if (usedStmt.get(k)) unflag.run(k);
+        else { dropRole.run(k); dropPerms.run(k); }
+      }
+    } catch (e) {
+      console.error('[db] Legacy role migration failed:', e.message);
     }
   } catch (e) {
     console.error('[db] Roles seed failed:', e.message);

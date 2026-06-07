@@ -83,11 +83,13 @@ function register(ipcMain) {
   ipcMain.handle('profiles:addMember', (_e, { token, profileId, userId, role }) => {
     try {
       requireManagerOrAdmin(token);
-      const r = ['manager', 'chatter', 'coordinator', 'marketing'].includes(role) ? role : 'chatter';
+      if (!role) throw new Error('Role required');
+      const known = getDb().prepare("SELECT 1 FROM roles WHERE key = ? AND key != 'admin'").get(role);
+      if (!known) throw new Error('Unknown role — create it in Roles first');
       getDb().prepare(
         `INSERT INTO profile_assignments (profile_id, user_id, role) VALUES (?,?,?)
          ON CONFLICT(profile_id, user_id) DO UPDATE SET role=excluded.role`
-      ).run(profileId, userId, r);
+      ).run(profileId, userId, role);
       return { ok: true, members: listAssignments(profileId) };
     } catch (err) { return { ok: false, error: err.message }; }
   });
@@ -103,8 +105,10 @@ function register(ipcMain) {
   ipcMain.handle('profiles:setMemberRole', (_e, { token, profileId, userId, role }) => {
     try {
       requireManagerOrAdmin(token);
-      const r = ['manager', 'chatter', 'coordinator', 'marketing'].includes(role) ? role : 'chatter';
-      getDb().prepare('UPDATE profile_assignments SET role=? WHERE profile_id=? AND user_id=?').run(r, profileId, userId);
+      if (!role) throw new Error('Role required');
+      const known = getDb().prepare("SELECT 1 FROM roles WHERE key = ? AND key != 'admin'").get(role);
+      if (!known) throw new Error('Unknown role — create it in Roles first');
+      getDb().prepare('UPDATE profile_assignments SET role=? WHERE profile_id=? AND user_id=?').run(role, profileId, userId);
       return { ok: true, members: listAssignments(profileId) };
     } catch (err) { return { ok: false, error: err.message }; }
   });

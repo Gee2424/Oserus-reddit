@@ -19,6 +19,7 @@ export default function ProfilesPage({ navigate }) {
   }
 
   const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState([]);
   const [proxies, setProxies] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blank());
@@ -41,6 +42,8 @@ export default function ProfilesPage({ navigate }) {
     }
     const px = await window.api.proxies.list({ token }).catch(() => ({ ok: false }));
     if (px.ok) setProxies(px.proxies || []);
+    const r = await window.api.roles.list({ token }).catch(() => ({ ok: false }));
+    if (r.ok) setRoles(r.roles || []);
   }
 
   async function setModelProxy(profileId, proxyId) {
@@ -227,11 +230,11 @@ export default function ProfilesPage({ navigate }) {
                         <option key={u.id} value={u.id}>{u.display_name} ({u.username})</option>
                       ))}
                     </select>
-                    <select id={`member-role-${p.id}`} defaultValue="chatter" style={{ flex: 1 }}>
-                      <option value="manager">Manager</option>
-                      <option value="chatter">Chatter</option>
-                      <option value="coordinator">Coordinator</option>
-                      <option value="marketing">Marketing</option>
+                    <select id={`member-role-${p.id}`} defaultValue={roles[0]?.key || ''} style={{ flex: 1 }} disabled={roles.length === 0}>
+                      {roles.length === 0
+                        ? <option value="">— no roles —</option>
+                        : roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)
+                      }
                     </select>
                     <button className="ghost" onClick={async () => {
                       const u = Number(document.getElementById(`member-user-${p.id}`).value);
@@ -254,10 +257,8 @@ export default function ProfilesPage({ navigate }) {
                             }}
                             style={{ fontSize: 11, padding: '2px 6px' }}
                           >
-                            <option value="manager">Manager</option>
-                            <option value="chatter">Chatter</option>
-                            <option value="coordinator">Coordinator</option>
-                            <option value="marketing">Marketing</option>
+                            {!roles.some((r) => r.key === m.role) && <option value={m.role}>{m.role}</option>}
+                            {roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
                           </select>
                           <button className="ghost" style={{ fontSize: 11, padding: '2px 8px' }} onClick={async () => {
                             await window.api.profiles.removeMember({ token, profileId: p.id, userId: m.user_id });

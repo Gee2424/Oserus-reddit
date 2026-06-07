@@ -71,50 +71,14 @@ const PERMISSIONS = [
 
 const PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);
 
-// Builtin role definitions — seeded on first run. Existing installs migrate
-// existing users.role values into these keys (already named admin/manager/
-// reddit_va/chatter).
+// admin is a hidden bootstrap role; users create everything else from the
+// Roles page.
 const BUILTIN_ROLES = [
   {
     key: 'admin',
     label: 'Admin',
     description: 'Full access to everything.',
     permissions: PERMISSION_KEYS, // all
-  },
-  {
-    key: 'manager',
-    label: 'Manager',
-    description: 'Day-to-day operations. Cannot promote admins or edit API keys.',
-    permissions: PERMISSION_KEYS.filter((k) => ![
-      'users.assign_admin',
-      'roles.manage',
-      'settings.admin',
-      'ai.admin',
-      'infra.upvotes.admin',
-    ].includes(k)),
-  },
-  {
-    key: 'reddit_va',
-    label: 'Reddit VA',
-    description: 'Reddit assistant. Can post, place upvotes, view proxies.',
-    permissions: [
-      'page.dashboard', 'page.analytics', 'page.profiles', 'page.reddit-api',
-      'page.operations', 'page.subreddits', 'page.docs', 'page.autopilot', 'page.scheduler', 'page.intel',
-      'page.settings', 'page.reddit', 'page.redgifs', 'page.webviews',
-      'redditapi.posting', 'redditapi.reddit', 'redditapi.inbox',
-      'infra.upvotes.view', 'infra.upvotes.place_order',
-      'posts.publish', 'protocols.run',
-    ],
-  },
-  {
-    key: 'chatter',
-    label: 'Chatter',
-    description: 'DM/inbox only. No posting or admin actions.',
-    permissions: [
-      'page.dashboard', 'page.analytics', 'page.profiles', 'page.reddit-api',
-      'page.docs', 'page.settings', 'page.reddit',
-      'redditapi.reddit', 'redditapi.inbox',
-    ],
   },
 ];
 

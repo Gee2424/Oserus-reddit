@@ -517,19 +517,16 @@ function Presence({ presence, lastSeen }) {
 }
 
 function RoleBadge({ role }) {
-  const palette = {
-    admin:     { bg: 'rgba(212,166,74,0.18)',  fg: 'var(--gold-bright)' },
-    manager:   { bg: 'rgba(159,192,234,0.18)', fg: '#9fc0ea' },
-    reddit_va: { bg: 'rgba(127,217,154,0.18)', fg: '#7fd99a' },
-    chatter:   { bg: 'rgba(226,163,163,0.18)', fg: '#e2a3a3' },
-  };
-  const c = palette[role] || { bg: 'rgba(255,255,255,0.06)', fg: 'var(--text-2)' };
+  if (!role) return null;
+  let h = 0; for (let i = 0; i < role.length; i++) h = (h * 31 + role.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
   return (
     <span style={{
-      ...c, fontSize: 10, fontWeight: 700, letterSpacing: '0.05em',
+      background: `hsl(${hue}, 40%, 50%, 0.18)`, color: `hsl(${hue}, 60%, 70%)`,
+      fontSize: 10, fontWeight: 700, letterSpacing: '0.05em',
       padding: '2px 8px', borderRadius: 4, textTransform: 'uppercase',
       fontFamily: 'var(--font-mono)',
-    }}>{(role || '').replace('_', ' ')}</span>
+    }}>{role.replace('_', ' ')}</span>
   );
 }
 

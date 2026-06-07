@@ -2,14 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 
-const ROLE_COLORS = {
-  admin: '#c8553d',
-  manager: '#d4a55a',
-  reddit_va: '#7a9a5a',
-  chatter: '#5a7a9a',
-};
+function roleColor(key) {
+  if (!key) return '#5a5a6a';
+  let h = 0; for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360}, 35%, 50%)`;
+}
 
-const blank = { username: '', password: '', display_name: '', email: '', phone: '', notes: '', role: 'reddit_va' };
+const blank = { username: '', password: '', display_name: '', email: '', phone: '', notes: '', role: '' };
 
 export default function UsersPage({ embedded }) {
   const { token, user: me } = useAuth();
@@ -18,21 +17,10 @@ export default function UsersPage({ embedded }) {
   const [roles, setRoles] = useState([]);
 
   useEffect(() => {
-    // Load roles list for the dropdown. Falls back gracefully if the user
-    // doesn't have roles.manage — they still see role names from the user list.
-    if (!can('roles.manage')) {
-      setRoles([
-        { key: 'admin', label: 'Admin', description: 'Full access' },
-        { key: 'manager', label: 'Manager', description: 'Day-to-day ops' },
-        { key: 'reddit_va', label: 'Reddit VA', description: 'Posts on Reddit' },
-        { key: 'chatter', label: 'Chatter', description: 'Inbox only' },
-      ]);
-      return;
-    }
     window.api.roles.list({ token }).then((r) => {
       if (r.ok) setRoles(r.roles);
     }).catch(() => {});
-  }, [token, can]);
+  }, [token]);
 
   const roleByKey = roles.reduce((acc, r) => (acc[r.key] = r, acc), {});
   const [showForm, setShowForm] = useState(false);
@@ -77,6 +65,7 @@ export default function UsersPage({ embedded }) {
     if (!editingId) {
       if (!form.username || !form.password) { setError('Username and password are required'); return; }
       if (form.password.length < 6) { setError('Password must be 6+ characters'); return; }
+      if (!form.role) { setError('Pick a role'); return; }
       const res = await window.api.auth.createUser({
         token,
         username: form.username,
@@ -152,11 +141,12 @@ export default function UsersPage({ embedded }) {
             </div>
             <div>
               <label>Role</label>
-              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+              <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} disabled={roles.length === 0}>
+                <option value="">— select role —</option>
                 {roles.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
               </select>
               <div className="muted" style={{ fontSize: 11, marginTop: 4, fontStyle: 'italic' }}>
-                {roleByKey[form.role]?.description}
+                {roles.length === 0 ? 'No roles defined yet. Create one in Roles first.' : (roleByKey[form.role]?.description || '')}
               </div>
             </div>
             {!editingId && (
@@ -219,9 +209,9 @@ export default function UsersPage({ embedded }) {
               </div>
               <span style={{
                 ...styles.rolePill,
-                color: ROLE_COLORS[u.role] || 'var(--text-2)',
-                borderColor: ROLE_COLORS[u.role] || 'var(--border-strong)',
-                background: (ROLE_COLORS[u.role] || '#222') + '20',
+                color: roleColor(u.role),
+                borderColor: roleColor(u.role),
+                background: roleColor(u.role) + '20',
               }}>
                 {roleByKey[u.role]?.label || u.role}
               </span>

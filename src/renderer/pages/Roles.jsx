@@ -125,9 +125,9 @@ export default function RolesPage() {
       {flash && <div style={styles.ok}>{flash}</div>}
 
       <div className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
-        Roles define which permissions a user has. Edit builtin roles to tweak
-        their defaults, or create custom roles for niche team setups. Use{' '}
-        <strong>Preview as</strong> on any role to see exactly what they see.
+        Roles define which permissions a user has. Every role on this list is
+        one you created. Use <strong>Preview as</strong> on any role to see
+        exactly what they see.
       </div>
 
       {(creating || editing) && (
@@ -212,7 +212,6 @@ export default function RolesPage() {
           <div key={r.key} className="card">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
               <h3 style={{ flex: 1, marginBottom: 0 }}>{r.label}</h3>
-              {r.is_builtin && <span className="pill">builtin</span>}
             </div>
             <div className="mono dim" style={{ fontSize: 11, marginBottom: 6 }}>{r.key}</div>
             {r.description && <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>{r.description}</div>}
@@ -225,11 +224,9 @@ export default function RolesPage() {
               <button onClick={() => previewAs(r.key)}>
                 {previewing && effectiveRole === r.key ? 'Previewing…' : 'Preview as'}
               </button>
-              {!r.is_builtin && (
-                <button className="danger" onClick={() => remove(r)} style={{ marginLeft: 'auto' }}>
-                  Delete
-                </button>
-              )}
+              <button className="danger" onClick={() => remove(r)} style={{ marginLeft: 'auto' }}>
+                Delete
+              </button>
             </div>
           </div>
         ))}
