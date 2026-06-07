@@ -461,9 +461,6 @@ function ComingSoonProviders() {
 }
 
 function BrowserDevicesSection() {
-  const [chromeInfo, setChromeInfo] = useState({ path: '', detected: null });
-  const [chromeInput, setChromeInput] = useState('');
-  const [chromeMsg, setChromeMsg] = useState(null);
   const [tools, setTools] = useState({ adb: '', libimobiledeviceDir: '' });
   const [toolsMsg, setToolsMsg] = useState(null);
   const [scan, setScan] = useState(null);
@@ -471,11 +468,6 @@ function BrowserDevicesSection() {
 
   useEffect(() => {
     (async () => {
-      try {
-        const r = await window.api.chrome.detect();
-        setChromeInfo(r || { path: '', detected: null });
-        setChromeInput(r?.path || r?.detected || '');
-      } catch {}
       try {
         const t = await window.api.devices.getTools();
         if (t) setTools({
@@ -486,33 +478,6 @@ function BrowserDevicesSection() {
     })();
   }, []);
 
-  async function saveChrome() {
-    setChromeMsg(null);
-    try {
-      await window.api.chrome.setPath(chromeInput || null);
-      const r = await window.api.chrome.detect();
-      setChromeInfo(r || { path: '', detected: null });
-      setChromeMsg({ kind: 'ok', text: 'Saved.' });
-    } catch (e) {
-      setChromeMsg({ kind: 'err', text: e.message || 'Save failed.' });
-    }
-  }
-  async function testLaunch() {
-    setChromeMsg(null);
-    try {
-      const r = await window.api.chrome.launch({
-        accountId: 'test',
-        accountUsername: 'probe',
-        profileSlug: 'test',
-        proxyUrl: null,
-        startUrl: 'https://www.whatismybrowser.com',
-      });
-      if (r?.ok) setChromeMsg({ kind: 'ok', text: `Launched (pid ${r.pid}).` });
-      else setChromeMsg({ kind: 'err', text: r?.error || 'Launch failed.' });
-    } catch (e) {
-      setChromeMsg({ kind: 'err', text: e.message || 'Launch failed.' });
-    }
-  }
   async function saveTools() {
     setToolsMsg(null);
     try {
@@ -537,40 +502,27 @@ function BrowserDevicesSection() {
     }
   }
 
-  const detectedText = chromeInfo.detected
-    ? `Detected at ${chromeInfo.detected}`
-    : 'Not found — paste a path';
-  const detectedColor = chromeInfo.detected ? '#bdd5a3' : 'var(--text-3)';
-
   return (
     <Section
       title="Browser & Devices"
-      subtitle="Use a real Chrome install per account (instead of the bundled Oserus Browser) and detect connected phones over USB."
+      subtitle="Oserus Browser is a custom Chromium build — like Opera GX, it ships with its own features baked in. Also detects connected phones over USB."
     >
-      <Subcard title="Real Chrome"
-        description="Launches the user's installed Chrome with a dedicated user-data-dir per account, optionally routed through the account's proxy. Useful when sites detect Electron's Chromium build.">
-        {chromeMsg && (
-          <div className={chromeMsg.kind === 'err' ? 'error-banner' : ''}
-               style={chromeMsg.kind === 'ok' ? styles.ok : { marginBottom: 10 }}>
-            {chromeMsg.text}
-          </div>
-        )}
-        <div style={{ marginBottom: 8 }}>
-          <label>chrome.exe path</label>
-          <input
-            type="text"
-            placeholder="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
-            value={chromeInput}
-            onChange={(e) => setChromeInput(e.target.value)}
-            autoComplete="off"
-          />
-          <div className="mono" style={{ fontSize: 11, color: detectedColor, marginTop: 6 }}>
-            {detectedText}
-          </div>
+      <Subcard
+        title="Oserus Browser"
+        description="A custom Chromium build with operator-grade features wired in: per-account session isolation, antidetect fingerprinting, rotating residential proxies, Chrome extension support, an integrated content sidebar, and a profile picker. One window per account, every tab in real Chromium frames — not a webview wrapper."
+      >
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+          <Feature icon="◐"  title="Per-account isolation"     body="Each profile gets its own Chromium partition — cookies, storage, service workers stay separate." />
+          <Feature icon="◇"  title="Antidetect fingerprint"    body="UA, screen, WebGL, Canvas, Audio, timezone spoofed in the main world before any page script runs." />
+          <Feature icon="↻"  title="Rotating residential"      body="Sticky-session usernames flip on a TTL — IPRoyal, SOAX, BrightData, Webshare formats supported." />
+          <Feature icon="⛶"  title="Chrome extensions"         body="Load unpacked extensions (uBlock, MetaMask…) per-partition, each profile keeps its own extension state." />
+          <Feature icon="☰"  title="Content sidebar"           body="Right-side pane with this week's scheduled posts + drafts, grouped by week, platform-aware tabs." />
+          <Feature icon="⎘"  title="Profile picker"            body="Switch between sibling accounts on the same model without leaving the window." />
+          <Feature icon="⌕"  title="Find / zoom / devtools"    body="Ctrl+F find-in-page, Ctrl±/0 zoom, F12 devtools, real right-click context menu." />
+          <Feature icon="⚑"  title="Login autofill"            body="Account credentials injected on every page load — VAs never see or paste passwords." />
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" className="primary" onClick={saveChrome}>Save path</button>
-          <button type="button" className="ghost" onClick={testLaunch}>Test launch</button>
+        <div className="muted" style={{ fontSize: 11, marginTop: 14, lineHeight: 1.6 }}>
+          Launch from any account row's <span className="mono">▶</span> button, or from a model profile's <span className="mono">▶ Reddit</span> button to open every account on that profile in parallel.
         </div>
       </Subcard>
 
@@ -850,3 +802,24 @@ const styles = {
     marginBottom: 12,
   },
 };
+
+function Feature({ icon, title, body }) {
+  return (
+    <div style={{
+      padding: 12, borderRadius: 8,
+      background: 'var(--bg-elev)', border: '1px solid var(--border)',
+      display: 'flex', flexDirection: 'column', gap: 6,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{
+          width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+          background: 'var(--gold-soft)', color: 'var(--gold)',
+          display: 'grid', placeItems: 'center',
+          fontSize: 13, fontWeight: 700,
+        }}>{icon}</span>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-0)' }}>{title}</div>
+      </div>
+      <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>{body}</div>
+    </div>
+  );
+}
