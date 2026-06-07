@@ -127,6 +127,8 @@ export default function SettingsPage() {
 
       {isAdmin && <CloudSyncSection />}
 
+      {isAdmin && <BrowserDevicesSection />}
+
       {/* ═══════════════════════════════════════════════════ AI ═════ */}
       {isAdmin && (
         <Section
@@ -430,6 +432,200 @@ function ComingSoonProviders() {
         ))}
       </div>
     </div>
+  );
+}
+
+function BrowserDevicesSection() {
+  const [chromeInfo, setChromeInfo] = useState({ path: '', detected: null });
+  const [chromeInput, setChromeInput] = useState('');
+  const [chromeMsg, setChromeMsg] = useState(null);
+  const [tools, setTools] = useState({ adb: '', libimobiledeviceDir: '' });
+  const [toolsMsg, setToolsMsg] = useState(null);
+  const [scan, setScan] = useState(null);
+  const [scanning, setScanning] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await window.api.chrome.detect();
+        setChromeInfo(r || { path: '', detected: null });
+        setChromeInput(r?.path || r?.detected || '');
+      } catch {}
+      try {
+        const t = await window.api.devices.getTools();
+        if (t) setTools({
+          adb: t.adb && t.adb !== 'adb' ? t.adb : '',
+          libimobiledeviceDir: '',
+        });
+      } catch {}
+    })();
+  }, []);
+
+  async function saveChrome() {
+    setChromeMsg(null);
+    try {
+      await window.api.chrome.setPath(chromeInput || null);
+      const r = await window.api.chrome.detect();
+      setChromeInfo(r || { path: '', detected: null });
+      setChromeMsg({ kind: 'ok', text: 'Saved.' });
+    } catch (e) {
+      setChromeMsg({ kind: 'err', text: e.message || 'Save failed.' });
+    }
+  }
+  async function testLaunch() {
+    setChromeMsg(null);
+    try {
+      const r = await window.api.chrome.launch({
+        accountId: 'test',
+        accountUsername: 'probe',
+        profileSlug: 'test',
+        proxyUrl: null,
+        startUrl: 'https://www.whatismybrowser.com',
+      });
+      if (r?.ok) setChromeMsg({ kind: 'ok', text: `Launched (pid ${r.pid}).` });
+      else setChromeMsg({ kind: 'err', text: r?.error || 'Launch failed.' });
+    } catch (e) {
+      setChromeMsg({ kind: 'err', text: e.message || 'Launch failed.' });
+    }
+  }
+  async function saveTools() {
+    setToolsMsg(null);
+    try {
+      await window.api.devices.setTools({
+        adb: tools.adb || null,
+        libimobiledeviceDir: tools.libimobiledeviceDir || null,
+      });
+      setToolsMsg({ kind: 'ok', text: 'Saved.' });
+    } catch (e) {
+      setToolsMsg({ kind: 'err', text: e.message || 'Save failed.' });
+    }
+  }
+  async function scanNow() {
+    setScanning(true);
+    try {
+      const r = await window.api.devices.list();
+      setScan(r || { android: [], ios: [] });
+    } catch (e) {
+      setScan({ android: [], ios: [], error: e.message });
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  const detectedText = chromeInfo.detected
+    ? `Detected at ${chromeInfo.detected}`
+    : 'Not found — paste a path';
+  const detectedColor = chromeInfo.detected ? '#bdd5a3' : 'var(--text-3)';
+
+  return (
+    <Section
+      title="Browser & Devices"
+      subtitle="Use a real Chrome install per account (instead of the bundled Oserus Browser) and detect connected phones over USB."
+    >
+      <Subcard title="Real Chrome"
+        description="Launches the user's installed Chrome with a dedicated user-data-dir per account, optionally routed through the account's proxy. Useful when sites detect Electron's Chromium build.">
+        {chromeMsg && (
+          <div className={chromeMsg.kind === 'err' ? 'error-banner' : ''}
+               style={chromeMsg.kind === 'ok' ? styles.ok : { marginBottom: 10 }}>
+            {chromeMsg.text}
+          </div>
+        )}
+        <div style={{ marginBottom: 8 }}>
+          <label>chrome.exe path</label>
+          <input
+            type="text"
+            placeholder="C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+            value={chromeInput}
+            onChange={(e) => setChromeInput(e.target.value)}
+            autoComplete="off"
+          />
+          <div className="mono" style={{ fontSize: 11, color: detectedColor, marginTop: 6 }}>
+            {detectedText}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" className="primary" onClick={saveChrome}>Save path</button>
+          <button type="button" className="ghost" onClick={testLaunch}>Test launch</button>
+        </div>
+      </Subcard>
+
+      <Subcard title="Connected Phones"
+        description="We detect phones via Android Debug Bridge (adb) and libimobiledevice (idevice_id). Install those tools and paste their paths below. Account hosting on the phone is coming — detection is the first step.">
+        {toolsMsg && (
+          <div className={toolsMsg.kind === 'err' ? 'error-banner' : ''}
+               style={toolsMsg.kind === 'ok' ? styles.ok : { marginBottom: 10 }}>
+            {toolsMsg.text}
+          </div>
+        )}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <div>
+            <label>ADB path</label>
+            <input
+              type="text"
+              placeholder="adb (PATH) or full path to adb.exe"
+              value={tools.adb}
+              onChange={(e) => setTools({ ...tools, adb: e.target.value })}
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label>libimobiledevice tools dir</label>
+            <input
+              type="text"
+              placeholder="dir containing idevice_id + ideviceinfo"
+              value={tools.libimobiledeviceDir}
+              onChange={(e) => setTools({ ...tools, libimobiledeviceDir: e.target.value })}
+              autoComplete="off"
+            />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <button type="button" className="primary" onClick={saveTools}>Save paths</button>
+          <button type="button" className="ghost" onClick={scanNow} disabled={scanning}>
+            {scanning ? 'Scanning…' : 'Scan now'}
+          </button>
+        </div>
+
+        {scan && (
+          (scan.android.length === 0 && scan.ios.length === 0) ? (
+            <div className="empty-state" style={{ padding: 16, fontSize: 13 }}>
+              No phones connected. Plug one in and click Scan now.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <div className="eyebrow" style={{ marginBottom: 6 }}>Android</div>
+                {scan.android.length === 0 ? (
+                  <div className="muted" style={{ fontSize: 12 }}>None</div>
+                ) : scan.android.map((d) => (
+                  <div key={d.id} style={sessionRow}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13 }}>{d.model || d.id}</div>
+                      <div className="mono dim" style={{ fontSize: 11 }}>{d.id}</div>
+                    </div>
+                    <span style={platformChip}>{d.status || 'detected'}</span>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <div className="eyebrow" style={{ marginBottom: 6 }}>iOS</div>
+                {scan.ios.length === 0 ? (
+                  <div className="muted" style={{ fontSize: 12 }}>None</div>
+                ) : scan.ios.map((d) => (
+                  <div key={d.udid} style={sessionRow}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13 }}>{d.name || d.udid}</div>
+                      <div className="mono dim" style={{ fontSize: 11 }}>{d.udid}</div>
+                    </div>
+                    <span style={platformChip}>detected</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        )}
+      </Subcard>
+    </Section>
   );
 }
 

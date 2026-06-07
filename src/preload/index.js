@@ -261,6 +261,16 @@ const api = {
     openAccount:        (data) => ipcRenderer.invoke('oserus-browser:openAccount', data),
     openAllForProfile:  (data) => ipcRenderer.invoke('oserus-browser:openAllForProfile', data),
   },
+  chrome: {
+    detect:   () => ipcRenderer.invoke('chrome:detect'),
+    setPath:  (path) => ipcRenderer.invoke('chrome:setPath', { path }),
+    launch:   (args) => ipcRenderer.invoke('chrome:launch', args),
+  },
+  devices: {
+    list:     () => ipcRenderer.invoke('devices:list'),
+    getTools: () => ipcRenderer.invoke('devices:getTools'),
+    setTools: (args) => ipcRenderer.invoke('devices:setTools', args),
+  },
   cloud: {
     getStatus: () => ipcRenderer.invoke('cloud:getStatus'),
     getConfig: () => ipcRenderer.invoke('cloud:getConfig'),

@@ -66,6 +66,7 @@ const registerEngagementHandlers = require('./ipc/engagement');
 const registerAutoCommentHandlers = require('./ipc/autoComment');
 const registerAutopilotProtocolHandlers = require('./ipc/autopilotProtocol');
 const registerCloudHandlers = require('./ipc/cloud');
+const registerDeviceHandlers = require('./ipc/devices');
 const coordinator = require('./services/coordinator');
 const oserusBrowser = require('./browser');
 const { buildAutofillScript } = require('./autofill');
@@ -367,6 +368,7 @@ app.whenReady().then(() => {
   registerAutoCommentHandlers(ipcMain);
   registerAutopilotProtocolHandlers(ipcMain);
   registerCloudHandlers(ipcMain);
+  registerDeviceHandlers(ipcMain);
 
   // Oserus Browser (v0.62 soft-cut: optional, launched on demand from
   // Management). The module manages a single window — picker or session
