@@ -22,6 +22,7 @@ import RedGifsDashboardPage from './pages/RedGifsDashboard.jsx';
 import RedditApiPage from './pages/RedditApi.jsx';
 import InboxPage from './pages/Inbox.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 
 // A pop-out window loads the renderer with #popout=<route>&k=v&k=v.
 // Detect it, parse extra hash params, and render a minimal standalone shell
@@ -118,7 +119,7 @@ function Inner() {
     return (
       <PermissionsProvider>
         <ActiveAccountProvider>
-          <PopoutShell>{popPage}</PopoutShell>
+          <PopoutShell><ErrorBoundary label={popoutRoute}>{popPage}</ErrorBoundary></PopoutShell>
         </ActiveAccountProvider>
       </PermissionsProvider>
     );
@@ -128,7 +129,9 @@ function Inner() {
     <PermissionsProvider>
       <ActiveAccountProvider>
         <InboxLiveProvider>
-          <Shell route={route} navigate={navigate}>{page}</Shell>
+          <Shell route={route} navigate={navigate}>
+            <ErrorBoundary label={route}>{page}</ErrorBoundary>
+          </Shell>
           <UpdateBanner />
         </InboxLiveProvider>
       </ActiveAccountProvider>

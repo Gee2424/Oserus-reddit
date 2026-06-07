@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import SchedulerProPage from './SchedulerPro.jsx';
 import AutopilotPage from './Autopilot.jsx';
+import ErrorBoundary from '../components/ErrorBoundary.jsx';
 
 // Automation = Scheduler + Autopilot under one sidebar entry, split into
 // inner sections so the user has a single workspace instead of two tabs.
@@ -44,8 +45,8 @@ export default function AutomationPage({ navigate, initialSection }) {
         ))}
       </div>
 
-      {section === 'scheduler' && <SchedulerProPage navigate={navigate} />}
-      {section === 'autopilot' && <AutopilotPage />}
+      {section === 'scheduler' && <ErrorBoundary label="Scheduler"><SchedulerProPage navigate={navigate} /></ErrorBoundary>}
+      {section === 'autopilot' && <ErrorBoundary label="Autopilot"><AutopilotPage /></ErrorBoundary>}
     </div>
   );
 }
