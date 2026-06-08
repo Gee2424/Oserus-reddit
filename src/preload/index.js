@@ -71,6 +71,10 @@ const api = {
     toggle: (data) => ipcRenderer.invoke('extensions:toggle', data),
     remove: (data) => ipcRenderer.invoke('extensions:remove', data),
   },
+  homepage: {
+    list: (data) => ipcRenderer.invoke('homepage:list', data),
+    save: (data) => ipcRenderer.invoke('homepage:save', data),
+  },
   webviews: {
     list: (data) => ipcRenderer.invoke('webviews:list', data),
     create: (data) => ipcRenderer.invoke('webviews:create', data),

@@ -4,6 +4,7 @@ import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 import ProxiesPanel from '../components/ProxiesPanel.jsx';
 import ExtensionsPanel from '../components/ExtensionsPanel.jsx';
+import HomepageTilesPanel from '../components/HomepageTilesPanel.jsx';
 import AutopilotAIPanel from '../components/AutopilotAIPanel.jsx';
 
 // Configuration page.
@@ -524,6 +525,13 @@ function BrowserDevicesSection() {
         <div className="muted" style={{ fontSize: 11, marginTop: 14, lineHeight: 1.6 }}>
           Launch from any account row's <span className="mono">▶</span> button, or from a model profile's <span className="mono">▶ Reddit</span> button to open every account on that profile in parallel.
         </div>
+      </Subcard>
+
+      <Subcard
+        title="New-Tab Homepage Tiles"
+        description="Operator-configurable quick-launch grid shown on the Oserus Browser new-tab page (the page that opens when you click + on the tab strip). Edit, reorder, recolor, save."
+      >
+        <HomepageTilesPanel />
       </Subcard>
 
       <Subcard title="Connected Phones"

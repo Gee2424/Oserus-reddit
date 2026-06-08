@@ -134,17 +134,29 @@ export default function BrowserShell() {
               <div
                 key={t.id}
                 onClick={() => window.oserusBrowser.switchTab(t.id)}
+                // Middle-click closes the tab (Chrome / Firefox standard).
+                // mousedown preventDefault stops the browser's autoscroll
+                // cursor from showing on middle-click.
+                onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
+                onAuxClick={(e) => {
+                  if (e.button === 1) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.oserusBrowser.closeTab(t.id);
+                  }
+                }}
                 style={{ ...tabStyle, ...(isActive ? tabActive : {}) }}
-                title={t.url}
+                title={t.url || t.title}
               >
                 {t.loading
                   ? <span style={spinner} />
                   : t.favicon
                     ? <img src={t.favicon} alt="" width={14} height={14} style={favicon} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                     : <span style={faviconDot} />}
-                <span style={tabTitle}>{t.title || t.url}</span>
+                <span style={tabTitle}>{t.title || t.url || 'New Tab'}</span>
                 <button
                   onClick={(e) => { e.stopPropagation(); window.oserusBrowser.closeTab(t.id); }}
+                  onMouseDown={(e) => e.stopPropagation()}
                   style={closeBtn}
                   title="Close tab"
                 >×</button>
@@ -438,10 +450,12 @@ const faviconDot = {
   background: 'rgba(255,255,255,0.14)', flexShrink: 0,
 };
 const closeBtn = {
-  width: 18, height: 18, borderRadius: 4,
-  background: 'transparent', border: 'none',
-  color: '#a8abb0', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0,
+  width: 22, height: 22, borderRadius: 4, marginLeft: 4,
+  background: 'transparent',
+  color: '#a8abb0', fontSize: 16, lineHeight: 1, padding: 0,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
   WebkitAppRegion: 'no-drag',
+  flexShrink: 0,
 };
 const addBtn = {
   width: 30, height: 28, marginLeft: 4, marginBottom: 1,

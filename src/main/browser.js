@@ -81,6 +81,144 @@ const PLATFORM_HOME = {
 };
 function homeFor(platform) { return PLATFORM_HOME[platform] || 'https://www.google.com/'; }
 
+// Marker baked into the new-tab data: URL so we can detect it in
+// tabSnapshot and report a clean address ('') to the omnibox instead
+// of the giant base64 blob.
+const NEWTAB_MARKER = 'oserus-newtab-v1';
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Build the Oserus new-tab page. Returns a data: URL with all tiles
+// inlined. Querying the DB at openTab time means edits in Settings
+// show up on every fresh tab without a window restart.
+function buildNewtabUrl() {
+  let tiles = [];
+  try {
+    const { listTiles } = require('./ipc/homepage');
+    tiles = listTiles();
+  } catch (e) {
+    elog.warn('[newtab] tile lookup failed, using defaults', e?.message);
+    tiles = require('./ipc/homepage').DEFAULTS;
+  }
+  const tilesHtml = tiles.map((t) => {
+    const accent = escapeHtml(t.color || '#d4a64a');
+    const domain = (() => {
+      try { return new URL(t.url).hostname; } catch { return ''; }
+    })();
+    const initial = (t.label || '?').charAt(0).toUpperCase();
+    const favicon = domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64` : '';
+    return `
+      <a class="tile" href="${escapeHtml(t.url)}" style="--accent:${accent}">
+        <span class="icon">
+          ${favicon ? `<img src="${escapeHtml(favicon)}" alt="" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'"/>` : ''}
+          <span class="initial" ${favicon ? 'style="display:none"' : ''}>${escapeHtml(initial)}</span>
+        </span>
+        <span class="label">${escapeHtml(t.label)}</span>
+      </a>`;
+  }).join('');
+
+  const html = `<!doctype html>
+<html><head>
+<meta charset="utf-8">
+<title>Oserus — New Tab</title>
+<meta name="${NEWTAB_MARKER}" content="1">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:#0f0d0c;color:#e9eaec;
+    font-family:'Inter Tight',system-ui,sans-serif;
+    overflow:hidden;
+    background-image:
+      radial-gradient(ellipse 60% 40% at 20% 15%, rgba(212,166,74,0.08), transparent 65%),
+      radial-gradient(ellipse 55% 45% at 80% 85%, rgba(122,154,90,0.05), transparent 70%);
+  }
+  .wrap{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    min-height:100%;padding:40px 24px 80px;gap:36px;
+  }
+  .brand{
+    display:flex;align-items:center;gap:10px;
+    color:#d4a64a;letter-spacing:6px;font-size:14px;font-weight:700;
+    text-transform:uppercase;
+  }
+  .brand-dot{width:10px;height:10px;border-radius:3px;background:#d4a64a;
+    box-shadow:0 0 14px rgba(212,166,74,0.6)}
+  form.search{
+    width:min(640px,100%);
+    display:flex;align-items:center;gap:10px;
+    background:#1c1a18;border:1px solid rgba(255,255,255,0.08);
+    border-radius:28px;padding:0 18px;height:52px;
+    box-shadow:0 8px 30px rgba(0,0,0,0.35);
+    transition:border-color .15s, box-shadow .15s;
+  }
+  form.search:focus-within{
+    border-color:#d4a64a;
+    box-shadow:0 8px 36px rgba(212,166,74,0.18);
+  }
+  .gicon{width:20px;height:20px;border-radius:50%;
+    background:conic-gradient(#4285f4 0 25%,#ea4335 25% 50%,#fbbc05 50% 75%,#34a853 75% 100%);
+    flex-shrink:0;opacity:0.9;
+  }
+  form.search input{
+    flex:1;background:transparent;border:none;outline:none;
+    color:#f1f2f3;font-size:15px;font-family:inherit;
+  }
+  form.search input::placeholder{color:#7d8085}
+  .grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
+    gap:14px;width:min(900px,100%);
+  }
+  .tile{
+    display:flex;flex-direction:column;align-items:center;gap:10px;
+    padding:18px 10px;border-radius:14px;
+    background:#1c1a18;border:1px solid rgba(255,255,255,0.06);
+    color:#e9eaec;text-decoration:none;font-size:12px;
+    transition:transform .12s ease, border-color .15s, background .15s;
+    cursor:pointer;
+  }
+  .tile:hover{
+    transform:translateY(-2px);
+    border-color:var(--accent,#d4a64a);
+    background:#22201e;
+  }
+  .icon{
+    width:44px;height:44px;border-radius:11px;
+    background:var(--accent,#d4a64a);
+    display:grid;place-items:center;flex-shrink:0;
+    box-shadow:0 4px 14px rgba(0,0,0,0.35);
+    overflow:hidden;
+  }
+  .icon img{width:28px;height:28px;border-radius:6px}
+  .icon .initial{font-weight:700;font-size:18px;color:#0f0d0c;display:grid;place-items:center;width:100%;height:100%}
+  .label{font-weight:500;letter-spacing:0.3px;text-align:center;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .foot{position:fixed;bottom:14px;left:0;right:0;text-align:center;
+    color:#5b5e63;font-size:10px;letter-spacing:1.5px;text-transform:uppercase}
+</style>
+</head><body>
+<div class="wrap">
+  <div class="brand"><span class="brand-dot"></span><span>OSERUS BROWSER</span></div>
+  <form class="search" action="https://www.google.com/search" method="GET">
+    <span class="gicon"></span>
+    <input name="q" placeholder="Search Google or type a URL" autocomplete="off" autofocus>
+  </form>
+  <div class="grid">${tilesHtml}</div>
+  <div class="foot">Oserus Management · custom Chromium</div>
+</div>
+</body></html>`;
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+}
+
+function isNewtabUrl(u) {
+  return typeof u === 'string' && u.startsWith('data:text/html') && u.includes(encodeURIComponent(NEWTAB_MARKER));
+}
+
 function platformOfAccount(accountId) {
   const row = getDb().prepare('SELECT platform FROM reddit_accounts WHERE id = ?').get(accountId);
   return row?.platform || null;
@@ -214,10 +352,14 @@ function layoutActiveTab(win) {
 }
 
 function tabSnapshot(t) {
+  const isNewtab = isNewtabUrl(t.url);
   return {
     id: t.id,
-    title: t.title || t.url,
-    url: t.url,
+    // On the new-tab page, prefer 'New Tab' over the raw data: URL/title
+    title: isNewtab ? 'New Tab' : (t.title || t.url),
+    // Hide the data: blob from the omnibox so the user gets a clean
+    // ready-to-type field on a fresh tab.
+    url: isNewtab ? '' : t.url,
     favicon: t.favicon || null,
     loading: t.loading,
     canBack: t.canBack,
@@ -493,9 +635,10 @@ function registerTabIpc() {
   ipcMain.handle('oserus-browser:newTab', (e, { url } = {}) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win) return { ok: false };
-    const st = windowState.get(win);
-    const fallback = st ? homeFor(st.platform) : 'https://www.google.com/';
-    openTab(win, url || fallback);
+    // Default for the explicit + button: Oserus new-tab page (with the
+    // operator-configured tiles). Programmatic openTab still passes a
+    // real URL for the first tab on window open (platform home).
+    openTab(win, url || buildNewtabUrl());
     return { ok: true };
   });
 

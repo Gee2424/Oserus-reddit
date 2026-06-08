@@ -45,6 +45,7 @@ const registerWebviewHandlers = require('./ipc/webviews');
 const registerPostHandlers = require('./ipc/posts');
 const registerProxyHandlers = require('./ipc/proxies');
 const registerExtensionHandlers = require('./ipc/extensions');
+const registerHomepageHandlers = require('./ipc/homepage');
 const registerBundleHandlers = require('./ipc/bundle');
 const registerAiHandlers = require('./ipc/ai');
 const registerSubsHandlers = require('./ipc/subs');
@@ -348,6 +349,7 @@ app.whenReady().then(() => {
   registerPostHandlers(ipcMain);
   registerProxyHandlers(ipcMain);
   registerExtensionHandlers(ipcMain);
+  registerHomepageHandlers(ipcMain);
   registerBundleHandlers(ipcMain);
   registerAiHandlers(ipcMain);
   registerSubsHandlers(ipcMain);
