@@ -63,6 +63,7 @@ const api = {
     delete: (data) => ipcRenderer.invoke('proxies:delete', data),
     test: (data) => ipcRenderer.invoke('proxies:test', data),
     testAll: (data) => ipcRenderer.invoke('proxies:testAll', data),
+    rotate:  (data) => ipcRenderer.invoke('proxies:rotate', data),
     getForAccount: (data) => ipcRenderer.invoke('proxies:getForAccount', data),
   },
   extensions: {

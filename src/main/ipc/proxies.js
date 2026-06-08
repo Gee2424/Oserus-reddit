@@ -21,6 +21,10 @@ function ensureProxyMigrations() {
   //   "user-{sid}-{user}"     (Webshare)
   if (!have('rotation_minutes'))      db.exec('ALTER TABLE proxies ADD COLUMN rotation_minutes INTEGER NOT NULL DEFAULT 0');
   if (!have('session_user_template')) db.exec('ALTER TABLE proxies ADD COLUMN session_user_template TEXT');
+  // Provider's "rotate exit IP now" endpoint — fxdx / IPRoyal / SOAX
+  // / Webshare all expose a token URL the operator can GET to flip
+  // the IP without changing the proxy host or creds. Optional.
+  if (!have('rotation_url'))          db.exec('ALTER TABLE proxies ADD COLUMN rotation_url TEXT');
 }
 
 // Reach the public IP via the proxy. Resolves true if the request comes
@@ -69,7 +73,7 @@ function register(ipcMain) {
     const rows = getDb()
       .prepare(`SELECT id, label, kind, host, port, username, password_encrypted, created_at,
                        last_test_ok, last_test_at, last_test_error,
-                       rotation_minutes, session_user_template
+                       rotation_minutes, session_user_template, rotation_url
                 FROM proxies ORDER BY label`)
       .all();
     return {
@@ -123,7 +127,7 @@ function register(ipcMain) {
   ipcMain.handle('proxies:create', (_e, args) => {
     try {
       const { token, label, kind, host, port, username, password,
-              rotation_minutes, session_user_template } = args;
+              rotation_minutes, session_user_template, rotation_url } = args;
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'infra.proxies.manage');
@@ -133,13 +137,14 @@ function register(ipcMain) {
         .prepare(
           `INSERT INTO proxies
              (label, kind, host, port, username, password_encrypted,
-              rotation_minutes, session_user_template)
-           VALUES (?,?,?,?,?,?,?,?)`
+              rotation_minutes, session_user_template, rotation_url)
+           VALUES (?,?,?,?,?,?,?,?,?)`
         )
         .run(
           label, kind, host, Number(port), username || null, encryptSecret(password),
           Math.max(0, Number(rotation_minutes) || 0),
           session_user_template || null,
+          rotation_url || null,
         );
       return { ok: true, id: info.lastInsertRowid };
     } catch (err) {
@@ -152,7 +157,7 @@ function register(ipcMain) {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'infra.proxies.manage');
-      const allowed = ['label', 'kind', 'host', 'port', 'username', 'rotation_minutes', 'session_user_template'];
+      const allowed = ['label', 'kind', 'host', 'port', 'username', 'rotation_minutes', 'session_user_template', 'rotation_url'];
       const sets = [], params = [];
       for (const k of allowed) {
         if (updates[k] !== undefined) {
@@ -168,6 +173,40 @@ function register(ipcMain) {
       params.push(proxyId);
       getDb().prepare(`UPDATE proxies SET ${sets.join(', ')} WHERE id = ?`).run(...params);
       return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // Hit the provider's "rotate exit IP now" endpoint. Uses the default
+  // session so the call goes out via the operator's network (the
+  // rotation endpoint itself is the provider's control plane, NOT the
+  // proxy tunnel). Returns the HTTP status / response body so the
+  // operator can see whether the provider accepted the flip.
+  ipcMain.handle('proxies:rotate', async (_e, { token, proxyId }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'infra.proxies.manage');
+      const row = getDb().prepare('SELECT rotation_url, label FROM proxies WHERE id = ?').get(proxyId);
+      if (!row) throw new Error('Proxy not found');
+      if (!row.rotation_url) throw new Error('No rotation URL configured for this proxy');
+      const result = await new Promise((resolve) => {
+        const t = setTimeout(() => { try { req.abort(); } catch {} resolve({ ok: false, error: 'Timed out' }); }, 10000);
+        const req = net.request({ method: 'GET', url: row.rotation_url });
+        req.setHeader('User-Agent', 'Oserus/proxy-rotate');
+        let body = '';
+        req.on('response', (res) => {
+          res.on('data', (c) => { body += c.toString(); });
+          res.on('end', () => {
+            clearTimeout(t);
+            resolve({ ok: res.statusCode >= 200 && res.statusCode < 400, status: res.statusCode, body: body.slice(0, 400) });
+          });
+        });
+        req.on('error', (e) => { clearTimeout(t); resolve({ ok: false, error: e.message }); });
+        req.end();
+      });
+      return { ok: true, result };
     } catch (err) {
       return { ok: false, error: err.message };
     }

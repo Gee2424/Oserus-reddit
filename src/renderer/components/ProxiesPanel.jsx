@@ -14,7 +14,60 @@ function blankProxy() {
     username: '', password: '',
     rotation_minutes: 0,
     session_user_template: '',
+    rotation_url: '',
   };
+}
+
+// Parse the common proxy-URL formats residential providers hand out.
+// Accepts (case-insensitive):
+//   scheme://host:port:user:pass     (fxdx, IPRoyal, SOAX, BrightData)
+//   scheme://user:pass@host:port     (RFC URL form)
+//   host:port:user:pass              (no scheme — defaults to http)
+//   host:port                        (no auth)
+// Returns a partial form patch or { error }.
+function parseProxyUrl(raw) {
+  if (!raw) return { error: 'Empty' };
+  let s = String(raw).trim();
+  let kind = null;
+  const schemeMatch = s.match(/^([a-z0-9+]+):\/\//i);
+  if (schemeMatch) {
+    const k = schemeMatch[1].toLowerCase();
+    if (k === 'socks5' || k === 'socks' || k === 'socks5h') kind = 'socks5';
+    else if (k === 'https') kind = 'https';
+    else if (k === 'http')  kind = 'http';
+    else return { error: `Unsupported scheme: ${k}` };
+    s = s.slice(schemeMatch[0].length);
+  }
+  // user:pass@host:port form
+  if (s.includes('@')) {
+    const at = s.lastIndexOf('@');
+    const auth = s.slice(0, at);
+    const hp = s.slice(at + 1);
+    const [u, p] = splitOnce(auth, ':');
+    const [h, port] = splitOnce(hp, ':');
+    if (!h || !port) return { error: 'Could not find host:port' };
+    return { kind: kind || 'http', host: h, port: port.replace(/\/.*$/, ''), username: u || '', password: p || '' };
+  }
+  // host:port[:user:pass] form
+  const parts = s.split(':');
+  if (parts.length < 2) return { error: 'Need at least host:port' };
+  const host = parts[0];
+  const port = parts[1];
+  let username = '', password = '';
+  if (parts.length >= 4) {
+    username = parts[2];
+    // Password may itself contain ':' — rejoin the tail.
+    password = parts.slice(3).join(':');
+  } else if (parts.length === 3) {
+    // Ambiguous — treat the 3rd token as username with empty password.
+    username = parts[2];
+  }
+  return { kind: kind || 'http', host, port: port.replace(/\/.*$/, ''), username, password };
+}
+function splitOnce(s, sep) {
+  const i = s.indexOf(sep);
+  if (i < 0) return [s, ''];
+  return [s.slice(0, i), s.slice(i + 1)];
 }
 
 // Proxy management. Reused on the Operations page.
@@ -27,6 +80,24 @@ export default function ProxiesPanel() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(blankProxy());
   const [error, setError] = useState(null);
+  const [pasteUrl, setPasteUrl] = useState('');
+  const [pasteMsg, setPasteMsg] = useState(null);
+
+  function applyPaste() {
+    setPasteMsg(null);
+    const parsed = parseProxyUrl(pasteUrl);
+    if (parsed.error) { setPasteMsg({ kind: 'err', text: parsed.error }); return; }
+    setForm((f) => ({
+      ...f,
+      kind: parsed.kind || f.kind,
+      host: parsed.host || f.host,
+      port: parsed.port || f.port,
+      username: parsed.username ?? f.username,
+      password: parsed.password ?? f.password,
+      label: f.label || `${parsed.host}:${parsed.port}`,
+    }));
+    setPasteMsg({ kind: 'ok', text: `Parsed → ${parsed.kind} ${parsed.host}:${parsed.port}${parsed.username ? ` (auth: ${parsed.username})` : ''}` });
+  }
 
   async function load() {
     const res = await window.api.proxies.list({ token });
@@ -48,6 +119,7 @@ export default function ProxiesPanel() {
         username: form.username || null,
         rotation_minutes: Math.max(0, Number(form.rotation_minutes) || 0),
         session_user_template: form.session_user_template || null,
+        rotation_url: form.rotation_url || null,
       };
       if (form.password) updates.password = form.password;
       res = await window.api.proxies.update({ token, proxyId: editing, updates });
@@ -57,6 +129,7 @@ export default function ProxiesPanel() {
         username: form.username, password: form.password,
         rotation_minutes: Math.max(0, Number(form.rotation_minutes) || 0),
         session_user_template: form.session_user_template || null,
+        rotation_url: form.rotation_url || null,
       });
     }
     if (!res.ok) { setError(res.error); return; }
@@ -70,6 +143,7 @@ export default function ProxiesPanel() {
       username: p.username || '', password: '',
       rotation_minutes: p.rotation_minutes || 0,
       session_user_template: p.session_user_template || '',
+      rotation_url: p.rotation_url || '',
     });
     setShowAdd(true);
   }
@@ -98,6 +172,52 @@ export default function ProxiesPanel() {
         <form onSubmit={submit} className="card" style={{ marginBottom: 22 }}>
           <h3 style={{ marginBottom: 14 }}>{editing ? 'Edit proxy' : 'Add proxy'}</h3>
           {error && <div className="error-banner">{error}</div>}
+
+          {/* Paste a proxy URL — auto-fills host / port / user / pass.
+              Accepts every common residential format: socks5://host:port:user:pass,
+              user:pass@host:port, bare host:port, etc. */}
+          <div style={{ marginBottom: 14, padding: 12, borderRadius: 6, background: 'var(--bg-elev)', border: '1px solid var(--border)' }}>
+            <label>Paste a proxy URL <span className="dim" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>(socks5://host:port:user:pass, user:pass@host:port, or host:port)</span></label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                placeholder="socks5://zxlycpht4j.cn.fxdx.in:13916:user:pass"
+                value={pasteUrl}
+                onChange={(e) => setPasteUrl(e.target.value)}
+                onPaste={(e) => {
+                  // If a full URL is pasted, parse + apply on the next tick.
+                  const v = e.clipboardData?.getData('text');
+                  if (v && /:/.test(v)) {
+                    setPasteUrl(v);
+                    setTimeout(() => {
+                      const parsed = parseProxyUrl(v);
+                      if (!parsed.error) {
+                        setForm((f) => ({
+                          ...f,
+                          kind: parsed.kind || f.kind,
+                          host: parsed.host, port: parsed.port,
+                          username: parsed.username ?? f.username,
+                          password: parsed.password ?? f.password,
+                          label: f.label || `${parsed.host}:${parsed.port}`,
+                        }));
+                        setPasteMsg({ kind: 'ok', text: `Parsed → ${parsed.kind} ${parsed.host}:${parsed.port}${parsed.username ? ` (auth: ${parsed.username})` : ''}` });
+                      } else setPasteMsg({ kind: 'err', text: parsed.error });
+                    }, 0);
+                    e.preventDefault();
+                  }
+                }}
+                className="mono"
+                style={{ flex: 1 }}
+              />
+              <button type="button" onClick={applyPaste} disabled={!pasteUrl}>Parse</button>
+            </div>
+            {pasteMsg && (
+              <div className="dim" style={{
+                fontSize: 11, marginTop: 6,
+                color: pasteMsg.kind === 'err' ? 'var(--danger)' : 'var(--ok)',
+              }}>{pasteMsg.text}</div>
+            )}
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14, marginBottom: 14 }}>
             <div>
               <label>Label</label>
@@ -155,6 +275,18 @@ export default function ProxiesPanel() {
               </div>
             </div>
           </div>
+          <div style={{ marginBottom: 14 }}>
+            <label>Rotation URL <span className="dim" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>(optional — provider endpoint that rotates the exit IP on GET, e.g. fxdx changeip link)</span></label>
+            <input
+              placeholder="https://i.fxdx.in/actionlinks/do/changeip/…"
+              value={form.rotation_url}
+              onChange={(e) => setForm({ ...form, rotation_url: e.target.value })}
+              className="mono"
+            />
+            <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>
+              When set, the Proxies table shows a Rotate button that hits this URL to flip the exit IP on demand. Independent from the rotation TTL above (which controls per-account sticky-session ID flips).
+            </div>
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="submit" className="primary">{editing ? 'Save changes' : 'Add proxy'}</button>
             <button type="button" className="ghost" onClick={() => { setShowAdd(false); setEditing(null); }}>Cancel</button>
@@ -192,7 +324,19 @@ export default function ProxiesPanel() {
                   <td style={{ ...td, textAlign: 'right' }}>
                     {canManage && (
                       <>
-                        <button className="ghost" onClick={() => startEdit(p)}>Edit</button>
+                        {p.rotation_url && (
+                          <button
+                            className="ghost"
+                            title="Hit the provider's change-IP endpoint to rotate the exit IP now"
+                            onClick={async () => {
+                              const r = await window.api.proxies.rotate({ token, proxyId: p.id });
+                              if (!r.ok) { alert('Rotate failed: ' + r.error); return; }
+                              if (!r.result?.ok) { alert('Provider returned ' + (r.result?.status || r.result?.error)); return; }
+                              alert('Rotated. Status ' + r.result.status);
+                            }}
+                          >Rotate</button>
+                        )}
+                        <button className="ghost" onClick={() => startEdit(p)} style={{ marginLeft: 6 }}>Edit</button>
                         <button className="danger" onClick={() => del(p.id)} style={{ marginLeft: 6 }}>Delete</button>
                       </>
                     )}
