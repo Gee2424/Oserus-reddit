@@ -17,6 +17,7 @@ const fs = require('fs');
 const { getDb, decryptSecret } = require('../db');
 const fingerprintMod = require('../fingerprint');
 const { writePreloadFor } = require('../antidetectPreload');
+const proxyChain = require('proxy-chain');
 
 // Per-partition tracking so we only loadExtension once per session. The
 // Electron API does not expose listExtensions on a fresh partition, so we
@@ -25,6 +26,56 @@ const loadedExtensionsByPartition = new Map(); // partition -> Set<path>
 
 // Track configured partitions so we can skip redundant work on re-prep.
 const configuredPartitions = new Set();
+
+// Local HTTP→upstream bridge cache. Chromium can't do SOCKS5 auth and
+// its HTTP-CONNECT auth path is fragile under load — we anonymize via a
+// local proxy-chain gateway listening on 127.0.0.1:port and let
+// Chromium talk plain HTTP to that. The bridge handles upstream auth.
+//
+// Keyed by `${scheme}|${host}|${port}|${username}|${pw_fingerprint}` so a
+// rotating username (sticky session id) creates a fresh bridge each TTL
+// flip — that's exactly the rotation behaviour we want.
+const bridgeCache = new Map(); // key -> { url, server, key }
+
+async function getOrCreateBridge({ scheme, host, port, username, password }) {
+  // Build the upstream URL proxy-chain expects. socks5/http/https — all
+  // supported. Encode credentials so '@' / ':' in passwords survive.
+  const auth = username ? `${encodeURIComponent(username)}:${encodeURIComponent(password || '')}@` : '';
+  const upstreamUrl = `${scheme}://${auth}${host}:${port}`;
+  const key = `${scheme}|${host}|${port}|${username || ''}|${password ? password.length : 0}`;
+  const cached = bridgeCache.get(key);
+  if (cached) return cached;
+
+  try {
+    const localUrl = await proxyChain.anonymizeProxy({ url: upstreamUrl, port: 0 });
+    // anonymizeProxy returns 'http://127.0.0.1:PORT' — store the URL
+    // and the close handle so we can clean up on rotation flips.
+    const entry = { url: localUrl, key };
+    bridgeCache.set(key, entry);
+    elog.info('[proxy] bridge online', { scheme, host, port, local: localUrl });
+    return entry;
+  } catch (e) {
+    elog.error('[proxy] bridge spin-up failed', { scheme, host, port, error: e?.message });
+    return null;
+  }
+}
+
+async function evictBridge(key) {
+  const entry = bridgeCache.get(key);
+  if (!entry) return;
+  try { await proxyChain.closeAnonymizedProxy(entry.url, true); } catch {}
+  bridgeCache.delete(key);
+}
+
+// Cleanup hook for app shutdown — closes every bridge cleanly so we
+// don't leak open ports across an autoupdate restart.
+async function shutdownProxyBridges() {
+  const entries = Array.from(bridgeCache.values());
+  bridgeCache.clear();
+  for (const e of entries) {
+    try { await proxyChain.closeAnonymizedProxy(e.url, true); } catch {}
+  }
+}
 
 // Build the username sent to the proxy. When rotation_minutes > 0, append
 // a synthetic session id that flips every TTL — the upstream provider
@@ -90,12 +141,42 @@ async function prepareSessionForAccount(accountId) {
   if (account.proxy_host && account.proxy_port) {
     const scheme = account.proxy_kind === 'socks5' ? 'socks5'
       : (account.proxy_kind === 'https' ? 'https' : 'http');
-    const rules = `${scheme}://${account.proxy_host}:${account.proxy_port}`;
+    const password = account.proxy_username ? (decryptSecret(account.proxy_pw_enc) || '') : null;
+    const username = account.proxy_username ? buildRotatingUsername(account) : null;
 
+    // Chromium can't authenticate SOCKS5 at all (it has no protocol-
+    // layer auth on its built-in SOCKS5 client), and its HTTP/HTTPS
+    // proxy auth via the 'login' event is fragile under high concurrency
+    // — first CONNECT can ERR_TUNNEL_CONNECTION_FAILED before the login
+    // handler is consulted. Solution for both: spin up a local
+    // proxy-chain bridge that handles upstream auth and exposes a
+    // plain-HTTP local endpoint. Chromium talks to that endpoint —
+    // no auth challenge ever crosses the Chromium boundary.
+    let proxyRules;
+    if (username) {
+      const bridge = await getOrCreateBridge({
+        scheme, host: account.proxy_host, port: account.proxy_port,
+        username, password,
+      });
+      if (!bridge) {
+        return { ok: false, error: 'Could not spin up local proxy bridge — see logs' };
+      }
+      // bridge.url looks like 'http://127.0.0.1:PORT'
+      proxyRules = bridge.url;
+      // Keep the bridge key on the session for selective eviction when
+      // rotation flips the username (so we don't accumulate orphan
+      // gateways across hours of running).
+      try { sess.__obProxyBridgeKey = bridge.key; } catch {}
+    } else {
+      // No auth — Chromium can handle it directly.
+      proxyRules = `${scheme}://${account.proxy_host}:${account.proxy_port}`;
+    }
+
+    // Login handler is now defensive only — the bridge handles auth.
+    // We still register one so any provider that does HTTP digest
+    // re-auth in mid-flight gets answered instead of failing.
     sess.removeAllListeners('login');
-    if (account.proxy_username) {
-      const password = decryptSecret(account.proxy_pw_enc) || '';
-      const username = buildRotatingUsername(account);
+    if (username) {
       sess.on('login', (event, _details, authInfo, callback) => {
         if (authInfo && authInfo.isProxy) {
           event.preventDefault();
@@ -105,10 +186,11 @@ async function prepareSessionForAccount(accountId) {
     }
 
     try {
-      await sess.setProxy({ proxyRules: rules, proxyBypassRules: 'localhost,127.0.0.1' });
+      await sess.setProxy({ proxyRules, proxyBypassRules: 'localhost,127.0.0.1' });
     } catch (e) {
       elog.error('[proxy] setProxy failed', {
-        accountId, host: account.proxy_host, port: account.proxy_port, error: e?.message,
+        accountId, host: account.proxy_host, port: account.proxy_port,
+        kind: scheme, bridged: !!username, error: e?.message,
       });
       return { ok: false, error: `Proxy config rejected: ${e?.message || e}` };
     }
@@ -149,4 +231,8 @@ async function loadEnabledExtensions(sess, partition) {
   }
 }
 
-module.exports = { prepareSessionForAccount, configuredPartitions };
+module.exports = {
+  prepareSessionForAccount,
+  configuredPartitions,
+  shutdownProxyBridges,
+};

@@ -1,4 +1,5 @@
 const { net, session } = require('electron');
+const proxyChain = require('proxy-chain');
 const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
 const { requirePermission } = require('../permissions');
@@ -29,20 +30,49 @@ function ensureProxyMigrations() {
 
 // Reach the public IP via the proxy. Resolves true if the request comes
 // back with 200; otherwise records the error. 8s timeout.
+//
+// For SOCKS5 (and authenticated HTTP/HTTPS) we route through a local
+// proxy-chain bridge — Chromium can't do SOCKS5 auth at all, and its
+// HTTP login handler is fragile under cold-CONNECT. Bridge handles
+// upstream auth and presents a plain-HTTP local endpoint Chromium
+// trusts. Same approach sessionPrep uses for browser windows.
 async function pingProxy(proxy) {
   const partition = `proxy-test-${proxy.id}-${Date.now()}`;
   const sess = session.fromPartition(partition);
   const scheme = proxy.kind === 'socks5' ? 'socks5' : (proxy.kind === 'https' ? 'https' : 'http');
-  await sess.setProxy({ proxyRules: `${scheme}://${proxy.host}:${proxy.port}`, proxyBypassRules: '<-loopback>' });
+  const pw = proxy.username ? (decryptSecret(proxy.password_encrypted) || '') : null;
+
+  let proxyRules;
+  let bridgeUrlToClose = null;
   if (proxy.username) {
-    const pw = decryptSecret(proxy.password_encrypted) || '';
+    try {
+      const auth = `${encodeURIComponent(proxy.username)}:${encodeURIComponent(pw || '')}@`;
+      const upstream = `${scheme}://${auth}${proxy.host}:${proxy.port}`;
+      proxyRules = await proxyChain.anonymizeProxy({ url: upstream, port: 0 });
+      bridgeUrlToClose = proxyRules;
+    } catch (e) {
+      return { ok: false, error: `Bridge spin-up failed: ${e.message}` };
+    }
+  } else {
+    proxyRules = `${scheme}://${proxy.host}:${proxy.port}`;
+  }
+
+  await sess.setProxy({ proxyRules, proxyBypassRules: 'localhost,127.0.0.1' });
+  // Defensive login handler — bridge already handles auth, but a few
+  // providers issue a mid-stream auth challenge.
+  if (proxy.username) {
     sess.removeAllListeners('login');
     sess.on('login', (_e, _details, _info, cb) => cb(proxy.username, pw));
   }
   return new Promise((resolve) => {
+    const cleanup = async () => {
+      if (bridgeUrlToClose) {
+        try { await proxyChain.closeAnonymizedProxy(bridgeUrlToClose, true); } catch {}
+      }
+    };
     const t = setTimeout(() => {
       try { req.abort(); } catch { /* noop */ }
-      resolve({ ok: false, error: 'Timed out after 8s' });
+      cleanup().finally(() => resolve({ ok: false, error: 'Timed out after 8s' }));
     }, 8000);
     const req = net.request({ method: 'GET', url: 'https://api.ipify.org?format=json', session: sess });
     req.setHeader('User-Agent', 'Oserus/proxy-test');
@@ -53,13 +83,16 @@ async function pingProxy(proxy) {
         clearTimeout(t);
         if (res.statusCode >= 200 && res.statusCode < 300) {
           let ip = null; try { ip = JSON.parse(body).ip; } catch { /* noop */ }
-          resolve({ ok: true, ip });
+          cleanup().finally(() => resolve({ ok: true, ip }));
         } else {
-          resolve({ ok: false, error: `HTTP ${res.statusCode}` });
+          cleanup().finally(() => resolve({ ok: false, error: `HTTP ${res.statusCode}` }));
         }
       });
     });
-    req.on('error', (e) => { clearTimeout(t); resolve({ ok: false, error: e.message }); });
+    req.on('error', (e) => {
+      clearTimeout(t);
+      cleanup().finally(() => resolve({ ok: false, error: e.message }));
+    });
     req.end();
   });
 }

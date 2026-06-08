@@ -422,4 +422,10 @@ app.on('before-quit', () => {
   markQuitting();
   stopAutoUpdater();
   destroyTray();
+  // Close local proxy-chain bridges so we don't leak open ports across
+  // an autoupdate restart.
+  try {
+    const { shutdownProxyBridges } = require('./services/sessionPrep');
+    shutdownProxyBridges().catch(() => {});
+  } catch {}
 });
