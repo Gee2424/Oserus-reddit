@@ -94,6 +94,15 @@ function setConfig(scope, scopeId, config) {
 
 // Resolve the effective protocol for an account by merging the hierarchy.
 // Each level only overrides keys it actually sets (partial configs allowed).
+//
+// Layers (lowest precedence first):
+//   1. DEFAULT_PROTOCOL
+//   2. Legacy protocol_configs: global → platform → model → account
+//   3. autopilot_protocols row for (profile_id, platform) — this is
+//      where the Autopilot UI writes, so its quiet hours / daily caps /
+//      hours-between are merged in last and win. Before this layer was
+//      added, the UI fields were ornamental — the coordinator only
+//      read the legacy table.
 function resolveProtocol({ platform, profileId, accountId }) {
   const layers = [
     DEFAULT_PROTOCOL,
@@ -101,6 +110,7 @@ function resolveProtocol({ platform, profileId, accountId }) {
     platform ? getRawConfig('platform', platform) : null,
     profileId != null ? getRawConfig('model', profileId) : null,
     accountId != null ? getRawConfig('account', accountId) : null,
+    profileId != null && platform ? getAutopilotProtocolAsLegacy(profileId, platform) : null,
   ];
   const merged = {};
   for (const layer of layers) {
@@ -110,6 +120,33 @@ function resolveProtocol({ platform, profileId, accountId }) {
     }
   }
   return merged;
+}
+
+// Translate the autopilot_protocols row schema (snake_case, written by
+// the Autopilot UI) into the legacy protocol-config shape resolveProtocol
+// expects (camelCase). Only fields that are meaningful for posting
+// eligibility get forwarded.
+function getAutopilotProtocolAsLegacy(profileId, platform) {
+  try {
+    const row = getDb().prepare(
+      `SELECT enabled, quiet_start, quiet_end,
+              hours_between_min, hours_between_max,
+              daily_cap_posts
+         FROM autopilot_protocols
+        WHERE profile_id = ? AND platform = ?`
+    ).get(profileId, platform);
+    if (!row) return null;
+    const out = {};
+    // Only enabled rows contribute. A disabled autopilot leaves the
+    // legacy/global layer in control.
+    if (!row.enabled) return null;
+    if (row.quiet_start       != null) out.quietStart       = row.quiet_start;
+    if (row.quiet_end         != null) out.quietEnd         = row.quiet_end;
+    if (row.hours_between_min != null) out.hoursBetweenMin  = row.hours_between_min;
+    if (row.hours_between_max != null) out.hoursBetweenMax  = row.hours_between_max;
+    if (row.daily_cap_posts   != null) out.dailyCap         = row.daily_cap_posts;
+    return out;
+  } catch { return null; }
 }
 
 function rand(min, max) {

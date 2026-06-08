@@ -218,15 +218,24 @@ async function runDueScheduled() {
   const db = getDb();
   let due;
   try {
+    // Prefer the stored platform column when present (set by recent
+    // create/bulkCreate). Fall back to the account's platform for rows
+    // that pre-date the column migration. COALESCE handles both.
     due = db.prepare(
-      `SELECT s.*, a.platform AS platform, a.profile_id AS profile_id
+      `SELECT s.*, COALESCE(s.platform, a.platform) AS platform, a.profile_id AS profile_id
          FROM scheduled_posts s
          JOIN reddit_accounts a ON a.id = s.account_id
         WHERE s.status = 'pending'
           AND s.scheduled_for <= datetime('now')
         ORDER BY s.scheduled_for ASC LIMIT 25`
     ).all();
-  } catch { return; }
+  } catch (e) {
+    // Previously this was swallowed silently — operator saw no posts
+    // fire with no signal as to why. Surface to the log so we can
+    // diagnose corrupted-DB / locked-table situations.
+    elog.warn('[scheduler] runDueScheduled query failed', e?.message);
+    return;
+  }
 
   for (const post of due) {
     const platform = post.platform || 'reddit';

@@ -37,6 +37,21 @@ function ensureTable() {
   if (!have('boost_fire_at'))    db.exec('ALTER TABLE scheduled_posts ADD COLUMN boost_fire_at TEXT');
   if (!have('boost_order_id'))   db.exec('ALTER TABLE scheduled_posts ADD COLUMN boost_order_id TEXT');
   if (!have('posted_url'))       db.exec('ALTER TABLE scheduled_posts ADD COLUMN posted_url TEXT');
+
+  // Platform column. Before this migration, scheduled_posts had no
+  // platform field — non-Reddit posts saved with subreddit='' and the
+  // coordinator silently never fired them. Backfill from the account
+  // row so existing pending rows route to the right adapter.
+  if (!have('platform')) {
+    db.exec("ALTER TABLE scheduled_posts ADD COLUMN platform TEXT");
+    try {
+      db.exec(`
+        UPDATE scheduled_posts SET platform = (
+          SELECT a.platform FROM reddit_accounts a WHERE a.id = scheduled_posts.account_id
+        ) WHERE platform IS NULL
+      `);
+    } catch {}
+  }
 }
 
 // Flag scheduling conflicts for a candidate (account, time) against the
@@ -121,20 +136,26 @@ function register(ipcMain) {
     }
   });
 
-  ipcMain.handle('scheduled:create', (_e, { token, accountId, subreddit, title, body, kind, url, scheduledFor }) => {
+  ipcMain.handle('scheduled:create', (_e, { token, accountId, subreddit, title, body, kind, url, scheduledFor, platform }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       ensureTable();
-      if (!accountId || !subreddit || !title || !scheduledFor) {
-        throw new Error('Account, subreddit, title, and time required');
+      if (!accountId || !title || !scheduledFor) {
+        throw new Error('Account, title, and time required');
       }
+      // Look up the account's platform so we don't rely on the renderer
+      // sending it correctly. Subreddit is required only for Reddit.
+      const acct = getDb().prepare('SELECT platform FROM reddit_accounts WHERE id = ?').get(accountId);
+      const plat = platform || acct?.platform || 'reddit';
+      if (plat === 'reddit' && !subreddit) throw new Error('Subreddit required for Reddit posts');
       const info = getDb().prepare(
-        `INSERT INTO scheduled_posts (account_id, subreddit, title, body, kind, url, scheduled_for, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO scheduled_posts (account_id, platform, subreddit, title, body, kind, url, scheduled_for, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         accountId,
-        subreddit.replace(/^r\//i, '').trim(),
+        plat,
+        plat === 'reddit' ? subreddit.replace(/^r\//i, '').trim() : (subreddit || ''),
         title,
         body || null,
         kind || 'self',
@@ -158,20 +179,37 @@ function register(ipcMain) {
       if (!Array.isArray(items) || !items.length) throw new Error('No items to schedule');
       const stmt = getDb().prepare(
         `INSERT INTO scheduled_posts
-           (account_id, subreddit, title, body, kind, url, scheduled_for, created_by_user_id,
+           (account_id, platform, subreddit, title, body, kind, url, scheduled_for, created_by_user_id,
             boost_service_id, boost_qty, boost_status, boost_delay_minutes, boost_drip_rate)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
+      // Cache account → platform lookups across the bulk insert so we
+      // don't query per row when 50+ items come in.
+      const platCache = new Map();
+      const platformFor = (accountId) => {
+        if (platCache.has(accountId)) return platCache.get(accountId);
+        const row = getDb().prepare('SELECT platform FROM reddit_accounts WHERE id = ?').get(accountId);
+        const p = row?.platform || 'reddit';
+        platCache.set(accountId, p);
+        return p;
+      };
       let created = 0; const errors = [];
       const tx = getDb().transaction((rows) => {
         for (const it of rows) {
-          if (!it.accountId || !it.subreddit || !it.title || !it.scheduledFor) {
+          if (!it.accountId || !it.title || !it.scheduledFor) {
             errors.push(`Skipped (missing fields): ${it.title || it.subreddit || '?'}`);
+            continue;
+          }
+          const plat = it.platform || platformFor(it.accountId);
+          if (plat === 'reddit' && !it.subreddit) {
+            errors.push(`Skipped (no subreddit): ${it.title}`);
             continue;
           }
           const wantsBoost = it.boostServiceId && Number(it.boostQty) > 0;
           stmt.run(
-            it.accountId, String(it.subreddit).replace(/^r\//i, '').trim(), it.title,
+            it.accountId, plat,
+            plat === 'reddit' ? String(it.subreddit).replace(/^r\//i, '').trim() : (it.subreddit || ''),
+            it.title,
             it.body || null, it.kind || 'self', it.url || null, it.scheduledFor, user.id,
             wantsBoost ? String(it.boostServiceId) : null,
             wantsBoost ? Math.max(1, Number(it.boostQty)) : 0,

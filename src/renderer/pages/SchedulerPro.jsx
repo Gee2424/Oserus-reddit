@@ -158,9 +158,11 @@ export default function SchedulerProPage() {
 
 /* --------------------- Status Columns (kanban) --------------------- */
 
+// Status enum in scheduled_posts: pending | posted | failed | cancelled.
+// Previous 'running' column had no source data and always rendered
+// 'None', so it's dropped here to match reality.
 const STATUS_COLUMNS = [
   { key: 'pending',   label: 'Scheduled' },
-  { key: 'running',   label: 'Running'   },
   { key: 'posted',    label: 'Completed' },
   { key: 'failed',    label: 'Failed'    },
   { key: 'cancelled', label: 'Paused'    },
@@ -205,7 +207,9 @@ function StatusColumns({ posts, onCancel, onDelete }) {
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)' }}>
                     {(PLATFORM_ICON[p.platform] || '◈')} {timeLabel(p.scheduled_for)} · {(p.scheduled_for || '').slice(5, 10)}
                   </div>
-                  <div style={{ marginTop: 3, color: 'var(--gold)', fontSize: 11 }}>r/{p.subreddit}</div>
+                  <div style={{ marginTop: 3, color: 'var(--gold)', fontSize: 11 }}>
+                    {p.subreddit ? `r/${p.subreddit}` : (p.platform || 'post')}
+                  </div>
                   <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>{p.title}</div>
                   {p.boost_status && (
                     <div style={{
@@ -581,6 +585,9 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId }) {
     setBusy(true);
     const items = targets.map((accountId) => ({
       accountId,
+      // Stamp the platform on every row so the coordinator routes to
+      // the right adapter even if the account is deleted later.
+      platform,
       subreddit: platform === 'reddit' ? form.subreddit : '',
       title: form.title,
       body: form.body,

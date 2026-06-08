@@ -429,16 +429,30 @@ async function engagementTick() {
   const db = getDb();
   let rows;
   try {
+    // SELECT the quiet + cap columns so we can actually enforce them
+    // before opening a session. Previously the engagement tick was
+    // running on pure interval — no quiet hours, no caps — making the
+    // UI fields ornamental. Fixed.
     rows = db.prepare(
-      `SELECT id, profile_id, platform, sessions_per_day, last_run_at
+      `SELECT id, profile_id, platform, sessions_per_day, last_run_at,
+              quiet_start, quiet_end,
+              daily_cap_comments, daily_cap_posts
          FROM autopilot_protocols
         WHERE enabled = 1`
     ).all();
-  } catch { return; }
+  } catch (e) { elog.warn('[engagement] tick query failed', e?.message); return; }
   if (!rows.length) return;
 
+  const { isQuietHour, countPostsSince } = require('./protocols');
   const nowMs = Date.now();
+  const nowHour = new Date().getHours();
+  const dayAgoIso = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
+
   const dueRows = rows.filter((r) => {
+    // Honor quiet hours configured on the protocol — same convention
+    // the posting coordinator uses (start inclusive, end exclusive,
+    // wraps over midnight when start > end).
+    if (isQuietHour(nowHour, r.quiet_start, r.quiet_end)) return false;
     const perDay = Math.max(1, r.sessions_per_day || 3);
     const spacingMs = (24 * 60 * 60 * 1000) / perDay;
     if (!r.last_run_at) return true;
@@ -448,14 +462,27 @@ async function engagementTick() {
   if (!dueRows.length) return;
 
   const pick = dueRows[Math.floor(Math.random() * dueRows.length)];
-  // Pick one account from this profile + platform. Rotates fairly by
-  // ORDER BY id so the same account isn't always first.
   const acct = db.prepare(
     `SELECT id FROM reddit_accounts
       WHERE profile_id = ? AND platform = ? AND status IN ('warming','ready')
       ORDER BY RANDOM() LIMIT 1`
   ).get(pick.profile_id, pick.platform);
   if (!acct) return;
+
+  // Daily-cap guard. Sum post + comment events for this account in the
+  // last 24h; if we'd blow either cap with the upcoming session, skip.
+  // Engagement sessions can produce multiple comments per run — we
+  // gate on whether ANY comment would push us over.
+  try {
+    if (pick.daily_cap_comments > 0) {
+      const recent = countPostsSince(pick.platform, acct.id, dayAgoIso);
+      if (recent >= pick.daily_cap_comments) {
+        elog.info('[engagement] skip — daily comment cap reached', { account: acct.id, cap: pick.daily_cap_comments });
+        return;
+      }
+    }
+  } catch {}
+
   try { await runSession(acct.id, { dryRun: false }); } catch {}
 }
 
