@@ -56,6 +56,14 @@ export default function BrowserShell() {
   const active = tabs.find((t) => t.id === activeId) || null;
 
   useEffect(() => {
+    // Guard the bridge — if preload failed to expose oserusBrowser, the
+    // chrome should still render statically rather than crash silently.
+    const api = window.oserusBrowser;
+    if (!api) {
+      // eslint-disable-next-line no-console
+      console.error('[oserus-chrome] window.oserusBrowser missing — preload did not load');
+      return;
+    }
     const onState = (s) => {
       setTabs(s.tabs || []);
       setActiveId(s.activeId ?? null);
@@ -68,16 +76,16 @@ export default function BrowserShell() {
     const onFindResult = (r) => setFindResult(r || { active: 0, total: 0 });
     const onFocusOmni = () => { omniRef.current?.focus(); omniRef.current?.select(); };
     const onFocusFind = () => { findRef.current?.focus(); findRef.current?.select(); };
-    window.oserusBrowser.onState(onState);
-    window.oserusBrowser.onFindResult(onFindResult);
-    window.oserusBrowser.onFocusOmnibox(onFocusOmni);
-    window.oserusBrowser.onFocusFind(onFocusFind);
-    window.oserusBrowser.tabsReady();
+    api.onState(onState);
+    api.onFindResult(onFindResult);
+    api.onFocusOmnibox(onFocusOmni);
+    api.onFocusFind(onFocusFind);
+    api.tabsReady();
     return () => {
-      window.oserusBrowser.offState(onState);
-      window.oserusBrowser.offFindResult(onFindResult);
-      window.oserusBrowser.offFocusOmnibox(onFocusOmni);
-      window.oserusBrowser.offFocusFind(onFocusFind);
+      api.offState(onState);
+      api.offFindResult(onFindResult);
+      api.offFocusOmnibox(onFocusOmni);
+      api.offFocusFind(onFocusFind);
     };
   }, []);
 
@@ -112,10 +120,14 @@ export default function BrowserShell() {
   }
 
   return (
-    <div style={page}>
+    <div className="oserus-chrome" style={page}>
       {/* TAB STRIP — frameless title bar. Drag region covers the bar
           background; tabs and buttons opt out via no-drag. */}
       <div style={tabStrip}>
+        <div style={brandMark} title="Oserus Browser">
+          <span style={brandDot} />
+          <span style={brandText}>OSERUS</span>
+        </div>
         <div style={tabsScroll}>
           {tabs.map((t) => {
             const isActive = t.id === activeId;
@@ -346,7 +358,8 @@ function fmtWhen(iso) {
 
 const page = {
   display: 'flex', flexDirection: 'column', width: '100%', height: '100vh',
-  background: '#161412', overflow: 'hidden',
+  background: '#0f0d0c', overflow: 'hidden', color: '#e9eaec',
+  fontFamily: "'Inter Tight', system-ui, sans-serif",
 };
 
 // Tab strip = frameless title bar. The bar background is the drag
@@ -355,11 +368,21 @@ const page = {
 const tabStrip = {
   display: 'flex', alignItems: 'flex-end',
   height: TAB_STRIP_HEIGHT,
-  paddingLeft: 8, paddingRight: NATIVE_BUTTONS_W,
-  background: '#161412',
+  paddingLeft: 4, paddingRight: NATIVE_BUTTONS_W,
+  background: '#1c1a18',
   WebkitAppRegion: 'drag',
   flexShrink: 0,
 };
+const brandMark = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  padding: '0 12px 0 10px', height: 30, alignSelf: 'flex-end',
+  color: '#d4a64a', fontSize: 11, fontWeight: 700, letterSpacing: 1.5,
+  flexShrink: 0,
+};
+const brandDot = {
+  width: 8, height: 8, borderRadius: 2, background: '#d4a64a',
+};
+const brandText = { lineHeight: 1 };
 const tabsScroll = {
   display: 'flex', alignItems: 'flex-end', gap: 2,
   flex: '0 1 auto', minWidth: 0,
@@ -371,20 +394,20 @@ const tabStripDragFill = { flex: 1, alignSelf: 'stretch' }; // stays drag
 
 const tabStyle = {
   display: 'flex', alignItems: 'center', gap: 6,
-  height: 30, padding: '0 12px 0 10px',
+  height: 30, padding: '0 10px 0 10px',
   minWidth: 140, maxWidth: 240,
   background: '#2a2624',
-  border: 'none',
   borderRadius: '8px 8px 0 0',
-  cursor: 'pointer', fontSize: 12, color: '#b9bcc1',
+  fontSize: 12, color: '#b9bcc1',
   flexShrink: 0,
   WebkitAppRegion: 'no-drag',
   position: 'relative',
+  cursor: 'pointer',
 };
 const tabActive = {
-  background: '#22201e',
+  background: '#3a3633',
   color: '#f1f2f3',
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
 };
 const tabTitle = {
   flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -415,32 +438,33 @@ const spinner = {
 
 const chromeRow = {
   display: 'flex', alignItems: 'center', gap: 6,
-  height: CHROME_ROW_HEIGHT, padding: '0 10px',
-  background: '#22201e',
-  borderBottom: '1px solid rgba(255,255,255,0.04)',
+  height: CHROME_ROW_HEIGHT, padding: '0 12px',
+  background: '#3a3633',
+  borderBottom: '1px solid rgba(0,0,0,0.35)',
   flexShrink: 0,
 };
 const navBtn = {
   width: 30, height: 30, borderRadius: 6,
-  background: 'transparent', border: 'none',
-  color: '#d7dadc', cursor: 'pointer', fontSize: 16, lineHeight: 1,
+  background: 'transparent',
+  color: '#e9eaec', fontSize: 16, lineHeight: 1,
   flexShrink: 0,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 };
 const navBtnActive = {
-  background: 'var(--gold, #d4a64a)', color: '#161412',
+  background: '#d4a64a', color: '#161412',
 };
 const omniInput = {
   width: '100%', height: 30, padding: '0 14px', borderRadius: 15,
-  background: '#161412', border: '1px solid rgba(255,255,255,0.06)',
-  color: '#f1f2f3', fontFamily: 'inherit', fontSize: 13,
-  outline: 'none',
+  background: '#1c1a18',
+  border: '1px solid rgba(255,255,255,0.08)',
+  color: '#f1f2f3', fontSize: 13,
 };
 
 // Bookmarks bar — Chrome-style row of small site chips.
 const bookmarksBar = {
   display: 'flex', alignItems: 'center', gap: 2,
   height: BOOKMARKS_HEIGHT, padding: '0 8px',
-  background: '#1c1a18',
+  background: '#2a2624',
   borderBottom: '1px solid rgba(0,0,0,0.4)',
   overflowX: 'auto', overflowY: 'hidden',
   scrollbarWidth: 'none',

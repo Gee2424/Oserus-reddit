@@ -462,3 +462,50 @@ a:hover { color: var(--gold); }
   pointer-events: none;
   z-index: 0;
 }
+
+/* ───────────────────────────────────────────────────────── Oserus Browser chrome
+   Scoped reset. The browser chrome window loads global.css too (shared
+   bundle) but the management-app button / input defaults (8px 14px
+   padding, big borders, hover transitions) blow out the tight chrome
+   layout. Reset everything inside .oserus-chrome and rebuild from inline
+   styles. Limited to this scope so the management UI is untouched. */
+.oserus-chrome,
+.oserus-chrome * { box-sizing: border-box; }
+
+.oserus-chrome button {
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 0;
+  transition: background 0.08s;
+  -webkit-app-region: no-drag;
+}
+.oserus-chrome button:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
+.oserus-chrome button:disabled { opacity: 0.35; cursor: default; }
+.oserus-chrome button:active { transform: none; }
+
+.oserus-chrome input,
+.oserus-chrome textarea,
+.oserus-chrome select {
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  width: auto;
+  border-radius: 0;
+  transition: none;
+}
+.oserus-chrome input::placeholder { color: #8b8e93; }
+
+/* Hide scrollbar in the tab strip / bookmarks bar overflow areas. */
+.oserus-chrome ::-webkit-scrollbar { display: none; }

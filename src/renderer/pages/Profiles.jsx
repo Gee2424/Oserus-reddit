@@ -175,12 +175,26 @@ export default function ProfilesPage({ navigate }) {
           {profiles.map((p) => (
             <div key={p.id} className="card" style={{ borderLeft: `3px solid ${p.avatar_color || 'var(--accent)'}`, padding: 0, overflow: 'hidden' }}>
               <div style={{ padding: 18, position: 'relative' }}>
+                <button
+                  onClick={(e) => { e.stopPropagation(); playModel(p.id); }}
+                  disabled={p.account_count === 0}
+                  title={p.account_count === 0 ? 'No accounts on this model yet' : `Launch all ${p.account_count} account window(s) in Oserus Browser`}
+                  style={{
+                    position: 'absolute', top: 14, right: 14, zIndex: 2,
+                    width: 36, height: 36, borderRadius: '50%',
+                    background: p.account_count === 0 ? 'var(--bg-2)' : 'var(--gold)',
+                    color: p.account_count === 0 ? 'var(--text-3)' : '#0d0c0a',
+                    border: 'none', fontSize: 16, cursor: p.account_count === 0 ? 'not-allowed' : 'pointer',
+                    display: 'grid', placeItems: 'center',
+                    boxShadow: p.account_count === 0 ? 'none' : '0 2px 8px rgba(212,166,74,0.3)',
+                  }}
+                >▶</button>
                 <div
                   onClick={() => navigate && navigate('model', { modelId: p.id })}
                   style={{ cursor: 'pointer' }}
                   title={`Open ${p.name} profile`}
                 >
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6, paddingRight: 48 }}>
                   <h3>{p.name}</h3>
                   {p.niche && <span className="pill">{p.niche}</span>}
                   <div style={{ flex: 1 }} />
