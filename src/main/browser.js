@@ -93,6 +93,19 @@ const PLATFORM_HOME = {
 };
 function homeFor(platform) { return PLATFORM_HOME[platform] || 'https://www.google.com/'; }
 
+// Per-platform "Inbox / Account Manager Pro" URL. Auto-opened as a
+// second tab on every Oserus Browser launch so the operator lands
+// with the message center already loaded for the bound account.
+// Each URL requires login — autofill kicks in on the redirect.
+// RedGifs has no canonical inbox / DM surface, so it's omitted.
+const PLATFORM_INBOX = {
+  reddit:    'https://www.reddit.com/message/inbox/',
+  x:         'https://x.com/messages',
+  instagram: 'https://www.instagram.com/direct/inbox/',
+  tiktok:    'https://www.tiktok.com/messages',
+};
+function inboxFor(platform) { return PLATFORM_INBOX[platform] || null; }
+
 // Marker baked into the new-tab data: URL so we can detect it in
 // tabSnapshot and report a clean address ('') to the omnibox instead
 // of the giant base64 blob.
@@ -341,10 +354,14 @@ async function openForAccount(accountId) {
 
   loadChromeInto(win, `?account=${encodeURIComponent(accountId)}`);
 
-  // Open the first tab once the chrome UI is rendered. did-finish-load
-  // is reliable enough — chrome layout is static. Doing this here
-  // avoids requiring a round-trip from the renderer.
+  // Open the home + inbox tabs once the chrome UI is rendered.
+  // did-finish-load is reliable enough — chrome layout is static.
+  // Order: home is opened SECOND so it ends up active (openTab sets
+  // activeId to the newly created tab). Inbox sits to the left as a
+  // pinned-feeling first tab the operator can click into anytime.
   win.webContents.once('did-finish-load', () => {
+    const inbox = inboxFor(acct.platform);
+    if (inbox) openTab(win, inbox);
     openTab(win, homeFor(acct.platform));
   });
 
