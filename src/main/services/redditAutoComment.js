@@ -55,7 +55,8 @@ async function runOnce(accountId, { dryRun = false, protocol = null } = {}) {
   if (!subs.length) return { ok: false, error: 'No target subs configured' };
 
   const acct = db.prepare(
-    `SELECT a.id, a.username, a.partition_key, a.profile_id, p.name AS profile_name, p.brand_voice
+    `SELECT a.id, a.username, a.partition_key, a.profile_id,
+            p.name AS profile_name, p.brand_voice, p.niche
        FROM reddit_accounts a
        JOIN model_profiles p ON p.id = a.profile_id
       WHERE a.id = ?`
@@ -118,10 +119,16 @@ async function runOnce(accountId, { dryRun = false, protocol = null } = {}) {
   // row. We still apply the brand-voice line + username so the comment
   // feels owned by this account.
   const { buildCommentPrompt } = require('./autopilotProtocol');
-  const personaPrompt = buildCommentPrompt(proto);
+  // Pass model context (name / niche / brand voice) into the persona
+  // prompt builder so the AI reply is shaped by who this model IS, not
+  // just the persona archetype.
+  const personaPrompt = buildCommentPrompt(proto, {
+    name: acct.profile_name, niche: acct.niche, brand_voice: acct.brand_voice,
+  });
   const base = [
     `You are this Reddit user: u/${acct.username}.`,
     acct.brand_voice ? `Voice: ${acct.brand_voice}` : null,
+    acct.niche ? `Niche / lane: ${acct.niche}. Stay in lane — only comment if you have something on-brand to say.` : null,
     personaPrompt,
     'Write ONE comment reply for the post below. 1–4 sentences. Output ONLY the comment text — no quotes, no preface, no signature.',
   ].filter(Boolean).join('\n');

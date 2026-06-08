@@ -63,15 +63,23 @@ function loadAccountContext(accountId) {
 function buildSystem(ctx, platform, kind, targetName) {
   const max = MAX[platform] || 500;
   const style = STYLE[kind === 'comment' ? `comment_${platform}` : platform] || STYLE.x;
-  const persona = ctx.persona ? `Persona: ${ctx.persona}.` : '';
-  const voice   = ctx.brand_voice ? `Brand voice: "${ctx.brand_voice}".` : '';
-  const niche   = ctx.niche ? `Niche: ${ctx.niche}.` : '';
-  const target  = targetName ? `Posting in / replying to: ${targetName}.` : '';
-  const custom  = ctx.customPrompt ? `Operator instructions: ${ctx.customPrompt}.` : '';
+  const identity = ctx.model_name
+    ? `You ARE "${ctx.model_name}" — write in first person as this person, not as a brand or a generic copywriter.`
+    : `You write on behalf of @${ctx.username}.`;
+  const niche   = ctx.niche
+    ? `Niche / lane: ${ctx.niche}. Stay in this niche — every post should be recognizable as content from someone in this lane. Don't drift to off-topic takes.`
+    : '';
+  const voice   = ctx.brand_voice
+    ? `Brand voice / tone: "${ctx.brand_voice}". Match this voice exactly. If it conflicts with the persona below, voice wins.`
+    : '';
+  const persona = ctx.persona ? `Persona archetype: ${ctx.persona}.` : '';
+  const target  = targetName ? `Posting in / replying to context: ${targetName}.` : '';
+  const custom  = ctx.customPrompt ? `Operator instructions (override anything above): ${ctx.customPrompt}.` : '';
   return [
-    `You write on behalf of @${ctx.username} on ${platform}.`,
+    identity,
+    `Platform: ${platform} (@${ctx.username}).`,
     niche, voice, persona, target, custom, style,
-    `Hard limit: ${max} characters. Return ONLY JSON: {"text": string, "hashtags": [string, ...]}`,
+    `Hard limit: ${max} characters. Return ONLY JSON: {"text": string, "hashtags": [string, ...]}.`,
   ].filter(Boolean).join('\n');
 }
 

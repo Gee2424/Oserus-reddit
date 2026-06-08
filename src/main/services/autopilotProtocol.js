@@ -172,10 +172,21 @@ function markRan(profileId, platform) {
 // Resolve the AI system prompt for a comment given the protocol row.
 // 'custom' falls back to the default playful tone if the user picked
 // custom but left the prompt empty.
-function buildCommentPrompt(proto) {
+// Build the comment system prompt: persona/custom-prompt + the model's
+// niche + brand voice woven in so every AI reply sounds like THIS model,
+// not a generic persona stencil. Caller passes optional modelCtx so we
+// don't query model_profiles twice per comment.
+function buildCommentPrompt(proto, modelCtx = null) {
   const persona = (proto.comment_persona || 'curious').toLowerCase();
-  if (persona === 'custom' && proto.comment_prompt) return proto.comment_prompt;
-  return PERSONA_PROMPTS[persona] || PERSONA_PROMPTS.curious;
+  const base = (persona === 'custom' && proto.comment_prompt)
+    ? proto.comment_prompt
+    : (PERSONA_PROMPTS[persona] || PERSONA_PROMPTS.curious);
+
+  const layers = [base];
+  if (modelCtx?.name)        layers.push(`You are commenting as the social media persona of "${modelCtx.name}".`);
+  if (modelCtx?.niche)       layers.push(`Niche / category: ${modelCtx.niche}. Stay relevant to that niche — pass on posts that aren't.`);
+  if (modelCtx?.brand_voice) layers.push(`Brand voice: "${modelCtx.brand_voice}".`);
+  return layers.join('\n\n');
 }
 
 // Decide whether a target post passes the protocol's target_filter.

@@ -94,6 +94,18 @@ async function runForAccount(account, summary) {
   }
 
   try {
+    // Belt-and-suspenders proxy enforcement. Every adapter SHOULD do
+    // this itself, but at process startup before any browser window
+    // has opened, partition.proxy is unconfigured — calling now
+    // guarantees the proxy + antidetect preload + UA are bound to the
+    // session before any net.request fires.
+    try {
+      const { prepareSessionForAccount } = require('./sessionPrep');
+      await prepareSessionForAccount(account.id);
+    } catch (e) {
+      elog.warn('[autopilot] sessionPrep failed', { account: account.id, err: e?.message });
+    }
+
     const target = adapter.pickTarget ? await adapter.pickTarget(account) : null;
     const gen = adapter.generateContent
       ? await adapter.generateContent({ account, target })
@@ -241,6 +253,17 @@ async function runDueScheduled() {
     const platform = post.platform || 'reddit';
     if (!(await protocols.acquireLock(platform, post.account_id, HOLDER, 300))) continue;
     try {
+      // Belt-and-suspenders proxy enforcement. Same as runForAccount —
+      // if Electron restarted and this scheduled tick fires before any
+      // browser window opens, the partition has no proxy yet. Calling
+      // here guarantees proxy + UA + antidetect bind first.
+      try {
+        const { prepareSessionForAccount } = require('./sessionPrep');
+        await prepareSessionForAccount(post.account_id);
+      } catch (e) {
+        elog.warn('[scheduler] sessionPrep failed', { post: post.id, err: e?.message });
+      }
+
       if (platform === 'reddit') {
         const fail = checkEligibility(db, post);
         if (fail) {

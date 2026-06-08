@@ -264,15 +264,23 @@ function registerBridge() {
       // Look up the protocol row so we get the persona + target filter
       // fresh on every comment, not stale from session start.
       let proto = null;
+      let modelCtx = null;
       if (protocolId) {
         proto = getDb().prepare('SELECT * FROM autopilot_protocols WHERE id = ?').get(protocolId);
+        // Pull the model profile so brand voice + niche shape the
+        // comment voice — same model context posts produce.
+        if (proto?.profile_id) {
+          modelCtx = getDb().prepare(
+            'SELECT name, niche, brand_voice FROM model_profiles WHERE id = ?'
+          ).get(proto.profile_id) || null;
+        }
       }
       if (proto && !autopilotProtocol.passesTargetFilter(proto, { caption, followers, verified })) {
         return { ok: false, error: 'filtered' };
       }
 
       const personaSystem = proto
-        ? autopilotProtocol.buildCommentPrompt(proto)
+        ? autopilotProtocol.buildCommentPrompt(proto, modelCtx)
         : autopilotProtocol.PERSONA_PROMPTS.curious;
       const system = `${personaSystem}\n\nYou are reacting to a ${platform || 'social media'} post. Output ONLY the reply text, nothing else.`;
       const userMsg = [
@@ -332,6 +340,24 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
   try { followList = JSON.parse(proto.follow_list_json || '[]'); } catch {}
   try { hashtags = JSON.parse(proto.hashtags_json || '[]'); } catch {}
 
+  // Pull model context (niche, brand voice) so we can derive niche-
+  // targeted landing URLs when no explicit hashtags are configured,
+  // and so requestComment can include this context in the AI system
+  // prompt automatically.
+  const modelCtx = db.prepare(
+    'SELECT name, niche, brand_voice FROM model_profiles WHERE id = ?'
+  ).get(acct.profile_id) || {};
+
+  // Auto-derive hashtags from the model's niche if the operator hasn't
+  // explicitly configured any. niche="latina, gym" → ["latina","gym"].
+  // Keeps IG/TT/X engagement sticky to the model's actual lane.
+  if (!hashtags.length && modelCtx.niche) {
+    hashtags = String(modelCtx.niche)
+      .split(/[,\s/]+/)
+      .map((s) => s.trim().replace(/[^a-z0-9_]/gi, '').toLowerCase())
+      .filter((s) => s.length >= 2 && s.length <= 30);
+  }
+
   // Re-prepare the partitioned session (cookies / proxy / UA / antidetect)
   // so the engagement window lands logged in.
   try {
@@ -339,13 +365,36 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
     await prepareSessionForAccount(accountId);
   } catch {}
 
+  // Loud warning if this account has NO proxy assigned — engagement
+  // will exit via the operator's real IP, which is the single fastest
+  // way to get an account flagged. Doesn't block; just yells in the
+  // log so the operator notices.
+  try {
+    const noProxy = db.prepare(`
+      SELECT 1 FROM reddit_accounts a
+      LEFT JOIN model_profiles mp ON mp.id = a.profile_id
+      WHERE a.id = ? AND COALESCE(a.proxy_id, mp.proxy_id) IS NULL
+    `).get(accountId);
+    if (noProxy) elog.warn('[engagement] NO PROXY for account', { accountId, username: acct.username, platform: acct.platform });
+  } catch {}
+
   const partition = `persist:${acct.partition_key}`;
   let landingUrl = url;
-  if (hashtags.length && (acct.platform === 'tiktok' || acct.platform === 'instagram')) {
+  if (hashtags.length) {
     const tag = String(hashtags[Math.floor(Math.random() * hashtags.length)]).replace(/^#/, '');
-    landingUrl = acct.platform === 'tiktok'
-      ? `https://www.tiktok.com/tag/${encodeURIComponent(tag)}`
-      : `https://www.instagram.com/explore/tags/${encodeURIComponent(tag)}/`;
+    if (acct.platform === 'tiktok') {
+      landingUrl = `https://www.tiktok.com/tag/${encodeURIComponent(tag)}`;
+    } else if (acct.platform === 'instagram') {
+      landingUrl = `https://www.instagram.com/explore/tags/${encodeURIComponent(tag)}/`;
+    } else if (acct.platform === 'x') {
+      // X 'top' tab for the hashtag — denser, more reply-able than 'latest'.
+      landingUrl = `https://x.com/search?q=%23${encodeURIComponent(tag)}&f=top`;
+    } else if (acct.platform === 'reddit') {
+      // Subreddit name from the niche token (best-effort — the model's
+      // promo/warmup subs are the proper source via redditAutoComment
+      // afterwards; this just keeps the scroll-feed niche-relevant).
+      landingUrl = `https://www.reddit.com/r/${encodeURIComponent(tag)}/`;
+    }
   }
 
   const sessionRow = db.prepare(
