@@ -372,23 +372,31 @@ function fmtWhen(iso) {
 
 // ------------------------------------------------------------------- styles
 
-// Oserus brand palette — pulled from the logo's gradient (matches
-// var(--green/gold/gold-orange) in global.css).
+// Oserus brand palette — mirrors the management app's :root tokens in
+// global.css exactly, so the browser window reads as the same product
+// rather than a sibling app. If you retint the management app, retint
+// here too (or refactor both to consume the same CSS vars).
 const BRAND = {
-  bg0:   '#0a0e0d',
-  bg1:   '#0f1311',
-  bg2:   '#161a17',
-  bg3:   '#1e231f',
-  bg4:   '#262c26',
-  text0: '#e9eaec',
-  text1: '#c5c8cb',
-  text2: '#9aa0a3',
-  text3: '#5b5e63',
-  green:       '#3d6b4f',
-  greenBright: '#4f8a64',
-  gold:        '#d4a64a',
-  goldBright:  '#e8c068',
-  goldOrange:  '#e89146',
+  bg0:          '#07090a', // var(--bg-0)
+  bg1:          '#0c100f', // var(--bg-1)
+  bg2:          '#121815', // var(--bg-2)
+  bg3:          '#1a221d', // var(--bg-3)
+  bgElev:       '#0e1311', // var(--bg-elev)
+  border:       '#1c241f', // var(--border)
+  borderStrong: '#2a342b', // var(--border-strong)
+  bg4:          '#2a342b', // alias for legacy refs
+  text0:        '#e6e3d2', // var(--text-0)
+  text1:        '#bdbaa6', // var(--text-1)
+  text2:        '#8a8a7d', // var(--text-2)
+  text3:        '#5a5b54', // var(--text-3)
+  green:        '#3d6b4f', // var(--green)
+  greenBright:  '#4f8a64', // var(--green-bright)
+  gold:         '#d4a64a', // var(--gold)
+  goldBright:   '#e8c068', // var(--gold-bright)
+  goldOrange:   '#e89146', // var(--gold-orange)
+  blue:         '#3a6f8c', // var(--blue)
+  blueBright:   '#6aa6c4', // var(--blue-bright)  — everyday accent
+  danger:       '#b3473a', // var(--danger)
 };
 const BRAND_GRADIENT = `linear-gradient(135deg, ${BRAND.green} 0%, ${BRAND.greenBright} 30%, ${BRAND.gold} 70%, ${BRAND.goldOrange} 100%)`;
 const BRAND_GRADIENT_H = `linear-gradient(90deg, ${BRAND.green} 0%, ${BRAND.greenBright} 28%, ${BRAND.gold} 72%, ${BRAND.goldOrange} 100%)`;

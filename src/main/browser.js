@@ -143,14 +143,16 @@ function buildNewtabUrl() {
 <title>Oserus — New Tab</title>
 <meta name="${NEWTAB_MARKER}" content="1">
 <style>
-  /* Oserus brand palette — must match var(--green/gold) in global.css.
-     Deep green #2d5a3f → bright green #4f8a64 → olive #a8a14e → gold
-     #d4a64a → gold-orange #e89146. */
+  /* Oserus palette — mirrors the management app's :root in global.css
+     so the new-tab page reads as the same product. Calm-night canvas,
+     warm off-white text, green-gold brand gradient, blue accent. */
   :root{
-    --bg-0:#0a0e0d; --bg-1:#0f1311; --bg-2:#161a17;
-    --text-0:#e9eaec; --text-2:#9aa0a3; --text-3:#5b5e63;
+    --bg-0:#07090a; --bg-1:#0c100f; --bg-2:#121815; --bg-3:#1a221d;
+    --bg-elev:#0e1311; --border:#1c241f; --border-strong:#2a342b;
+    --text-0:#e6e3d2; --text-1:#bdbaa6; --text-2:#8a8a7d; --text-3:#5a5b54;
     --green:#3d6b4f; --green-bright:#4f8a64;
     --gold:#d4a64a; --gold-bright:#e8c068; --gold-orange:#e89146;
+    --blue:#3a6f8c; --blue-bright:#6aa6c4;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
@@ -212,7 +214,7 @@ function buildNewtabUrl() {
   .tile{
     display:flex;flex-direction:column;align-items:center;gap:10px;
     padding:18px 10px;border-radius:14px;
-    background:var(--bg-1);border:1px solid rgba(255,255,255,0.06);
+    background:var(--bg-1);border:1px solid var(--border);
     color:var(--text-0);text-decoration:none;font-size:12px;
     transition:transform .12s ease, border-color .15s, background .15s, box-shadow .15s;
     cursor:pointer;position:relative;
@@ -220,8 +222,8 @@ function buildNewtabUrl() {
   .tile:hover{
     transform:translateY(-2px);
     border-color:var(--accent,var(--gold));
-    background:var(--bg-2);
-    box-shadow:0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px var(--accent,var(--gold)) inset;
+    background:var(--bg-3);
+    box-shadow:0 8px 24px rgba(0,0,0,0.5), 0 0 0 1px var(--accent,var(--gold)) inset;
   }
   .icon{
     width:44px;height:44px;border-radius:11px;

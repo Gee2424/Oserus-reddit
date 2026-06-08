@@ -486,11 +486,16 @@ a:hover { color: var(--gold); }
   transition: background 0.08s;
   -webkit-app-region: no-drag;
 }
-.oserus-chrome button:hover:not(:disabled) { background: rgba(212,166,74,0.10); color: var(--gold-bright); }
+/* Match the management app's hover convention: subtle bg-3 lift, no
+   color change. Blue/gold accents stay reserved for focus / selected. */
+.oserus-chrome button:hover:not(:disabled) { background: var(--bg-3); color: var(--text-0); }
 .oserus-chrome button:disabled { opacity: 0.35; cursor: default; }
 .oserus-chrome button:active { transform: none; }
-/* Chrome-style: close window button hover = red. */
-.oserus-chrome [data-ob-close]:hover { background: #c8553d !important; color: #fff !important; }
+/* Chrome-style: close window button hover = danger red. */
+.oserus-chrome [data-ob-close]:hover { background: var(--danger) !important; color: #fff !important; }
+/* Omnibox / find input focus: same blue glow the management app uses. */
+.oserus-chrome input:focus { border-color: var(--blue) !important; box-shadow: 0 0 0 3px var(--blue-soft); }
+.oserus-chrome input::placeholder { color: var(--text-3); }
 
 .oserus-chrome input,
 .oserus-chrome textarea,
