@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
+import logoUrl from '../assets/logo.png';
 
 // Chrome UI for an Oserus Browser window. Frameless host — the tab
 // strip IS the title bar (drag region). Layout below the tab strip:
@@ -124,8 +125,7 @@ export default function BrowserShell() {
           background; tabs and buttons opt out via no-drag. */}
       <div style={tabStrip}>
         <div style={brandMark} title="Oserus Browser">
-          <span style={brandDot} />
-          <span style={brandText}>OSERUS</span>
+          <img src={logoUrl} alt="Oserus" style={brandLogo} draggable={false} />
         </div>
         <div style={tabsScroll}>
           {tabs.map((t) => {
@@ -171,7 +171,7 @@ export default function BrowserShell() {
         <div style={windowCtrls}>
           <button style={ctrlBtn} title="Minimize" onClick={() => window.oserusBrowser.windowMinimize()}>—</button>
           <button style={ctrlBtn} title="Maximize" onClick={() => window.oserusBrowser.windowMaximize()}>▢</button>
-          <button style={ctrlClose} title="Close"  onClick={() => window.oserusBrowser.windowClose()}>×</button>
+          <button data-ob-close="1" style={ctrlClose} title="Close" onClick={() => window.oserusBrowser.windowClose()}>×</button>
         </div>
       </div>
 
@@ -372,33 +372,52 @@ function fmtWhen(iso) {
 
 // ------------------------------------------------------------------- styles
 
+// Oserus brand palette — pulled from the logo's gradient (matches
+// var(--green/gold/gold-orange) in global.css).
+const BRAND = {
+  bg0:   '#0a0e0d',
+  bg1:   '#0f1311',
+  bg2:   '#161a17',
+  bg3:   '#1e231f',
+  bg4:   '#262c26',
+  text0: '#e9eaec',
+  text1: '#c5c8cb',
+  text2: '#9aa0a3',
+  text3: '#5b5e63',
+  green:       '#3d6b4f',
+  greenBright: '#4f8a64',
+  gold:        '#d4a64a',
+  goldBright:  '#e8c068',
+  goldOrange:  '#e89146',
+};
+const BRAND_GRADIENT = `linear-gradient(135deg, ${BRAND.green} 0%, ${BRAND.greenBright} 30%, ${BRAND.gold} 70%, ${BRAND.goldOrange} 100%)`;
+const BRAND_GRADIENT_H = `linear-gradient(90deg, ${BRAND.green} 0%, ${BRAND.greenBright} 28%, ${BRAND.gold} 72%, ${BRAND.goldOrange} 100%)`;
+
 const page = {
   display: 'flex', flexDirection: 'column', width: '100%', height: '100vh',
-  background: '#0f0d0c', overflow: 'hidden', color: '#e9eaec',
+  background: BRAND.bg0, overflow: 'hidden', color: BRAND.text0,
   fontFamily: "'Inter Tight', system-ui, sans-serif",
 };
 
-// Tab strip = frameless title bar. The bar background is the drag
-// region; tabs/buttons inside opt out. paddingRight reserves space
-// for the Windows native min/max/close overlay buttons.
 const tabStrip = {
   display: 'flex', alignItems: 'flex-end',
   height: TAB_STRIP_HEIGHT,
-  paddingLeft: 4, paddingRight: NATIVE_BUTTONS_W,
-  background: '#1c1a18',
+  paddingLeft: 6, paddingRight: 0,
+  background: BRAND.bg1,
+  borderBottom: '1px solid rgba(0,0,0,0.4)',
   WebkitAppRegion: 'drag',
   flexShrink: 0,
 };
 const brandMark = {
-  display: 'flex', alignItems: 'center', gap: 6,
-  padding: '0 12px 0 10px', height: 30, alignSelf: 'flex-end',
-  color: '#d4a64a', fontSize: 11, fontWeight: 700, letterSpacing: 1.5,
+  display: 'flex', alignItems: 'center',
+  padding: '0 14px 0 8px', height: TAB_STRIP_HEIGHT,
   flexShrink: 0,
 };
-const brandDot = {
-  width: 8, height: 8, borderRadius: 2, background: '#d4a64a',
+const brandLogo = {
+  height: 22, width: 'auto', objectFit: 'contain',
+  filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.5))',
+  pointerEvents: 'none', userSelect: 'none',
 };
-const brandText = { lineHeight: 1 };
 const tabsScroll = {
   display: 'flex', alignItems: 'flex-end', gap: 2,
   flex: '0 1 auto', minWidth: 0,
@@ -415,12 +434,12 @@ const windowCtrls = {
 };
 const ctrlBtn = {
   width: 46, height: TAB_STRIP_HEIGHT, lineHeight: 1,
-  background: 'transparent', color: '#e9eaec', fontSize: 14,
+  background: 'transparent', color: BRAND.text1, fontSize: 14,
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 };
 const ctrlClose = {
   width: 46, height: TAB_STRIP_HEIGHT, lineHeight: 1,
-  background: 'transparent', color: '#e9eaec', fontSize: 18,
+  background: 'transparent', color: BRAND.text1, fontSize: 18,
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 };
 
@@ -428,18 +447,19 @@ const tabStyle = {
   display: 'flex', alignItems: 'center', gap: 6,
   height: 30, padding: '0 10px 0 10px',
   minWidth: 140, maxWidth: 240,
-  background: '#2a2624',
+  background: BRAND.bg2,
   borderRadius: '8px 8px 0 0',
-  fontSize: 12, color: '#b9bcc1',
+  fontSize: 12, color: BRAND.text2,
   flexShrink: 0,
   WebkitAppRegion: 'no-drag',
   position: 'relative',
   cursor: 'pointer',
 };
 const tabActive = {
-  background: '#3a3633',
-  color: '#f1f2f3',
-  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+  background: BRAND.bg3,
+  color: BRAND.text0,
+  // Top-edge gradient stripe announces the active tab in brand colors.
+  boxShadow: `inset 0 2px 0 0 ${BRAND.gold}, inset 0 0 0 1px rgba(212,166,74,0.12)`,
 };
 const tabTitle = {
   flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -452,54 +472,56 @@ const faviconDot = {
 const closeBtn = {
   width: 22, height: 22, borderRadius: 4, marginLeft: 4,
   background: 'transparent',
-  color: '#a8abb0', fontSize: 16, lineHeight: 1, padding: 0,
+  color: BRAND.text2, fontSize: 16, lineHeight: 1, padding: 0,
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
   WebkitAppRegion: 'no-drag',
   flexShrink: 0,
 };
 const addBtn = {
   width: 30, height: 28, marginLeft: 4, marginBottom: 1,
-  background: 'transparent', border: 'none',
-  color: '#a8abb0', cursor: 'pointer', fontSize: 18, lineHeight: 1,
+  background: 'transparent',
+  color: BRAND.text2, fontSize: 18, lineHeight: 1,
   borderRadius: 6,
   flexShrink: 0,
   WebkitAppRegion: 'no-drag',
 };
 const spinner = {
   width: 8, height: 8, borderRadius: '50%',
-  background: 'var(--gold, #d4a64a)', flexShrink: 0,
+  background: BRAND.gold, flexShrink: 0,
 };
 
 const chromeRow = {
   display: 'flex', alignItems: 'center', gap: 6,
   height: CHROME_ROW_HEIGHT, padding: '0 12px',
-  background: '#3a3633',
+  background: BRAND.bg3,
   borderBottom: '1px solid rgba(0,0,0,0.35)',
   flexShrink: 0,
 };
 const navBtn = {
   width: 30, height: 30, borderRadius: 6,
   background: 'transparent',
-  color: '#e9eaec', fontSize: 16, lineHeight: 1,
+  color: BRAND.text0, fontSize: 16, lineHeight: 1,
   flexShrink: 0,
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
 };
 const navBtnActive = {
-  background: '#d4a64a', color: '#161412',
+  background: BRAND.gold, color: BRAND.bg0,
 };
 const omniInput = {
   width: '100%', height: 30, padding: '0 14px', borderRadius: 15,
-  background: '#1c1a18',
-  border: '1px solid rgba(255,255,255,0.08)',
-  color: '#f1f2f3', fontSize: 13,
+  background: BRAND.bg1,
+  border: '1px solid rgba(255,255,255,0.06)',
+  color: BRAND.text0, fontSize: 13,
 };
 
-// Bookmarks bar — Chrome-style row of small site chips.
+// Bookmarks bar — Chrome-style row of small site chips. Tinted with
+// a faint brand gradient on the top edge to anchor it under the chrome row.
 const bookmarksBar = {
   display: 'flex', alignItems: 'center', gap: 2,
   height: BOOKMARKS_HEIGHT, padding: '0 8px',
-  background: '#2a2624',
-  borderBottom: '1px solid rgba(0,0,0,0.4)',
+  background: BRAND.bg2,
+  borderTop: `1px solid ${BRAND.bg4}`,
+  borderBottom: '1px solid rgba(0,0,0,0.45)',
   overflowX: 'auto', overflowY: 'hidden',
   scrollbarWidth: 'none',
   flexShrink: 0,
@@ -507,8 +529,8 @@ const bookmarksBar = {
 const bookmarkBtn = {
   display: 'flex', alignItems: 'center', gap: 6,
   height: 24, padding: '0 8px',
-  background: 'transparent', border: 'none', borderRadius: 4,
-  color: '#d7dadc', cursor: 'pointer', fontSize: 12,
+  background: 'transparent', borderRadius: 4,
+  color: BRAND.text1, fontSize: 12,
   flexShrink: 0,
 };
 const bookmarkLabel = { whiteSpace: 'nowrap' };
@@ -516,93 +538,96 @@ const bookmarkLabel = { whiteSpace: 'nowrap' };
 const pickerPanel = {
   position: 'absolute', top: 34, right: 0,
   width: 260, maxHeight: 320, overflowY: 'auto',
-  background: '#22201e', border: '1px solid rgba(255,255,255,0.08)',
+  background: BRAND.bg2, border: `1px solid ${BRAND.bg4}`,
   borderRadius: 8, padding: 4, zIndex: 50,
   boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
 };
-const pickerHead = { padding: '6px 8px', fontSize: 11, color: '#8b8e93', textTransform: 'uppercase', letterSpacing: 0.5 };
-const pickerEmpty = { padding: '8px', fontSize: 12, color: '#8b8e93' };
+const pickerHead = { padding: '6px 8px', fontSize: 11, color: BRAND.text3, textTransform: 'uppercase', letterSpacing: 0.5 };
+const pickerEmpty = { padding: '8px', fontSize: 12, color: BRAND.text3 };
 const pickerItem = {
   display: 'flex', alignItems: 'center', gap: 8, width: '100%',
-  padding: '6px 8px', background: 'transparent', border: 'none',
-  color: '#d7dadc', cursor: 'pointer', borderRadius: 4, fontSize: 12,
-  textAlign: 'left',
+  padding: '6px 8px', background: 'transparent',
+  color: BRAND.text1, borderRadius: 4, fontSize: 12, textAlign: 'left',
 };
-const pickerItemActive = { background: 'rgba(255,255,255,0.04)', cursor: 'default' };
-const pickerPlat = { fontSize: 10, color: '#8b8e93', textTransform: 'uppercase', minWidth: 60 };
-const pickerUser = { flex: 1, color: '#f1f2f3' };
-const pickerDot  = { color: 'var(--gold, #d4a64a)', fontSize: 8 };
+const pickerItemActive = { background: 'rgba(212,166,74,0.08)', cursor: 'default' };
+const pickerPlat = { fontSize: 10, color: BRAND.text3, textTransform: 'uppercase', minWidth: 60 };
+const pickerUser = { flex: 1, color: BRAND.text0 };
+const pickerDot  = { color: BRAND.gold, fontSize: 8 };
 
 const findBar = {
   display: 'flex', alignItems: 'center', gap: 8,
   height: FIND_BAR_HEIGHT, padding: '0 10px',
-  background: '#22201e', borderBottom: '1px solid rgba(0,0,0,0.4)',
+  background: BRAND.bg2, borderBottom: '1px solid rgba(0,0,0,0.4)',
   flexShrink: 0,
 };
 const findInput = {
   flex: 1, height: 26, padding: '0 12px', borderRadius: 13,
-  background: '#161412', border: '1px solid rgba(255,255,255,0.06)',
-  color: '#f1f2f3', fontSize: 12, outline: 'none',
+  background: BRAND.bg1, border: '1px solid rgba(255,255,255,0.06)',
+  color: BRAND.text0, fontSize: 12, outline: 'none',
 };
-const findCount = { fontSize: 11, color: '#8b8e93', minWidth: 36, textAlign: 'right' };
+const findCount = { fontSize: 11, color: BRAND.text3, minWidth: 36, textAlign: 'right' };
 const findBtn = {
   width: 24, height: 24, borderRadius: 4, background: 'transparent',
-  border: '1px solid rgba(255,255,255,0.08)', color: '#d7dadc',
-  cursor: 'pointer', fontSize: 12, lineHeight: 1,
+  border: `1px solid ${BRAND.bg4}`, color: BRAND.text1,
+  fontSize: 12, lineHeight: 1,
 };
 
 const sidebar = {
   position: 'fixed', right: 0, bottom: 0, width: SIDEBAR_WIDTH,
-  background: '#1c1a18', borderLeft: '1px solid rgba(0,0,0,0.4)',
+  background: BRAND.bg1,
+  // Brand gradient as a 1px left edge — anchors the sidebar visually.
+  borderLeft: `2px solid transparent`,
+  borderImage: `${BRAND_GRADIENT} 1`,
   display: 'flex', flexDirection: 'column',
 };
 const sideHead = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-  padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)',
+  padding: '8px 12px', borderBottom: `1px solid ${BRAND.bg4}`,
 };
 const sideRefresh = {
   width: 22, height: 22, borderRadius: 4, background: 'transparent',
-  border: '1px solid rgba(255,255,255,0.08)', color: '#d7dadc',
-  cursor: 'pointer', fontSize: 12,
+  border: `1px solid ${BRAND.bg4}`, color: BRAND.text1, fontSize: 12,
 };
 const platRow = {
   display: 'flex', gap: 4, padding: '6px 8px',
-  borderBottom: '1px solid rgba(255,255,255,0.04)', overflowX: 'auto',
+  borderBottom: `1px solid ${BRAND.bg4}`, overflowX: 'auto',
 };
 const platBtn = {
   padding: '4px 10px', borderRadius: 12,
-  background: 'transparent', border: '1px solid rgba(255,255,255,0.08)',
-  color: '#b9bcc1', cursor: 'pointer', fontSize: 11,
+  background: 'transparent', border: `1px solid ${BRAND.bg4}`,
+  color: BRAND.text2, fontSize: 11,
   textTransform: 'capitalize', flexShrink: 0,
 };
-const platBtnActive = { background: 'var(--gold, #d4a64a)', color: '#161412', borderColor: 'var(--gold, #d4a64a)' };
+const platBtnActive = {
+  background: BRAND.gold, color: BRAND.bg0, borderColor: BRAND.gold,
+};
 const sideBody = { flex: 1, overflowY: 'auto', padding: 10 };
-const empty = { padding: 20, color: '#8b8e93', fontSize: 12, textAlign: 'center' };
+const empty = { padding: 20, color: BRAND.text3, fontSize: 12, textAlign: 'center' };
 const weekHead = {
   fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5,
-  color: '#8b8e93', padding: '4px 2px 8px', position: 'sticky', top: 0,
-  background: '#1c1a18',
+  color: BRAND.text3, padding: '4px 2px 8px', position: 'sticky', top: 0,
+  background: BRAND.bg1,
 };
 const card = {
-  background: '#22201e', border: '1px solid rgba(255,255,255,0.04)',
+  background: BRAND.bg2, border: `1px solid ${BRAND.bg4}`,
   borderRadius: 6, padding: 8, marginBottom: 6,
 };
 const cardTop = { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontSize: 10 };
 const cardTag = (source) => ({
   padding: '1px 6px', borderRadius: 3, fontSize: 9, textTransform: 'uppercase',
-  background: source === 'scheduled' ? 'rgba(122,154,90,0.18)' : 'rgba(255,255,255,0.06)',
-  color: source === 'scheduled' ? '#9bbf6f' : '#b9bcc1',
+  background: source === 'scheduled' ? 'rgba(79,138,100,0.20)' : 'rgba(255,255,255,0.06)',
+  color: source === 'scheduled' ? BRAND.greenBright : BRAND.text2,
 });
-const cardSub = { color: '#b9bcc1', fontSize: 11 };
+const cardSub = { color: BRAND.text1, fontSize: 11 };
 const cardStatus = (s) => ({
   padding: '1px 6px', borderRadius: 3, fontSize: 9, textTransform: 'uppercase',
-  background: s === 'posted' ? 'rgba(122,154,90,0.18)'
-    : s === 'failed' ? 'rgba(179,71,58,0.18)'
+  background: s === 'posted' ? 'rgba(79,138,100,0.20)'
+    : s === 'failed' ? 'rgba(179,71,58,0.20)'
     : 'rgba(255,255,255,0.06)',
-  color: s === 'posted' ? '#9bbf6f' : s === 'failed' ? '#d97462' : '#b9bcc1',
+  color: s === 'posted' ? BRAND.greenBright : s === 'failed' ? '#d97462' : BRAND.text2,
   marginLeft: 'auto',
 });
-const cardTitle = { fontSize: 12, color: '#f1f2f3', marginBottom: 2 };
-const cardBody  = { fontSize: 11, color: '#b9bcc1', marginBottom: 2 };
-const cardUrl   = { fontSize: 10, color: '#8b8e93', wordBreak: 'break-all', marginBottom: 2 };
-const cardWhen  = { fontSize: 10, color: '#8b8e93' };
+const cardTitle = { fontSize: 12, color: BRAND.text0, marginBottom: 2 };
+const cardBody  = { fontSize: 11, color: BRAND.text1, marginBottom: 2 };
+const cardUrl   = { fontSize: 10, color: BRAND.text3, wordBreak: 'break-all', marginBottom: 2 };
+const cardWhen  = { fontSize: 10, color: BRAND.text3 };

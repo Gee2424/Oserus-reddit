@@ -21,8 +21,20 @@
 
 const { BrowserWindow, WebContentsView, Menu, clipboard, ipcMain, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const elog = require('electron-log');
 const { getDb } = require('./db');
+
+// Brand assets — read once at module load and cache. The Oserus logo
+// gets inlined into the new-tab page via data: URI so we don't depend
+// on file:// asset resolution from a data:text/html document.
+const LOGO_PATH = path.join(__dirname, '../renderer/assets/logo.png');
+let LOGO_DATA_URL = '';
+try {
+  if (fs.existsSync(LOGO_PATH)) {
+    LOGO_DATA_URL = 'data:image/png;base64,' + fs.readFileSync(LOGO_PATH).toString('base64');
+  }
+} catch (e) { elog.warn('[brand] logo load failed', e?.message); }
 
 // Right-side content-list pane width when open. The active tab's
 // WebContentsView shrinks by this amount so the React sidebar
@@ -121,54 +133,77 @@ function buildNewtabUrl() {
       </a>`;
   }).join('');
 
+  const logoTag = LOGO_DATA_URL
+    ? `<img src="${LOGO_DATA_URL}" alt="Oserus Management" class="logo">`
+    : `<div class="brand-text"><span class="brand-dot"></span><span>OSERUS BROWSER</span></div>`;
+
   const html = `<!doctype html>
 <html><head>
 <meta charset="utf-8">
 <title>Oserus — New Tab</title>
 <meta name="${NEWTAB_MARKER}" content="1">
 <style>
+  /* Oserus brand palette — must match var(--green/gold) in global.css.
+     Deep green #2d5a3f → bright green #4f8a64 → olive #a8a14e → gold
+     #d4a64a → gold-orange #e89146. */
+  :root{
+    --bg-0:#0a0e0d; --bg-1:#0f1311; --bg-2:#161a17;
+    --text-0:#e9eaec; --text-2:#9aa0a3; --text-3:#5b5e63;
+    --green:#3d6b4f; --green-bright:#4f8a64;
+    --gold:#d4a64a; --gold-bright:#e8c068; --gold-orange:#e89146;
+  }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
   body{
-    background:#0f0d0c;color:#e9eaec;
+    background:
+      radial-gradient(ellipse 55% 38% at 18% 0%, rgba(79,138,100,0.10), transparent 60%),
+      radial-gradient(ellipse 45% 35% at 80% 12%, rgba(58,111,140,0.06), transparent 65%),
+      radial-gradient(ellipse 50% 40% at 95% 90%, rgba(212,166,74,0.08), transparent 65%),
+      radial-gradient(ellipse 80% 60% at 40% 110%, rgba(45,90,63,0.08), transparent 60%),
+      var(--bg-0);
+    color:var(--text-0);
     font-family:'Inter Tight',system-ui,sans-serif;
     overflow:hidden;
-    background-image:
-      radial-gradient(ellipse 60% 40% at 20% 15%, rgba(212,166,74,0.08), transparent 65%),
-      radial-gradient(ellipse 55% 45% at 80% 85%, rgba(122,154,90,0.05), transparent 70%);
   }
   .wrap{
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    min-height:100%;padding:40px 24px 80px;gap:36px;
+    display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+    min-height:100%;padding:60px 24px 100px;gap:36px;
   }
-  .brand{
-    display:flex;align-items:center;gap:10px;
-    color:#d4a64a;letter-spacing:6px;font-size:14px;font-weight:700;
-    text-transform:uppercase;
+  .logo{
+    max-width:min(420px,70vw);height:auto;
+    filter:drop-shadow(0 10px 30px rgba(212,166,74,0.18));
   }
-  .brand-dot{width:10px;height:10px;border-radius:3px;background:#d4a64a;
+  .brand-text{
+    display:flex;align-items:center;gap:10px;color:var(--gold);
+    letter-spacing:6px;font-size:14px;font-weight:700;text-transform:uppercase;
+  }
+  .brand-dot{width:10px;height:10px;border-radius:3px;background:var(--gold);
     box-shadow:0 0 14px rgba(212,166,74,0.6)}
   form.search{
     width:min(640px,100%);
     display:flex;align-items:center;gap:10px;
-    background:#1c1a18;border:1px solid rgba(255,255,255,0.08);
+    background:var(--bg-1);border:1px solid rgba(255,255,255,0.06);
     border-radius:28px;padding:0 18px;height:52px;
-    box-shadow:0 8px 30px rgba(0,0,0,0.35);
+    box-shadow:0 8px 30px rgba(0,0,0,0.4);
     transition:border-color .15s, box-shadow .15s;
+    position:relative;
   }
-  form.search:focus-within{
-    border-color:#d4a64a;
-    box-shadow:0 8px 36px rgba(212,166,74,0.18);
+  form.search::before{
+    content:'';position:absolute;inset:-1px;border-radius:28px;
+    background:linear-gradient(135deg,var(--green) 0%,var(--green-bright) 30%,var(--gold) 70%,var(--gold-orange) 100%);
+    opacity:0;transition:opacity .15s;z-index:-1;
   }
+  form.search:focus-within{border-color:transparent}
+  form.search:focus-within::before{opacity:1}
   .gicon{width:20px;height:20px;border-radius:50%;
     background:conic-gradient(#4285f4 0 25%,#ea4335 25% 50%,#fbbc05 50% 75%,#34a853 75% 100%);
     flex-shrink:0;opacity:0.9;
   }
   form.search input{
     flex:1;background:transparent;border:none;outline:none;
-    color:#f1f2f3;font-size:15px;font-family:inherit;
+    color:var(--text-0);font-size:15px;font-family:inherit;
   }
-  form.search input::placeholder{color:#7d8085}
+  form.search input::placeholder{color:var(--text-3)}
   .grid{
     display:grid;
     grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
@@ -177,39 +212,48 @@ function buildNewtabUrl() {
   .tile{
     display:flex;flex-direction:column;align-items:center;gap:10px;
     padding:18px 10px;border-radius:14px;
-    background:#1c1a18;border:1px solid rgba(255,255,255,0.06);
-    color:#e9eaec;text-decoration:none;font-size:12px;
-    transition:transform .12s ease, border-color .15s, background .15s;
-    cursor:pointer;
+    background:var(--bg-1);border:1px solid rgba(255,255,255,0.06);
+    color:var(--text-0);text-decoration:none;font-size:12px;
+    transition:transform .12s ease, border-color .15s, background .15s, box-shadow .15s;
+    cursor:pointer;position:relative;
   }
   .tile:hover{
     transform:translateY(-2px);
-    border-color:var(--accent,#d4a64a);
-    background:#22201e;
+    border-color:var(--accent,var(--gold));
+    background:var(--bg-2);
+    box-shadow:0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px var(--accent,var(--gold)) inset;
   }
   .icon{
     width:44px;height:44px;border-radius:11px;
-    background:var(--accent,#d4a64a);
+    background:var(--accent,var(--gold));
     display:grid;place-items:center;flex-shrink:0;
     box-shadow:0 4px 14px rgba(0,0,0,0.35);
     overflow:hidden;
   }
   .icon img{width:28px;height:28px;border-radius:6px}
-  .icon .initial{font-weight:700;font-size:18px;color:#0f0d0c;display:grid;place-items:center;width:100%;height:100%}
+  .icon .initial{font-weight:700;font-size:18px;color:#0a0e0d;
+    display:grid;place-items:center;width:100%;height:100%}
   .label{font-weight:500;letter-spacing:0.3px;text-align:center;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-  .foot{position:fixed;bottom:14px;left:0;right:0;text-align:center;
-    color:#5b5e63;font-size:10px;letter-spacing:1.5px;text-transform:uppercase}
+  .foot{
+    position:fixed;bottom:14px;left:0;right:0;text-align:center;
+    color:var(--text-3);font-size:10px;letter-spacing:2px;text-transform:uppercase;
+  }
+  .foot .accent{
+    background:linear-gradient(90deg,var(--green-bright),var(--gold),var(--gold-orange));
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    font-weight:700;
+  }
 </style>
 </head><body>
 <div class="wrap">
-  <div class="brand"><span class="brand-dot"></span><span>OSERUS BROWSER</span></div>
+  ${logoTag}
   <form class="search" action="https://www.google.com/search" method="GET">
     <span class="gicon"></span>
     <input name="q" placeholder="Search Google or type a URL" autocomplete="off" autofocus>
   </form>
   <div class="grid">${tilesHtml}</div>
-  <div class="foot">Oserus Management · custom Chromium</div>
+  <div class="foot"><span class="accent">Oserus Management</span> · Custom Chromium</div>
 </div>
 </body></html>`;
   return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);

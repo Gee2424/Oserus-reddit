@@ -486,9 +486,11 @@ a:hover { color: var(--gold); }
   transition: background 0.08s;
   -webkit-app-region: no-drag;
 }
-.oserus-chrome button:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
+.oserus-chrome button:hover:not(:disabled) { background: rgba(212,166,74,0.10); color: var(--gold-bright); }
 .oserus-chrome button:disabled { opacity: 0.35; cursor: default; }
 .oserus-chrome button:active { transform: none; }
+/* Chrome-style: close window button hover = red. */
+.oserus-chrome [data-ob-close]:hover { background: #c8553d !important; color: #fff !important; }
 
 .oserus-chrome input,
 .oserus-chrome textarea,
