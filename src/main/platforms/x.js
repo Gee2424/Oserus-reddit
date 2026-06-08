@@ -88,4 +88,32 @@ async function submitPost({ accountId, title, body, kind, url }) {
   return { ok: true, id: null }; // X doesn't give us the tweet id from this path
 }
 
-module.exports = { id: 'x', configured: true, submitPost };
+// AI-generate a tweet for autopilot. The coordinator's runForAccount
+// calls this before submitPost. We just return text in `title` — x.js's
+// own submitPost coalesces title + body into the tweet content.
+async function generateContent({ account, target }) {
+  const { generateText } = require('../services/platformGen');
+  const r = await generateText({
+    accountId: account.id,
+    platform: 'x',
+    kind: 'post',
+    targetName: target?.name || null,
+  });
+  if (!r.ok) return { ok: false, error: r.error };
+  return {
+    ok: true,
+    target: target?.name || null,
+    title: r.text,
+    body: '',
+    kind: 'self',
+    url: null,
+  };
+}
+
+module.exports = {
+  id: 'x',
+  configured: true,
+  capabilities: { post: true, comment: true, engagement: true, dm: false },
+  submitPost,
+  generateContent,
+};

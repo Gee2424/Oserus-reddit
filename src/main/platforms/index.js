@@ -23,6 +23,8 @@
 
 const reddit = require('./reddit');
 const x = require('./x');
+const instagram = require('./instagram');
+const tiktok = require('./tiktok');
 
 // Stub factory. Every platform we don't have a real adapter for goes
 // here; the engine skips them cleanly instead of branching.
@@ -37,10 +39,10 @@ function stub(id, msg) {
 
 const ADAPTERS = {
   reddit,
-  redgifs:   stub('redgifs',   'RedGifs posting needs the native media-upload pipeline — currently engagement-only.'),
+  redgifs:   stub('redgifs',   'RedGifs autopilot intentionally disabled — operator opt-out.'),
   x,
-  instagram: stub('instagram', 'Instagram posting needs the native media-upload pipeline — currently engagement-only (scroll / like / follow runs today).'),
-  tiktok:    stub('tiktok',    'TikTok posting needs the native video-upload pipeline — currently engagement-only (scroll / like / follow runs today).'),
+  instagram,
+  tiktok,
 };
 
 function getAdapter(platform) { return ADAPTERS[platform] || null; }

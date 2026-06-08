@@ -305,7 +305,10 @@ function registerBridge() {
 // Resolves the protocol by (account.profile_id, account.platform). If
 // the account belongs to a profile with no protocol row yet, the call
 // is a no-op so accidental engagement runs never burn an account.
-async function runSession(accountId, { dryRun = false } = {}) {
+// hint: optional theme string carried through to engagement.requestComment
+// so AI replies have a topical anchor when the autopilot adapter
+// generated the session intent.
+async function runSession(accountId, { dryRun = false, hint = null } = {}) {
   registerBridge();
   const db = getDb();
   const acct = db.prepare(
