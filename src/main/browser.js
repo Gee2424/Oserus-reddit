@@ -116,22 +116,16 @@ async function openForAccount(accountId) {
   const partition = `persist:${prep.partitionKey}`;
   const title = `${acct.profile_name} · ${acct.platform}/${acct.username}`;
 
-  // Frameless: the tab strip IS the title bar. On Windows, titleBarOverlay
-  // paints native min/max/close on top of the tab strip's right edge.
-  // On macOS, titleBarStyle:'hidden' exposes the traffic-light buttons.
-  // The renderer marks tab-strip background as -webkit-app-region:drag.
+  // Frameless: the tab strip IS the title bar with a drag region in
+  // the renderer. Render our own min/max/close buttons in the chrome
+  // rather than relying on titleBarOverlay — keeps the chrome cross-
+  // platform and avoids any titleBarOverlay-specific IPC weirdness.
   const win = new BrowserWindow({
     width: 1280, height: 860,
     minWidth: 760, minHeight: 520,
-    backgroundColor: '#161412',
+    backgroundColor: '#0f0d0c',
     title,
     frame: false,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#161412',
-      symbolColor: '#d7dadc',
-      height: TITLE_BAR_HEIGHT,
-    },
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/browser.js'),
@@ -550,6 +544,27 @@ function registerTabIpc() {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win) return { ok: false };
     withActiveTab(win, (t) => { t.view.webContents.reload(); });
+    return { ok: true };
+  });
+
+  // Custom window controls (frameless — chrome renders the buttons).
+  ipcMain.handle('oserus-browser:windowMinimize', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    try { win?.minimize(); } catch {}
+    return { ok: true };
+  });
+  ipcMain.handle('oserus-browser:windowMaximize', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    try {
+      if (!win) return { ok: false };
+      if (win.isMaximized()) win.unmaximize();
+      else win.maximize();
+    } catch {}
+    return { ok: true };
+  });
+  ipcMain.handle('oserus-browser:windowClose', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    try { win?.close(); } catch {}
     return { ok: true };
   });
 

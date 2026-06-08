@@ -15,10 +15,9 @@ const CHROME_HEIGHT     = TAB_STRIP_HEIGHT + CHROME_ROW_HEIGHT + BOOKMARKS_HEIGH
 const FIND_BAR_HEIGHT   = 36;
 const SIDEBAR_WIDTH     = 340;
 
-// Width reserved at the right of the tab strip for Windows native
-// min/max/close overlay buttons painted by titleBarOverlay. Three
-// buttons * ~46px each ≈ 138; pad to 140 to avoid tab overlap.
-const NATIVE_BUTTONS_W  = 140;
+// We render our own min/max/close in the chrome, so no native button
+// reservation needed. Small pad keeps active tab from kissing the edge.
+const NATIVE_BUTTONS_W  = 144;
 
 // Quick-launch bookmarks — same set as AdsPower's default bar.
 // Favicons fetched from Google's S2 service so we don't ship any assets.
@@ -154,9 +153,14 @@ export default function BrowserShell() {
           })}
           <button onClick={() => window.oserusBrowser.newTab()} style={addBtn} title="New tab (Ctrl+T)">+</button>
         </div>
-        {/* Spacer that fills the rest of the title bar with drag region,
-            stopping before the Windows native buttons overlay. */}
+        {/* Spacer fills the rest of the title bar with drag region. */}
         <div style={tabStripDragFill} />
+        {/* Custom window controls — frameless window has no native ones. */}
+        <div style={windowCtrls}>
+          <button style={ctrlBtn} title="Minimize" onClick={() => window.oserusBrowser.windowMinimize()}>—</button>
+          <button style={ctrlBtn} title="Maximize" onClick={() => window.oserusBrowser.windowMaximize()}>▢</button>
+          <button style={ctrlClose} title="Close"  onClick={() => window.oserusBrowser.windowClose()}>×</button>
+        </div>
       </div>
 
       {/* CHROME ROW — back/forward/reload, omnibox, actions */}
@@ -391,6 +395,22 @@ const tabsScroll = {
   scrollbarWidth: 'none',
 };
 const tabStripDragFill = { flex: 1, alignSelf: 'stretch' }; // stays drag
+
+const windowCtrls = {
+  display: 'flex', alignItems: 'stretch',
+  height: TAB_STRIP_HEIGHT, flexShrink: 0,
+  WebkitAppRegion: 'no-drag',
+};
+const ctrlBtn = {
+  width: 46, height: TAB_STRIP_HEIGHT, lineHeight: 1,
+  background: 'transparent', color: '#e9eaec', fontSize: 14,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+};
+const ctrlClose = {
+  width: 46, height: TAB_STRIP_HEIGHT, lineHeight: 1,
+  background: 'transparent', color: '#e9eaec', fontSize: 18,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+};
 
 const tabStyle = {
   display: 'flex', alignItems: 'center', gap: 6,
