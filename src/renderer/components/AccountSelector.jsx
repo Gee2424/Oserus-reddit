@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '../lib/auth.jsx';
 
 // Shared account picker used by Autopilot + Scheduler.
 //
@@ -32,6 +33,15 @@ export default function AccountSelector({
   showAccountChips = true,
 }) {
   const { profileId, platform, accountId } = value || {};
+  const { token } = useAuth();
+
+  async function launchInBrowser() {
+    if (!accountId) return;
+    try {
+      const r = await window.api.oserusBrowser.openAccount({ token, accountId });
+      if (r && r.ok === false) alert(r.error || 'Could not open Oserus Browser');
+    } catch (e) { alert(e.message || 'Launch failed'); }
+  }
 
   // Default selection: first profile, first platform that has at least
   // one account on that profile (or 'reddit' as a stable fallback).
@@ -124,7 +134,7 @@ export default function AccountSelector({
       </div>
 
       {showAccountChips && (
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: '50%' }}>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', maxWidth: '50%' }}>
           {accountsOnSelection.length === 0 ? (
             <span className="muted" style={{ fontSize: 11, alignSelf: 'center', fontStyle: 'italic' }}>
               No {platform || ''} accounts linked yet
@@ -148,6 +158,19 @@ export default function AccountSelector({
               </button>
             );
           })}
+          {accountId && (
+            <button
+              onClick={launchInBrowser}
+              title="Open the selected account in Oserus Browser"
+              style={{
+                background: 'var(--gold)', color: '#0d0c0a',
+                border: 'none', borderRadius: 999,
+                padding: '4px 12px', fontSize: 11, fontWeight: 700,
+                cursor: 'pointer', marginLeft: 4,
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+              }}
+            >▶ Browser</button>
+          )}
         </div>
       )}
     </div>

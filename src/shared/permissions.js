@@ -44,6 +44,7 @@ const PERMISSIONS = [
 
   // Posts / scheduling
   { key: 'posts.publish',      group: 'Posting',    label: 'Publish posts on behalf of accounts' },
+  { key: 'content.add',        group: 'Posting',    label: 'Add content (drafts / scheduled posts) from the Oserus Browser sidebar' },
 
   // Autopilot / posting protocols
   { key: 'protocols.manage',   group: 'Autopilot',  label: 'Edit posting protocols & toggle autopilot' },

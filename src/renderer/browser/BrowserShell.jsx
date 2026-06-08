@@ -50,6 +50,10 @@ export default function BrowserShell() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [siblings, setSiblings] = useState([]);
   const [winInfo, setWinInfo] = useState({ accountId: null, platform: null });
+  const [proxyOpen, setProxyOpen] = useState(false);
+  const [proxyState, setProxyState] = useState({ loading: false, data: null, error: null, checkedAt: null });
+  const [addOpen, setAddOpen] = useState(false);
+  const [canAdd, setCanAdd] = useState(false);
   const omniRef = useRef(null);
   const findRef = useRef(null);
 
@@ -118,6 +122,49 @@ export default function BrowserShell() {
       window.oserusBrowser.navigate(url);
     }
   }
+  async function runProxyCheck(openPanel = true) {
+    if (openPanel) setProxyOpen(true);
+    setProxyState((s) => ({ ...s, loading: true }));
+    try {
+      const r = await window.oserusBrowser.checkProxy();
+      if (!r?.ok) setProxyState({ loading: false, data: null, error: r?.error || 'Check failed', checkedAt: Date.now() });
+      else setProxyState({ loading: false, data: r, error: null, checkedAt: Date.now() });
+    } catch (err) {
+      setProxyState({ loading: false, data: null, error: err?.message || 'Check failed', checkedAt: Date.now() });
+    }
+  }
+
+  // Auto-run proxy / leak check on mount and whenever the bound account
+  // changes (switchAccount opens a new window so this fires fresh too).
+  // The check happens silently — the persistent status pill in the
+  // chrome row shows the result; the popover only opens on click.
+  useEffect(() => {
+    if (!winInfo.accountId) return;
+    const t = setTimeout(() => runProxyCheck(false), 600);
+    return () => clearTimeout(t);
+  }, [winInfo.accountId]);
+
+  // Surface whether the operator can add content (gated by content.add).
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await window.oserusBrowser.canAddContent();
+        setCanAdd(!!(r && r.allowed));
+      } catch { setCanAdd(false); }
+    })();
+  }, [winInfo.accountId]);
+
+  // Derived: { kind, label, color } describing the current proxy state.
+  // Drives the persistent pill in the chrome row.
+  const proxyStatus = (() => {
+    if (proxyState.loading) return { kind: 'loading', label: 'Checking…', color: BRAND.text2 };
+    if (proxyState.error)   return { kind: 'fail', label: 'PROXY FAIL', color: BRAND.danger };
+    const d = proxyState.data;
+    if (!d)                 return { kind: 'unknown', label: 'Check proxy', color: BRAND.text2 };
+    if (!d.proxy)           return { kind: 'none', label: 'NO PROXY', color: BRAND.danger };
+    const cc = d.country ? d.country : '';
+    return { kind: 'ok', label: `${d.ip || '?'}${cc ? ' · ' + cc : ''}`, color: BRAND.greenBright };
+  })();
 
   return (
     <div className="oserus-chrome" style={page}>
@@ -167,11 +214,19 @@ export default function BrowserShell() {
         </div>
         {/* Spacer fills the rest of the title bar with drag region. */}
         <div style={tabStripDragFill} />
-        {/* Custom window controls — frameless window has no native ones. */}
+        {/* Custom window controls — frameless window has no native ones.
+            SVG glyphs so they're crisp at any DPI and centered correctly
+            regardless of font metrics for unicode dashes / boxes / x. */}
         <div style={windowCtrls}>
-          <button style={ctrlBtn} title="Minimize" onClick={() => window.oserusBrowser.windowMinimize()}>—</button>
-          <button style={ctrlBtn} title="Maximize" onClick={() => window.oserusBrowser.windowMaximize()}>▢</button>
-          <button data-ob-close="1" style={ctrlClose} title="Close" onClick={() => window.oserusBrowser.windowClose()}>×</button>
+          <button style={ctrlBtn} title="Minimize" onClick={() => window.oserusBrowser.windowMinimize()}>
+            <svg width="12" height="12" viewBox="0 0 12 12"><line x1="2" y1="6" x2="10" y2="6" stroke="currentColor" strokeWidth="1.2"/></svg>
+          </button>
+          <button style={ctrlBtn} title="Maximize" onClick={() => window.oserusBrowser.windowMaximize()}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="2.5" y="2.5" width="7" height="7" stroke="currentColor" strokeWidth="1.1"/></svg>
+          </button>
+          <button data-ob-close="1" style={ctrlClose} title="Close" onClick={() => window.oserusBrowser.windowClose()}>
+            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2.5 2.5 L9.5 9.5 M9.5 2.5 L2.5 9.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
+          </button>
         </div>
       </div>
 
@@ -216,6 +271,29 @@ export default function BrowserShell() {
                 );
               })}
             </div>
+          )}
+        </div>
+
+        {/* Persistent proxy/leak status pill. Click to open detail
+            popover. Auto-checks on mount; user can re-run from the
+            popover with the Refresh button. */}
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => { setProxyOpen((v) => !v); if (!proxyState.data && !proxyState.loading) runProxyCheck(true); }}
+            style={proxyPillBtn(proxyStatus.color)}
+            title="Proxy / leak check"
+          >
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: proxyStatus.color }} />
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{proxyStatus.label}</span>
+          </button>
+          {proxyOpen && (
+            <ProxyPanel
+              status={proxyStatus}
+              state={proxyState}
+              onRefresh={() => runProxyCheck(true)}
+              onClose={() => setProxyOpen(false)}
+              onBrowserscan={() => { setProxyOpen(false); window.oserusBrowser.openBrowserscan(); }}
+            />
           )}
         </div>
 
@@ -277,6 +355,9 @@ export default function BrowserShell() {
         <ContentSidebar
           accountPlatform={winInfo.platform}
           chromeTop={CHROME_HEIGHT + (findOpen ? FIND_BAR_HEIGHT : 0)}
+          canAdd={canAdd}
+          addOpen={addOpen}
+          setAddOpen={setAddOpen}
         />
       )}
     </div>
@@ -285,7 +366,7 @@ export default function BrowserShell() {
 
 // ---------------------------------------------------------- Content Sidebar
 
-function ContentSidebar({ accountPlatform, chromeTop }) {
+function ContentSidebar({ accountPlatform, chromeTop, canAdd, addOpen, setAddOpen }) {
   const [platform, setPlatform] = useState(accountPlatform || 'reddit');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -315,9 +396,24 @@ function ContentSidebar({ accountPlatform, chromeTop }) {
   return (
     <div style={{ ...sidebar, top: chromeTop }}>
       <div style={sideHead}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-1)' }}>Content List</span>
-        <button style={sideRefresh} onClick={refresh} title="Refresh">↻</button>
+        <span style={{ fontSize: 12, fontWeight: 600, color: BRAND.text1 }}>Content List</span>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {canAdd && (
+            <button
+              style={sideRefresh}
+              onClick={() => setAddOpen(!addOpen)}
+              title={addOpen ? 'Cancel' : 'Add content (draft or scheduled)'}
+            >{addOpen ? '×' : '+'}</button>
+          )}
+          <button style={sideRefresh} onClick={refresh} title="Refresh">↻</button>
+        </div>
       </div>
+      {addOpen && canAdd && (
+        <AddContentForm
+          platform={platform}
+          onDone={() => { setAddOpen(false); refresh(); }}
+        />
+      )}
       <div style={platRow}>
         {PLATFORMS.map((p) => (
           <button
@@ -349,6 +445,167 @@ function ContentSidebar({ accountPlatform, chromeTop }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------- AddContentForm
+
+function AddContentForm({ platform, onDone }) {
+  const [kind, setKind] = useState('self');
+  const [subreddit, setSubreddit] = useState('');
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [url, setUrl] = useState('');
+  const [when, setWhen] = useState(''); // datetime-local; empty = draft
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const isReddit = platform === 'reddit';
+
+  async function submit(e) {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      const payload = {
+        kind,
+        subreddit,
+        title,
+        body: kind === 'self' ? body : null,
+        url:  (kind === 'link' || kind === 'image') ? url : null,
+        // Convert datetime-local (local time) into an ISO string main can parse.
+        scheduled_for: when ? new Date(when).toISOString() : null,
+      };
+      const r = await window.oserusBrowser.addContent(payload);
+      if (!r?.ok) { setErr(r?.error || 'Add failed'); return; }
+      onDone();
+    } finally { setBusy(false); }
+  }
+
+  if (!isReddit) {
+    return (
+      <div style={{ padding: '10px 12px', fontSize: 11, color: BRAND.text2, borderBottom: `1px solid ${BRAND.bg4}` }}>
+        Add-from-browser supported on Reddit accounts only for now. ({platform})
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} style={addForm}>
+      {err && <div style={addErr}>{err}</div>}
+      <div style={addRow}>
+        {['self', 'link', 'image'].map((k) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setKind(k)}
+            style={{ ...kindBtn, ...(kind === k ? kindBtnActive : {}) }}
+          >{k}</button>
+        ))}
+      </div>
+      <input
+        style={addInput}
+        placeholder="Subreddit (without r/)"
+        value={subreddit}
+        onChange={(e) => setSubreddit(e.target.value)}
+      />
+      <input
+        style={addInput}
+        placeholder="Title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+      />
+      {kind === 'self' ? (
+        <textarea
+          style={{ ...addInput, height: 70, resize: 'vertical', fontFamily: 'inherit' }}
+          placeholder="Body (optional)"
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+        />
+      ) : (
+        <input
+          style={addInput}
+          placeholder={kind === 'link' ? 'https://…' : 'Image URL (uploaded asset)'}
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+        />
+      )}
+      <label style={addLabel}>
+        Schedule for (leave blank to save as draft)
+      </label>
+      <input
+        type="datetime-local"
+        style={addInput}
+        value={when}
+        onChange={(e) => setWhen(e.target.value)}
+      />
+      <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+        <button type="submit" disabled={busy} style={addSubmit}>
+          {busy ? 'Saving…' : (when ? 'Schedule' : 'Save draft')}
+        </button>
+        <button type="button" onClick={onDone} style={addCancel}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+// ------------------------------------------------------------------- ProxyPanel
+
+function ProxyPanel({ status, state, onRefresh, onClose, onBrowserscan }) {
+  const d = state.data;
+  return (
+    <div style={proxyPanel} onMouseLeave={onClose}>
+      <div style={proxyPanelHead}>
+        <span style={{ width: 10, height: 10, borderRadius: '50%', background: status.color }} />
+        <span style={{ flex: 1, color: BRAND.text0, fontWeight: 600, fontSize: 12 }}>
+          {status.kind === 'none' ? 'No proxy configured'
+            : status.kind === 'fail' ? 'Proxy check failed'
+            : status.kind === 'loading' ? 'Checking…'
+            : status.kind === 'ok' ? 'Proxy active'
+            : 'Proxy status unknown'}
+        </span>
+        <button onClick={onRefresh} title="Re-check" style={{ ...sideRefresh, width: 24, height: 24 }}>↻</button>
+      </div>
+
+      {state.error && <div style={proxyErr}>{state.error}</div>}
+
+      {status.kind === 'none' && (
+        <div style={proxyWarn}>
+          This account has no proxy assigned — browsing routes through your real IP.
+          Assign one in Settings &rarr; Proxy pool, or on the account itself.
+        </div>
+      )}
+
+      {d && (
+        <div style={proxyRows}>
+          <Row k="External IP" v={d.ip || '—'} mono />
+          <Row k="Location"    v={[d.city, d.region, d.country].filter(Boolean).join(', ') || '—'} />
+          <Row k="ISP / Org"   v={d.org || '—'} />
+          <Row k="ASN"         v={d.asn || '—'} mono />
+          {d.proxy && (
+            <>
+              <div style={proxyDivider} />
+              <Row k="Expected"    v={d.proxy.label || '—'} />
+              <Row k="Upstream"    v={`${d.proxy.host}:${d.proxy.port}`} mono />
+              <Row k="Rotation"    v={d.proxy.rotation_minutes > 0 ? `${d.proxy.rotation_minutes} min` : 'sticky'} />
+            </>
+          )}
+        </div>
+      )}
+
+      <button onClick={onBrowserscan} style={proxyScanBtn}>
+        Run full leak scan on browserscan.net ↗
+      </button>
+    </div>
+  );
+}
+
+function Row({ k, v, mono }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '3px 0' }}>
+      <span style={{ fontSize: 10, color: BRAND.text3, textTransform: 'uppercase', letterSpacing: 0.5, minWidth: 86 }}>{k}</span>
+      <span style={{ fontSize: 11, color: BRAND.text0, fontFamily: mono ? 'var(--font-mono)' : 'inherit', wordBreak: 'break-all', flex: 1 }}>{v}</span>
     </div>
   );
 }
@@ -639,3 +896,75 @@ const cardTitle = { fontSize: 12, color: BRAND.text0, marginBottom: 2 };
 const cardBody  = { fontSize: 11, color: BRAND.text1, marginBottom: 2 };
 const cardUrl   = { fontSize: 10, color: BRAND.text3, wordBreak: 'break-all', marginBottom: 2 };
 const cardWhen  = { fontSize: 10, color: BRAND.text3 };
+
+// Proxy status pill (chrome row)
+const proxyPillBtn = (accent) => ({
+  display: 'flex', alignItems: 'center', gap: 6,
+  height: 26, padding: '0 10px', borderRadius: 13,
+  background: 'transparent',
+  border: `1px solid ${accent}`,
+  color: BRAND.text0, fontSize: 11,
+  flexShrink: 0, maxWidth: 200, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis',
+});
+const proxyPanel = {
+  position: 'absolute', top: 34, right: 0, width: 320,
+  background: BRAND.bg2, border: `1px solid ${BRAND.borderStrong}`,
+  borderRadius: 8, padding: 10, zIndex: 60,
+  boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+};
+const proxyPanelHead = {
+  display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8,
+};
+const proxyErr = {
+  padding: '6px 8px', borderRadius: 4, marginBottom: 8,
+  background: 'rgba(179,71,58,0.15)', color: '#d97462',
+  fontSize: 11,
+};
+const proxyWarn = {
+  padding: '8px 10px', borderRadius: 4, marginBottom: 8,
+  background: 'rgba(179,71,58,0.12)', color: '#d97462',
+  fontSize: 11, lineHeight: 1.4,
+  border: `1px solid ${BRAND.danger}`,
+};
+const proxyRows = { padding: '4px 0', marginBottom: 8 };
+const proxyDivider = { borderTop: `1px solid ${BRAND.bg4}`, margin: '6px 0' };
+const proxyScanBtn = {
+  width: '100%', padding: '8px 10px', borderRadius: 6,
+  background: BRAND.bg3, color: BRAND.gold,
+  border: `1px solid ${BRAND.bg4}`,
+  fontSize: 11, fontWeight: 600,
+};
+
+// Add-content form (content sidebar)
+const addForm = {
+  padding: 10, display: 'flex', flexDirection: 'column', gap: 6,
+  background: BRAND.bg2, borderBottom: `1px solid ${BRAND.bg4}`,
+};
+const addRow = { display: 'flex', gap: 4 };
+const kindBtn = {
+  flex: 1, padding: '5px 0', borderRadius: 4,
+  background: 'transparent', border: `1px solid ${BRAND.bg4}`,
+  color: BRAND.text2, fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5,
+};
+const kindBtnActive = { background: BRAND.gold, borderColor: BRAND.gold, color: BRAND.bg0 };
+const addInput = {
+  height: 28, padding: '0 10px', borderRadius: 4,
+  background: BRAND.bg1, border: `1px solid ${BRAND.bg4}`,
+  color: BRAND.text0, fontSize: 12,
+};
+const addLabel = { fontSize: 10, color: BRAND.text3, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 4 };
+const addSubmit = {
+  flex: 1, padding: '6px 0', borderRadius: 4,
+  background: BRAND.gold, color: BRAND.bg0,
+  fontSize: 11, fontWeight: 700,
+};
+const addCancel = {
+  flex: 1, padding: '6px 0', borderRadius: 4,
+  background: 'transparent', border: `1px solid ${BRAND.bg4}`,
+  color: BRAND.text2, fontSize: 11,
+};
+const addErr = {
+  padding: '6px 8px', borderRadius: 4,
+  background: 'rgba(179,71,58,0.15)', color: '#d97462',
+  fontSize: 11,
+};

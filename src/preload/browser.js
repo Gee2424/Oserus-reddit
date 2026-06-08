@@ -68,4 +68,12 @@ contextBridge.exposeInMainWorld('oserusBrowser', {
   windowMinimize: () => safeInvoke('oserus-browser:windowMinimize'),
   windowMaximize: () => safeInvoke('oserus-browser:windowMaximize'),
   windowClose:    () => safeInvoke('oserus-browser:windowClose'),
+
+  // Proxy / leak check
+  checkProxy:      () => safeInvoke('oserus-browser:checkProxy'),
+  openBrowserscan: () => safeInvoke('oserus-browser:openBrowserscan'),
+
+  // Add content (drafts / scheduled) from the sidebar
+  addContent:     (payload) => safeInvoke('oserus-browser:addContent', payload),
+  canAddContent:  ()        => safeInvoke('oserus-browser:canAddContent'),
 });

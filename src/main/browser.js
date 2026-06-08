@@ -736,6 +736,145 @@ function registerTabIpc() {
     return { ok: true };
   });
 
+  // Proxy / leak check via the active tab's session. Uses the account
+  // partition so the IP we report is the one sites actually see. The
+  // chrome surfaces this in a popover with a 'Run full check' link
+  // that opens browserscan.net in a new tab for the definitive test.
+  ipcMain.handle('oserus-browser:checkProxy', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return { ok: false, error: 'no window' };
+    const st = windowState.get(win);
+    if (!st) return { ok: false, error: 'no state' };
+    const { net, session } = require('electron');
+    const sess = session.fromPartition(st.partition);
+
+    const fetchJson = (url, timeoutMs = 8000) => new Promise((resolve) => {
+      const t = setTimeout(() => { try { req.abort(); } catch {} resolve({ ok: false, error: 'Timed out' }); }, timeoutMs);
+      const req = net.request({ method: 'GET', url, session: sess });
+      req.setHeader('User-Agent', 'Oserus-Browser/proxy-check');
+      let body = '';
+      req.on('response', (res) => {
+        res.on('data', (c) => { body += c.toString(); });
+        res.on('end', () => {
+          clearTimeout(t);
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            try { resolve({ ok: true, data: JSON.parse(body) }); }
+            catch { resolve({ ok: true, data: { raw: body } }); }
+          } else resolve({ ok: false, error: `HTTP ${res.statusCode}` });
+        });
+      });
+      req.on('error', (err) => { clearTimeout(t); resolve({ ok: false, error: err.message }); });
+      req.end();
+    });
+
+    // Check IP first, then enrich with geo from a free no-key service.
+    const ipRes = await fetchJson('https://api.ipify.org?format=json', 8000);
+    if (!ipRes.ok) return { ok: false, error: `IP probe failed: ${ipRes.error}` };
+    const ip = ipRes.data?.ip;
+    const geoRes = ip ? await fetchJson(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, 6000) : { ok: false };
+    const geo = geoRes.ok ? geoRes.data : null;
+
+    // Pull the proxy row so we can tell the operator what was supposed
+    // to be used vs what actually came out the other side.
+    let proxyExpected = null;
+    try {
+      const row = getDb().prepare(
+        `SELECT px.label, px.host, px.port, px.rotation_minutes
+           FROM proxies px
+           LEFT JOIN reddit_accounts a ON a.id = ?
+           LEFT JOIN model_profiles mp ON mp.id = a.profile_id
+          WHERE px.id = COALESCE(a.proxy_id, mp.proxy_id)
+          LIMIT 1`
+      ).get(st.accountId);
+      if (row) proxyExpected = row;
+    } catch {}
+
+    return {
+      ok: true,
+      ip,
+      city:    geo?.city || null,
+      region:  geo?.region || null,
+      country: geo?.country_name || geo?.country || null,
+      org:     geo?.org || null,
+      asn:     geo?.asn || null,
+      proxy:   proxyExpected,
+    };
+  });
+
+  // Definitive fingerprint / leak check: open browserscan.net in a new
+  // tab so it runs against the account's session (WebRTC leak, canvas
+  // fingerprint, UA consistency, geo mismatch, all of it).
+  ipcMain.handle('oserus-browser:openBrowserscan', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return { ok: false };
+    openTab(win, 'https://www.browserscan.net/');
+    return { ok: true };
+  });
+
+  // Add content to the sidebar — creates a draft or a scheduled post
+  // for THIS window's account. Permission-gated via content.add (a new
+  // perm key in shared/permissions.js); admin gets it automatically.
+  ipcMain.handle('oserus-browser:addContent', (e, payload = {}) => {
+    try {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      if (!win) return { ok: false, error: 'no window' };
+      const st = windowState.get(win);
+      if (!st?.accountId) return { ok: false, error: 'no account on this window' };
+
+      const { userFromToken } = require('./ipc/auth');
+      const { requirePermission } = require('./permissions');
+      const user = userFromToken(operatorToken);
+      if (!user) return { ok: false, error: 'Not authenticated' };
+      try { requirePermission(user, 'content.add'); }
+      catch { return { ok: false, error: 'Missing permission: content.add' }; }
+
+      const kind = payload.kind === 'link' || payload.kind === 'image' ? payload.kind : 'self';
+      const subreddit = String(payload.subreddit || '').replace(/^r\//i, '').trim();
+      const title = String(payload.title || '').trim();
+      const body  = payload.body != null ? String(payload.body) : null;
+      const url   = payload.url  != null ? String(payload.url)  : null;
+      const scheduled_for = payload.scheduled_for ? String(payload.scheduled_for) : null;
+      const asScheduled = !!scheduled_for;
+
+      if (!title) return { ok: false, error: 'Title is required' };
+      if (!subreddit) return { ok: false, error: 'Subreddit is required (Reddit only for now)' };
+      if ((kind === 'link' || kind === 'image') && !url) return { ok: false, error: 'URL is required for link/image' };
+
+      const db = getDb();
+      if (asScheduled) {
+        const info = db.prepare(
+          `INSERT INTO scheduled_posts
+             (account_id, subreddit, title, body, kind, url, scheduled_for, status, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+        ).run(st.accountId, subreddit, title, body, kind, url, scheduled_for, user.id);
+        return { ok: true, id: info.lastInsertRowid, source: 'scheduled' };
+      } else {
+        // Draft (no scheduled_for). post_drafts uses link_url not url.
+        const info = db.prepare(
+          `INSERT INTO post_drafts
+             (account_id, subreddit, title, body, link_url, kind, status)
+           VALUES (?, ?, ?, ?, ?, ?, 'draft')`
+        ).run(st.accountId, subreddit, title, body, url, kind);
+        return { ok: true, id: info.lastInsertRowid, source: 'draft' };
+      }
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // Whether the current operator has the content.add permission. Used
+  // by the chrome to show / hide the + button in the sidebar.
+  ipcMain.handle('oserus-browser:canAddContent', () => {
+    try {
+      const { userFromToken } = require('./ipc/auth');
+      const { hasPermission } = require('./permissions');
+      const user = userFromToken(operatorToken);
+      return { ok: true, allowed: !!user && hasPermission(user, 'content.add') };
+    } catch {
+      return { ok: true, allowed: false };
+    }
+  });
+
   // Custom window controls (frameless — chrome renders the buttons).
   ipcMain.handle('oserus-browser:windowMinimize', (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
