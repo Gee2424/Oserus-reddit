@@ -33,15 +33,31 @@ async function submitPost({ accountId, title, body, kind, url }) {
   } catch {}
 
   const partition = `persist:${acct.partition_key}`;
+  // Match the account's fingerprint device class — mobile-fingerprinted
+  // accounts get a phone window + device emulation so UA + viewport agree.
+  const fingerprintMod = require('../fingerprint');
+  const fp = fingerprintMod.loadOrCreate(db, accountId);
+  const isMobile = !!(fp && fp.mobile);
+  const winW = isMobile ? (fp.screen?.width || 412)  : 1200;
+  const winH = isMobile ? (fp.screen?.height || 915) : 820;
+
   const win = new BrowserWindow({
-    width: 1200, height: 820,
+    width: winW, height: winH,
     show: false,
     webPreferences: { partition, contextIsolation: true, nodeIntegration: false },
   });
+  try {
+    const emu = fingerprintMod.getDeviceEmulationParams(fp);
+    if (emu) win.webContents.enableDeviceEmulation(emu);
+  } catch {}
 
   let result = { ok: false, error: 'Unknown failure' };
   try {
-    await win.loadURL('https://x.com/compose/post');
+    // Mobile accounts hit x.com (which serves the mobile composer to
+    // mobile UAs) instead of the desktop compose page that 404s on
+    // mobile UAs in some cases. x.com root opens the post composer on
+    // both, so just go there universally now.
+    await win.loadURL(isMobile ? 'https://x.com/' : 'https://x.com/compose/post');
     // Let the SPA hydrate the composer.
     await new Promise((r) => setTimeout(r, 5000));
 

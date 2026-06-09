@@ -77,8 +77,40 @@ function mainWorldPatch(fp) {
   try { defineGetter(Navigator.prototype, 'languages', Object.freeze(FP.languages.slice())); } catch {}
   try { defineGetter(Navigator.prototype, 'hardwareConcurrency', FP.hardwareConcurrency); } catch {}
   try { defineGetter(Navigator.prototype, 'deviceMemory', FP.deviceMemory); } catch {}
+  try { defineGetter(Navigator.prototype, 'maxTouchPoints', FP.maxTouchPoints || 0); } catch {}
+  try { defineGetter(Navigator.prototype, 'vendor', FP.mobile ? 'Google Inc.' : 'Google Inc.'); } catch {}
   // webdriver flag — most antibot stacks check this first.
   try { defineGetter(Navigator.prototype, 'webdriver', false); } catch {}
+
+  // --- Mobile-specific surface (only when fingerprint is Android) --------
+  if (FP.mobile) {
+    // Touch event interfaces — sites detect mobile by checking 'ontouchstart'
+    // in window. Define stubs so feature detection passes.
+    try {
+      ['ontouchstart','ontouchmove','ontouchend','ontouchcancel'].forEach((k) => {
+        if (!(k in window)) Object.defineProperty(window, k, { value: null, configurable: true });
+      });
+    } catch {}
+    // TouchEvent / Touch / TouchList classes — Chromium ships these on
+    // desktop too but sites sniff for window.TouchEvent existence.
+    try { if (typeof window.TouchEvent === 'undefined') window.TouchEvent = function TouchEvent(){}; } catch {}
+    try { if (typeof window.Touch === 'undefined') window.Touch = function Touch(){}; } catch {}
+    try { if (typeof window.TouchList === 'undefined') window.TouchList = function TouchList(){}; } catch {}
+    // DeviceMotion / Orientation — defining the constructors satisfies
+    // mobile-feature checks even though no real motion events fire.
+    try { if (typeof window.DeviceMotionEvent === 'undefined') window.DeviceMotionEvent = function DeviceMotionEvent(){}; } catch {}
+    try { if (typeof window.DeviceOrientationEvent === 'undefined') window.DeviceOrientationEvent = function DeviceOrientationEvent(){}; } catch {}
+    // window.orientation (legacy mobile API still used by sniffers).
+    try { defineGetter(window, 'orientation', 0); } catch {}
+    // navigator.connection — phones present this. saveData often false on 4G/5G.
+    try {
+      const conn = FP.connection || { effectiveType: '4g', downlink: 7.5, rtt: 100, saveData: false };
+      Object.defineProperty(Navigator.prototype, 'connection', {
+        get() { return Object.assign({ type: 'cellular' }, conn); },
+        configurable: false,
+      });
+    } catch {}
+  }
 
   // --- Sec-CH-UA via userAgentData (Chromium-only) ------------------------
   try {
@@ -87,23 +119,32 @@ function mainWorldPatch(fp) {
       { brand: 'Google Chrome', version: '131' },
       { brand: 'Not_A Brand', version: '24' },
     ];
+    // High-entropy fields fork by mobile vs desktop so an anti-bot
+    // calling getHighEntropyValues sees the same identity our UA does.
+    const mobile = !!FP.mobile;
+    const arch     = mobile ? 'arm'  : 'x86';
+    const bitness  = mobile ? '64'   : '64';
+    const platVer  = mobile ? '14.0.0' : '15.0.0';
+    const model    = mobile ? (FP.osLabel || '').replace(/^Android \\d+ \\(|\\)$/g, '') : '';
+    const platName = mobile ? 'Android' : FP.os;
     const uaData = {
       brands,
-      mobile: false,
-      platform: FP.os,
+      mobile,
+      platform: platName,
       getHighEntropyValues(keys) {
         return Promise.resolve(Object.fromEntries(keys.map((k) => {
-          if (k === 'platform') return [k, FP.os];
-          if (k === 'platformVersion') return [k, '15.0.0'];
-          if (k === 'architecture') return [k, 'x86'];
-          if (k === 'bitness') return [k, '64'];
-          if (k === 'model') return [k, ''];
+          if (k === 'platform') return [k, platName];
+          if (k === 'platformVersion') return [k, platVer];
+          if (k === 'architecture') return [k, arch];
+          if (k === 'bitness') return [k, bitness];
+          if (k === 'model') return [k, model];
+          if (k === 'mobile') return [k, mobile];
           if (k === 'uaFullVersion') return [k, '131.0.0.0'];
           if (k === 'fullVersionList') return [k, brands.map((b) => ({ brand: b.brand, version: '131.0.0.0' }))];
           return [k, ''];
         })));
       },
-      toJSON() { return { brands, mobile: false, platform: FP.os }; },
+      toJSON() { return { brands, mobile, platform: platName }; },
     };
     defineGetter(Navigator.prototype, 'userAgentData', uaData);
   } catch {}
@@ -118,6 +159,19 @@ function mainWorldPatch(fp) {
     defineGetter(Screen.prototype, 'pixelDepth', FP.screen.colorDepth);
   } catch {}
   try { defineGetter(window, 'devicePixelRatio', FP.screen.devicePixelRatio); } catch {}
+  // screen.orientation — mobile sites lock to portrait-primary, which
+  // anti-bot stacks use as a mobile vs desktop signal.
+  try {
+    if (FP.mobile && FP.screen.orientation) {
+      const orientObj = { type: FP.screen.orientation, angle: 0,
+        onchange: null,
+        addEventListener: () => {}, removeEventListener: () => {},
+      };
+      Object.defineProperty(Screen.prototype, 'orientation', {
+        get() { return orientObj; }, configurable: false,
+      });
+    }
+  } catch {}
 
   // --- timezone -----------------------------------------------------------
   try {

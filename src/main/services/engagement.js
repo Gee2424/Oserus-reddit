@@ -402,8 +402,18 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
   ).run(acct.id, acct.platform);
   const sessionId = sessionRow.lastInsertRowid;
 
+  // Mobile-fingerprinted accounts get a phone-sized window so the
+  // viewport matches the UA / screen the antidetect preload reports.
+  // Without this, the engagement session runs in a 1180×820 window
+  // while the page sees navigator.userAgent says Pixel 8 — a clean tell.
+  const fingerprintMod = require('../fingerprint');
+  const fp = fingerprintMod.loadOrCreate(getDb(), accountId);
+  const isMobile = !!(fp && fp.mobile);
+  const winW = isMobile ? (fp.screen?.width || 412)  : 1180;
+  const winH = isMobile ? (fp.screen?.height || 915) : 820;
+
   const win = new BrowserWindow({
-    width: 1180, height: 820,
+    width: winW, height: winH,
     show: false,
     webPreferences: {
       partition,
@@ -412,6 +422,10 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
       nodeIntegration: false,
     },
   });
+  try {
+    const emu = fingerprintMod.getDeviceEmulationParams(fp);
+    if (emu) win.webContents.enableDeviceEmulation(emu);
+  } catch {}
 
   const startedAt = Date.now();
   let stats = { posts_seen: 0, likes: 0, follows: 0, comments: 0, errors: [] };

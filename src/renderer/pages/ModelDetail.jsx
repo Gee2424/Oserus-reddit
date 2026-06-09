@@ -55,6 +55,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
     return {
       username: '', password: '', email: '', emailPassword: '',
       status: 'warming', proxy_id: '', notes: '',
+      os_profile: 'desktop',
     };
   }
 
@@ -120,6 +121,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
       status: account.status,
       proxy_id: account.proxy_id || '',
       notes: account.notes || '',
+      os_profile: account.os_profile || 'desktop',
     });
     setShowAddPlatform(account.platform);
   }
@@ -142,6 +144,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
         proxy_id: form.proxy_id ? Number(form.proxy_id) : null,
         notes: form.notes,
         email: form.email || null,
+        os_profile: form.os_profile || 'desktop',
       };
       if (form.password) updates.password = form.password;
       if (form.emailPassword) updates.emailPassword = form.emailPassword;
@@ -158,6 +161,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
         status: form.status,
         proxyId: form.proxy_id ? Number(form.proxy_id) : null,
         notes: form.notes,
+        osProfile: form.os_profile || 'desktop',
       });
     }
     if (!res.ok) { setError(res.error); return; }
@@ -477,6 +481,31 @@ export default function ModelDetailPage({ modelId, navigate }) {
                       <option value="">— no proxy —</option>
                       {proxies.map(p => <option key={p.id} value={p.id}>{p.label} ({p.kind} {p.host}:{p.port})</option>)}
                     </select>
+                  </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label>Device fingerprint <span className="dim" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>
+                      (UA + screen + WebGL + touch events all match this OS — match it to your proxy: residential mobile IPs pair with Android, datacenter with Desktop)
+                    </span></label>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {[
+                        { v: 'desktop', label: '🖥 Desktop',  hint: 'Windows / macOS UA, 1920×1080 screen, no touch' },
+                        { v: 'android', label: '📱 Android',  hint: 'Pixel / Galaxy UA, 412×915 screen, touch enabled' },
+                      ].map((o) => (
+                        <button
+                          key={o.v}
+                          type="button"
+                          onClick={() => setForm({ ...form, os_profile: o.v })}
+                          title={o.hint}
+                          style={{
+                            flex: 1, padding: '8px 12px',
+                            background: form.os_profile === o.v ? 'var(--gold)' : 'transparent',
+                            color: form.os_profile === o.v ? '#0d0c0a' : 'var(--text-1)',
+                            border: `1px solid ${form.os_profile === o.v ? 'var(--gold)' : 'var(--border)'}`,
+                            borderRadius: 6, cursor: 'pointer', fontWeight: 600,
+                          }}
+                        >{o.label}</button>
+                      ))}
+                    </div>
                   </div>
                   <div style={{ gridColumn: '1 / -1' }}>
                     <label>Notes</label>

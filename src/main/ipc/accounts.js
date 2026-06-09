@@ -180,24 +180,25 @@ function register(ipcMain) {
 
   ipcMain.handle('accounts:create', (_e, args) => {
     try {
-      const { token, profileId, platform, username, password, email, emailPassword, status, proxyId, notes, userAgent } = args;
+      const { token, profileId, platform, username, password, email, emailPassword, status, proxyId, notes, userAgent, osProfile } = args;
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       if (!canAccessProfile(user, profileId)) throw new Error('Not authorized');
       const plat = platform || 'reddit';
       if (!['reddit', 'redgifs', 'x', 'instagram', 'tiktok'].includes(plat)) throw new Error('Invalid platform');
+      const os = ['desktop', 'android'].includes(osProfile) ? osProfile : 'desktop';
       ensureAccountMigrations();
       const partitionKey = `${plat}-${profileId}-${username.toLowerCase().replace(/[^a-z0-9_-]/g, '')}-${Date.now()}`;
       const info = getDb()
         .prepare(
           `INSERT INTO reddit_accounts
-           (profile_id, platform, username, partition_key, password_encrypted, email, email_password_encrypted, status, proxy_id, notes, user_agent)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+           (profile_id, platform, username, partition_key, password_encrypted, email, email_password_encrypted, status, proxy_id, notes, user_agent, os_profile)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
         )
         .run(
           profileId, plat, username, partitionKey,
           encryptSecret(password), email || null, encryptSecret(emailPassword),
-          status || 'warming', proxyId || null, notes || null, userAgent || null
+          status || 'warming', proxyId || null, notes || null, userAgent || null, os,
         );
       log(user, 'account.create', 'account', info.lastInsertRowid, `${plat} u/${username}`);
       return { ok: true, id: info.lastInsertRowid, partitionKey };
@@ -214,7 +215,9 @@ function register(ipcMain) {
       if (!acct) throw new Error('Account not found');
       if (!canAccessProfile(user, acct.profile_id)) throw new Error('Not authorized');
 
-      const allowed = ['status', 'proxy_id', 'notes', 'email'];
+      // Flipping os_profile invalidates the persisted fingerprint —
+      // loadOrCreate sees the mismatch and regenerates next session prep.
+      const allowed = ['status', 'proxy_id', 'notes', 'email', 'os_profile'];
       const sets = [];
       const params = [];
       for (const key of allowed) {

@@ -569,6 +569,16 @@ function initDatabase() {
       db.exec("ALTER TABLE reddit_accounts ADD COLUMN platform TEXT NOT NULL DEFAULT 'reddit'");
       console.log('[db] Platform column added. Existing accounts default to "reddit".');
     }
+    // os_profile picks which device fingerprint family the account
+    // presents. 'desktop' = Windows / macOS bias (legacy default).
+    // 'android' = phone UA + mobile screen + WebGL + touch points so
+    // browserscan and similar bot detectors see a coherent mobile
+    // identity end-to-end. Future values: 'ios'.
+    const hasOsProfile = cols.some((c) => c.name === 'os_profile');
+    if (!hasOsProfile) {
+      db.exec("ALTER TABLE reddit_accounts ADD COLUMN os_profile TEXT NOT NULL DEFAULT 'desktop'");
+      console.log('[db] os_profile column added. Existing accounts default to "desktop".');
+    }
   } catch (e) {
     console.error('[db] Platform migration failed:', e.message);
   }

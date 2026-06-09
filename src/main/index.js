@@ -81,6 +81,29 @@ const fingerprintMod = require('./fingerprint');
 app.commandLine.appendSwitch('webrtc-ip-handling-policy', 'default_public_interface_only');
 app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'default_public_interface_only');
 
+// Anti-fingerprint / leak hardening.
+//   - Disable QUIC. QUIC uses UDP and can bypass HTTP/SOCKS proxies that
+//     only handle TCP — net result is leaks to Google et al. over UDP/443
+//     while everything else routes via proxy. The IPv6 leak in Google's
+//     captcha screen was likely this path.
+//   - Disable async DNS / DoH so the OS resolver (which the proxy can
+//     control) handles lookups instead of Chromium issuing its own.
+//   - WebRtcHideLocalIpsWithMdns sometimes leaks the mDNS-obfuscated
+//     name; turning the feature off forces public-only candidates.
+//   - Prefetching of any kind bypasses proxy enforcement for the early
+//     speculative connections.
+app.commandLine.appendSwitch('disable-quic');
+app.commandLine.appendSwitch('disable-features', [
+  'AsyncDns',
+  'DnsHttpsSvcb',
+  'UseDnsHttpsSvcbAlpn',
+  'WebRtcHideLocalIpsWithMdns',
+  'NetworkPredictionService',
+  'PrefetchPrivacyChanges',
+].join(','));
+app.commandLine.appendSwitch('no-pings');
+app.commandLine.appendSwitch('dns-prefetch-disable');
+
 const isDev = !app.isPackaged;
 let mainWindow;
 

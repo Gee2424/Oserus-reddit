@@ -459,6 +459,15 @@ function openTab(win, url) {
   });
   win.contentView.addChildView(view);
 
+  // Mobile device emulation when the account fingerprint is mobile.
+  // Matches the UA / screen / touch surface the antidetect preload is
+  // reporting — without this, browserscan flags the UA/viewport mismatch.
+  try {
+    const fp = require('./fingerprint').loadOrCreate(getDb(), st.accountId);
+    const emu = require('./fingerprint').getDeviceEmulationParams(fp);
+    if (emu) view.webContents.enableDeviceEmulation(emu);
+  } catch (e) { elog.warn('[browser] device emulation failed', e?.message); }
+
   const id = st.nextTabId++;
   const tab = { id, view, title: url, url, loading: true, canBack: false, canForward: false };
   st.tabs.push(tab);
