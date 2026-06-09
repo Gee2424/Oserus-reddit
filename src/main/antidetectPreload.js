@@ -76,11 +76,35 @@ function mainWorldPatch(fp) {
   try { defineGetter(Navigator.prototype, 'language', FP.languages[0]); } catch {}
   try { defineGetter(Navigator.prototype, 'languages', Object.freeze(FP.languages.slice())); } catch {}
   try { defineGetter(Navigator.prototype, 'hardwareConcurrency', FP.hardwareConcurrency); } catch {}
-  try { defineGetter(Navigator.prototype, 'deviceMemory', FP.deviceMemory); } catch {}
   try { defineGetter(Navigator.prototype, 'maxTouchPoints', FP.maxTouchPoints || 0); } catch {}
-  try { defineGetter(Navigator.prototype, 'vendor', FP.mobile ? 'Google Inc.' : 'Google Inc.'); } catch {}
+  // Vendor differs by engine: Apple's Safari reports 'Apple Computer, Inc.'
+  // and exposing 'Google Inc.' here is the easiest way to leak a Chromium
+  // identity through a Safari UA. Use FP.vendor when the profile sets it.
+  try { defineGetter(Navigator.prototype, 'vendor', FP.vendor || 'Google Inc.'); } catch {}
+  // deviceMemory: Chromium exposes; Safari doesn't. Delete the getter
+  // entirely when impersonating Safari so a probe returns undefined.
+  try {
+    if (FP.safari) {
+      try { delete Navigator.prototype.deviceMemory; } catch {}
+      Object.defineProperty(Navigator.prototype, 'deviceMemory', { get(){ return undefined; }, configurable: true });
+    } else if (typeof FP.deviceMemory === 'number') {
+      defineGetter(Navigator.prototype, 'deviceMemory', FP.deviceMemory);
+    }
+  } catch {}
   // webdriver flag — most antibot stacks check this first.
   try { defineGetter(Navigator.prototype, 'webdriver', false); } catch {}
+
+  // --- Safari-mode: remove Chromium-only surface --------------------------
+  // Mobile Safari doesn't ship navigator.userAgentData (UA-CH), the
+  // chrome.* runtime, or navigator.connection. Leaving them visible
+  // while the UA says Safari is the #1 way to expose Chromium underneath.
+  if (FP.safari) {
+    try { delete window.chrome; } catch {}
+    try { Object.defineProperty(window, 'chrome', { get(){ return undefined; }, configurable: true }); } catch {}
+    try { delete Navigator.prototype.userAgentData; } catch {}
+    try { Object.defineProperty(Navigator.prototype, 'userAgentData', { get(){ return undefined; }, configurable: true }); } catch {}
+    try { Object.defineProperty(Navigator.prototype, 'connection', { get(){ return undefined; }, configurable: true }); } catch {}
+  }
 
   // --- Mobile-specific surface (only when fingerprint is Android) --------
   if (FP.mobile) {
@@ -102,18 +126,23 @@ function mainWorldPatch(fp) {
     try { if (typeof window.DeviceOrientationEvent === 'undefined') window.DeviceOrientationEvent = function DeviceOrientationEvent(){}; } catch {}
     // window.orientation (legacy mobile API still used by sniffers).
     try { defineGetter(window, 'orientation', 0); } catch {}
-    // navigator.connection — phones present this. saveData often false on 4G/5G.
-    try {
-      const conn = FP.connection || { effectiveType: '4g', downlink: 7.5, rtt: 100, saveData: false };
-      Object.defineProperty(Navigator.prototype, 'connection', {
-        get() { return Object.assign({ type: 'cellular' }, conn); },
-        configurable: false,
-      });
-    } catch {}
+    // navigator.connection — Android Chrome presents this. Safari does NOT.
+    // Only plant when we're impersonating a Chromium-on-mobile profile.
+    if (!FP.safari) {
+      try {
+        const conn = FP.connection || { effectiveType: '4g', downlink: 7.5, rtt: 100, saveData: false };
+        Object.defineProperty(Navigator.prototype, 'connection', {
+          get() { return Object.assign({ type: 'cellular' }, conn); },
+          configurable: false,
+        });
+      } catch {}
+    }
   }
 
   // --- Sec-CH-UA via userAgentData (Chromium-only) ------------------------
-  try {
+  // Skip entirely when impersonating Safari — userAgentData was just
+  // deleted above; redefining it here would re-leak Chromium.
+  if (!FP.safari) try {
     const brands = [
       { brand: 'Chromium', version: '131' },
       { brand: 'Google Chrome', version: '131' },

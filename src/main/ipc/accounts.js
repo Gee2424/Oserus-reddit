@@ -186,7 +186,7 @@ function register(ipcMain) {
       if (!canAccessProfile(user, profileId)) throw new Error('Not authorized');
       const plat = platform || 'reddit';
       if (!['reddit', 'redgifs', 'x', 'instagram', 'tiktok'].includes(plat)) throw new Error('Invalid platform');
-      const os = ['desktop', 'android'].includes(osProfile) ? osProfile : 'desktop';
+      const os = ['desktop', 'android', 'ios'].includes(osProfile) ? osProfile : 'desktop';
       ensureAccountMigrations();
       const partitionKey = `${plat}-${profileId}-${username.toLowerCase().replace(/[^a-z0-9_-]/g, '')}-${Date.now()}`;
       const info = getDb()

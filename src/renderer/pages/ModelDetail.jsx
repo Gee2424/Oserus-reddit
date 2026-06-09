@@ -489,7 +489,8 @@ export default function ModelDetailPage({ modelId, navigate }) {
                     <div style={{ display: 'flex', gap: 6 }}>
                       {[
                         { v: 'desktop', label: '🖥 Desktop',  hint: 'Windows / macOS UA, 1920×1080 screen, no touch' },
-                        { v: 'android', label: '📱 Android',  hint: 'Pixel / Galaxy UA, 412×915 screen, touch enabled' },
+                        { v: 'android', label: '🤖 Android',  hint: 'Pixel / Galaxy UA, 412×915 screen, touch enabled' },
+                        { v: 'ios',     label: '🍎 iPhone',   hint: 'Mobile Safari UA, iPhone screen, no UA-CH or chrome.runtime — pair with jailbroken-phone proxies (Crane, AirProxy, Mobile Proxies LLC, etc.)' },
                       ].map((o) => (
                         <button
                           key={o.v}

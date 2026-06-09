@@ -11,6 +11,71 @@
 
 const crypto = require('crypto');
 
+// iOS device profiles. Operators routing through jailbroken iPhones
+// (Crane multi-instance, AirProxy, Mobile Proxies LLC, etc.) pick
+// 'ios' so the browser presents Mobile Safari end-to-end. Note:
+// our render engine is Blink not WebKit — pixel-level canvas
+// fingerprints can still expose that — but every JS-surface check
+// agrees, which is enough for browserscan and most anti-bot stacks.
+const IOS_PROFILES = [
+  // iPhone 15 — Safari 17.5
+  {
+    os: 'iOS', platform: 'iPhone',
+    osVersion: '17_5', osLabel: 'iOS 17.5 (iPhone 15)',
+    ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    chUaPlatform: '"iOS"',
+    webglVendor: 'Apple Inc.',
+    webglRenderer: 'Apple GPU',
+    mobile: true,
+    screen: { w: 393, h: 852, dpr: 3 },
+    hwc: 6, mem: 6, touchPoints: 5,
+    vendor: 'Apple Computer, Inc.',
+    safari: true,
+  },
+  // iPhone 15 Pro — Safari 17.5, larger screen, A17 Pro
+  {
+    os: 'iOS', platform: 'iPhone',
+    osVersion: '17_5', osLabel: 'iOS 17.5 (iPhone 15 Pro)',
+    ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    chUaPlatform: '"iOS"',
+    webglVendor: 'Apple Inc.',
+    webglRenderer: 'Apple GPU',
+    mobile: true,
+    screen: { w: 402, h: 874, dpr: 3 },
+    hwc: 6, mem: 8, touchPoints: 5,
+    vendor: 'Apple Computer, Inc.',
+    safari: true,
+  },
+  // iPhone 15 Pro Max
+  {
+    os: 'iOS', platform: 'iPhone',
+    osVersion: '17_5', osLabel: 'iOS 17.5 (iPhone 15 Pro Max)',
+    ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    chUaPlatform: '"iOS"',
+    webglVendor: 'Apple Inc.',
+    webglRenderer: 'Apple GPU',
+    mobile: true,
+    screen: { w: 430, h: 932, dpr: 3 },
+    hwc: 6, mem: 8, touchPoints: 5,
+    vendor: 'Apple Computer, Inc.',
+    safari: true,
+  },
+  // iPhone 14 — A15, still extremely common via mobile-proxy farms
+  {
+    os: 'iOS', platform: 'iPhone',
+    osVersion: '17_5', osLabel: 'iOS 17.5 (iPhone 14)',
+    ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+    chUaPlatform: '"iOS"',
+    webglVendor: 'Apple Inc.',
+    webglRenderer: 'Apple GPU',
+    mobile: true,
+    screen: { w: 390, h: 844, dpr: 3 },
+    hwc: 6, mem: 6, touchPoints: 5,
+    vendor: 'Apple Computer, Inc.',
+    safari: true,
+  },
+];
+
 const PROFILES = [
   // Windows 11 / Chrome 131
   {
@@ -179,12 +244,46 @@ function generateFingerprint(accountId, osProfile = 'desktop') {
       deviceMemory: base.mem,
       maxTouchPoints: base.touchPoints,
       webgl: { vendor: base.webglVendor, renderer: base.webglRenderer },
-      // Mobile-specific extras the antidetect preload uses to plant
-      // ontouchstart, navigator.maxTouchPoints, screen.orientation,
-      // DeviceMotion/Orientation event interfaces, and the mobile
-      // userAgentData payload.
       device: { vendor: base.os === 'Android' ? 'Google' : 'Apple', model: base.osLabel },
       connection: { effectiveType: '4g', downlink: 7.5, rtt: 100, saveData: false },
+      canvasNoise,
+      audioNoise,
+    };
+  }
+
+  if (osProfile === 'ios') {
+    const base = pick(IOS_PROFILES, rng('profile'));
+    return {
+      version: 1,
+      osProfile: 'ios',
+      os: base.os,
+      osLabel: base.osLabel,
+      platform: base.platform,
+      userAgent: base.ua,
+      chUaPlatform: base.chUaPlatform,
+      mobile: true,
+      safari: true, // signals the preload to delete userAgentData + chrome.runtime
+      vendor: base.vendor,
+      languages: langs,
+      acceptLanguage: `${langs[0]},${langs[1]};q=0.9`,
+      timezone: tz,
+      screen: {
+        width: base.screen.w,
+        height: base.screen.h,
+        availWidth: base.screen.w,
+        availHeight: base.screen.h,
+        devicePixelRatio: base.screen.dpr,
+        colorDepth: 24,
+        orientation: 'portrait-primary',
+      },
+      hardwareConcurrency: base.hwc,
+      // Mobile Safari doesn't expose deviceMemory — preload deletes it.
+      deviceMemory: undefined,
+      maxTouchPoints: base.touchPoints,
+      webgl: { vendor: base.webglVendor, renderer: base.webglRenderer },
+      device: { vendor: 'Apple', model: base.osLabel },
+      // Safari doesn't expose navigator.connection — preload deletes it.
+      connection: null,
       canvasNoise,
       audioNoise,
     };
