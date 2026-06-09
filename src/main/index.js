@@ -104,6 +104,12 @@ app.commandLine.appendSwitch('disable-features', [
 app.commandLine.appendSwitch('no-pings');
 app.commandLine.appendSwitch('dns-prefetch-disable');
 
+// Node-level DNS preference: any net.request / fetch the main process
+// makes outside Chromium prefers IPv4 records. Belt for the IPv4 bridge
+// — when fxdx / IPRoyal / etc. give us a hostname with both A and AAAA
+// records, we resolve to A.
+try { require('dns').setDefaultResultOrder('ipv4first'); } catch {}
+
 const isDev = !app.isPackaged;
 let mainWindow;
 
@@ -445,10 +451,14 @@ app.on('before-quit', () => {
   markQuitting();
   stopAutoUpdater();
   destroyTray();
-  // Close local proxy-chain bridges so we don't leak open ports across
-  // an autoupdate restart.
+  // Close local proxy-chain bridges + IPv4 SOCKS5 bridges so we don't
+  // leak open ports across an autoupdate restart.
   try {
     const { shutdownProxyBridges } = require('./services/sessionPrep');
     shutdownProxyBridges().catch(() => {});
+  } catch {}
+  try {
+    const { shutdownAll } = require('./services/ipv4Bridge');
+    shutdownAll().catch(() => {});
   } catch {}
 });

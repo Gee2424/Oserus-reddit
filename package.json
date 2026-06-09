@@ -1,6 +1,6 @@
 {
   "name": "oserus-management",
-  "version": "0.77.0",
+  "version": "0.78.0",
   "description": "Oserus Management — team Reddit & RedGifs account management for OnlyFans agencies",
   "main": "src/main/index.js",
   "scripts": {
@@ -25,7 +25,8 @@
     "electron-updater": "^6.3.9",
     "proxy-chain": "^2.7.1",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "socks": "^2.8.9"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.0",

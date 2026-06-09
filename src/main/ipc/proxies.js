@@ -1,5 +1,6 @@
 const { net, session } = require('electron');
 const proxyChain = require('proxy-chain');
+const ipv4Bridge = require('../services/ipv4Bridge');
 const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
 const { requirePermission } = require('../permissions');
@@ -43,13 +44,24 @@ async function pingProxy(proxy) {
   const pw = proxy.username ? (decryptSecret(proxy.password_encrypted) || '') : null;
 
   let proxyRules;
-  let bridgeUrlToClose = null;
+  let proxyChainUrlToClose = null;
   if (proxy.username) {
     try {
-      const auth = `${encodeURIComponent(proxy.username)}:${encodeURIComponent(pw || '')}@`;
-      const upstream = `${scheme}://${auth}${proxy.host}:${proxy.port}`;
-      proxyRules = await proxyChain.anonymizeProxy({ url: upstream, port: 0 });
-      bridgeUrlToClose = proxyRules;
+      if (scheme === 'socks5') {
+        // SOCKS5 → IPv4-only bridge so the Test result actually reflects
+        // what real traffic will see: same IPv4 exit, no AAAA path. The
+        // bridge is cached, so repeated tests don't churn ports.
+        const bridge = await ipv4Bridge.getOrCreateSocks5Bridge({
+          host: proxy.host, port: Number(proxy.port),
+          username: proxy.username, password: pw,
+        });
+        proxyRules = bridge.url;
+      } else {
+        const auth = `${encodeURIComponent(proxy.username)}:${encodeURIComponent(pw || '')}@`;
+        const upstream = `${scheme}://${auth}${proxy.host}:${proxy.port}`;
+        proxyRules = await proxyChain.anonymizeProxy({ url: upstream, port: 0 });
+        proxyChainUrlToClose = proxyRules;
+      }
     } catch (e) {
       return { ok: false, error: `Bridge spin-up failed: ${e.message}` };
     }
@@ -66,9 +78,10 @@ async function pingProxy(proxy) {
   }
   return new Promise((resolve) => {
     const cleanup = async () => {
-      if (bridgeUrlToClose) {
-        try { await proxyChain.closeAnonymizedProxy(bridgeUrlToClose, true); } catch {}
+      if (proxyChainUrlToClose) {
+        try { await proxyChain.closeAnonymizedProxy(proxyChainUrlToClose, true); } catch {}
       }
+      // ipv4 bridge stays up — cached for reuse across calls; closed on app quit.
     };
     const t = setTimeout(() => {
       try { req.abort(); } catch { /* noop */ }

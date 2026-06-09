@@ -18,6 +18,7 @@ const { getDb, decryptSecret } = require('../db');
 const fingerprintMod = require('../fingerprint');
 const { writePreloadFor } = require('../antidetectPreload');
 const proxyChain = require('proxy-chain');
+const ipv4Bridge = require('./ipv4Bridge');
 
 // Per-partition tracking so we only loadExtension once per session. The
 // Electron API does not expose listExtensions on a fresh partition, so we
@@ -154,10 +155,31 @@ async function prepareSessionForAccount(accountId) {
     // no auth challenge ever crosses the Chromium boundary.
     let proxyRules;
     if (username) {
-      const bridge = await getOrCreateBridge({
-        scheme, host: account.proxy_host, port: account.proxy_port,
-        username, password,
-      });
+      // SOCKS5 with auth → use our IPv4-only bridge. The bridge
+      // resolves every destination hostname to its A record (no AAAA)
+      // before forwarding the CONNECT to the upstream SOCKS5 — so
+      // IPv4 and IPv6 exits can't disagree (no AAAA path is ever
+      // taken). HTTP/HTTPS upstreams keep using proxy-chain, which
+      // forwards CONNECT verbatim and is fine when the upstream is
+      // already an HTTP proxy.
+      let bridge;
+      if (scheme === 'socks5') {
+        try {
+          bridge = await ipv4Bridge.getOrCreateSocks5Bridge({
+            host: account.proxy_host,
+            port: Number(account.proxy_port),
+            username, password,
+          });
+        } catch (e) {
+          elog.error('[proxy] ipv4 bridge spin-up failed', { error: e?.message });
+          return { ok: false, error: `IPv4 bridge spin-up failed: ${e.message}` };
+        }
+      } else {
+        bridge = await getOrCreateBridge({
+          scheme, host: account.proxy_host, port: account.proxy_port,
+          username, password,
+        });
+      }
       if (!bridge) {
         return { ok: false, error: 'Could not spin up local proxy bridge — see logs' };
       }
