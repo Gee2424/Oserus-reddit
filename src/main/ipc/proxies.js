@@ -40,28 +40,20 @@ function ensureProxyMigrations() {
 async function pingProxy(proxy) {
   const partition = `proxy-test-${proxy.id}-${Date.now()}`;
   const sess = session.fromPartition(partition);
-  const scheme = proxy.kind === 'socks5' ? 'socks5' : (proxy.kind === 'https' ? 'https' : 'http');
+  const scheme = ['http','https','socks4','socks4a','socks5','socks5h'].includes(proxy.kind) ? proxy.kind : 'http';
   const pw = proxy.username ? (decryptSecret(proxy.password_encrypted) || '') : null;
 
   let proxyRules;
-  let proxyChainUrlToClose = null;
   if (proxy.username) {
     try {
-      if (scheme === 'socks5') {
-        // SOCKS5 → IPv4-only bridge so the Test result actually reflects
-        // what real traffic will see: same IPv4 exit, no AAAA path. The
-        // bridge is cached, so repeated tests don't churn ports.
-        const bridge = await ipv4Bridge.getOrCreateSocks5Bridge({
-          host: proxy.host, port: Number(proxy.port),
-          username: proxy.username, password: pw,
-        });
-        proxyRules = bridge.url;
-      } else {
-        const auth = `${encodeURIComponent(proxy.username)}:${encodeURIComponent(pw || '')}@`;
-        const upstream = `${scheme}://${auth}${proxy.host}:${proxy.port}`;
-        proxyRules = await proxyChain.anonymizeProxy({ url: upstream, port: 0 });
-        proxyChainUrlToClose = proxyRules;
-      }
+      // Universal bridge — works for any upstream scheme. Test result
+      // reflects what real traffic sees: same IPv4 exit, no AAAA path.
+      const bridge = await ipv4Bridge.getOrCreateBridge({
+        scheme,
+        host: proxy.host, port: Number(proxy.port),
+        username: proxy.username, password: pw,
+      });
+      proxyRules = bridge.url;
     } catch (e) {
       return { ok: false, error: `Bridge spin-up failed: ${e.message}` };
     }
@@ -78,10 +70,7 @@ async function pingProxy(proxy) {
   }
   return new Promise((resolve) => {
     const cleanup = async () => {
-      if (proxyChainUrlToClose) {
-        try { await proxyChain.closeAnonymizedProxy(proxyChainUrlToClose, true); } catch {}
-      }
-      // ipv4 bridge stays up — cached for reuse across calls; closed on app quit.
+      // Universal bridge stays cached across tests; closed on app quit.
     };
     const t = setTimeout(() => {
       try { req.abort(); } catch { /* noop */ }
@@ -177,7 +166,7 @@ function register(ipcMain) {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'infra.proxies.manage');
-      if (!['http', 'https', 'socks5'].includes(kind)) throw new Error('Invalid proxy kind');
+      if (!['http', 'https', 'socks5', 'socks4'].includes(kind)) throw new Error('Invalid proxy kind');
       if (!host || !port) throw new Error('Host and port required');
       const info = getDb()
         .prepare(

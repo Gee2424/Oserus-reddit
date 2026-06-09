@@ -140,8 +140,12 @@ async function prepareSessionForAccount(accountId) {
   //      — auth has to come through the login event. Same handler
   //      covers HTTP/HTTPS too, so one path works for every scheme.
   if (account.proxy_host && account.proxy_port) {
-    const scheme = account.proxy_kind === 'socks5' ? 'socks5'
-      : (account.proxy_kind === 'https' ? 'https' : 'http');
+    // Pass the kind through verbatim — the bridge handles every scheme
+    // (http/https/socks4/socks5 + 4a/5h aliases). Unknown values fall
+    // back to http so we never silently route to the wrong upstream.
+    const scheme = ['http','https','socks4','socks4a','socks5','socks5h'].includes(account.proxy_kind)
+      ? account.proxy_kind
+      : 'http';
     const password = account.proxy_username ? (decryptSecret(account.proxy_pw_enc) || '') : null;
     const username = account.proxy_username ? buildRotatingUsername(account) : null;
 
@@ -155,35 +159,28 @@ async function prepareSessionForAccount(accountId) {
     // no auth challenge ever crosses the Chromium boundary.
     let proxyRules;
     if (username) {
-      // SOCKS5 with auth → use our IPv4-only bridge. The bridge
-      // resolves every destination hostname to its A record (no AAAA)
-      // before forwarding the CONNECT to the upstream SOCKS5 — so
-      // IPv4 and IPv6 exits can't disagree (no AAAA path is ever
-      // taken). HTTP/HTTPS upstreams keep using proxy-chain, which
-      // forwards CONNECT verbatim and is fine when the upstream is
-      // already an HTTP proxy.
+      // Universal IPv4-only bridge covers every upstream scheme:
+      // SOCKS5 / SOCKS4 / HTTP / HTTPS, with or without auth. The
+      // bridge resolves every destination hostname to A-record only
+      // and hands the upstream an IPv4 literal — so no AAAA path is
+      // ever taken regardless of the provider. Cached per
+      // (scheme, host, port, username, pw-len) so sticky-session
+      // rotation flipping the username creates a fresh bridge.
       let bridge;
-      if (scheme === 'socks5') {
-        try {
-          bridge = await ipv4Bridge.getOrCreateSocks5Bridge({
-            host: account.proxy_host,
-            port: Number(account.proxy_port),
-            username, password,
-          });
-        } catch (e) {
-          elog.error('[proxy] ipv4 bridge spin-up failed', { error: e?.message });
-          return { ok: false, error: `IPv4 bridge spin-up failed: ${e.message}` };
-        }
-      } else {
-        bridge = await getOrCreateBridge({
-          scheme, host: account.proxy_host, port: account.proxy_port,
+      try {
+        bridge = await ipv4Bridge.getOrCreateBridge({
+          scheme,
+          host: account.proxy_host,
+          port: Number(account.proxy_port),
           username, password,
         });
+      } catch (e) {
+        elog.error('[proxy] bridge spin-up failed', { scheme, error: e?.message });
+        return { ok: false, error: `Proxy bridge spin-up failed: ${e.message}` };
       }
       if (!bridge) {
         return { ok: false, error: 'Could not spin up local proxy bridge — see logs' };
       }
-      // bridge.url looks like 'http://127.0.0.1:PORT'
       proxyRules = bridge.url;
       // Keep the bridge key on the session for selective eviction when
       // rotation flips the username (so we don't accumulate orphan

@@ -3,9 +3,10 @@ import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 
 const PROXY_KINDS = [
-  { v: 'http', label: 'HTTP' },
-  { v: 'https', label: 'HTTPS' },
+  { v: 'http',   label: 'HTTP' },
+  { v: 'https',  label: 'HTTPS' },
   { v: 'socks5', label: 'SOCKS5' },
+  { v: 'socks4', label: 'SOCKS4' },
 ];
 
 function blankProxy() {
@@ -33,8 +34,9 @@ function parseProxyUrl(raw) {
   if (schemeMatch) {
     const k = schemeMatch[1].toLowerCase();
     if (k === 'socks5' || k === 'socks' || k === 'socks5h') kind = 'socks5';
-    else if (k === 'https') kind = 'https';
-    else if (k === 'http')  kind = 'http';
+    else if (k === 'socks4' || k === 'socks4a')             kind = 'socks4';
+    else if (k === 'https')                                  kind = 'https';
+    else if (k === 'http')                                   kind = 'http';
     else return { error: `Unsupported scheme: ${k}` };
     s = s.slice(schemeMatch[0].length);
   }
