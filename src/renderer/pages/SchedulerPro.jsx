@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
 import AccountSelector from '../components/AccountSelector.jsx';
+import PlatformExplainer from '../components/PlatformExplainer.jsx';
 import { Banner } from '../components/ui.jsx';
 
 const PLATFORM_ICON = { reddit: '◈', redgifs: '▮', x: '𝕏', instagram: '◉', tiktok: '♪' };
@@ -119,6 +120,8 @@ export default function SchedulerProPage() {
         onChange={setSel}
         requireAccount={true}
       />
+
+      <PlatformExplainer surface="scheduler" platform={sel.platform} />
 
       {err && <Banner kind="err">{err}</Banner>}
       {msg && <Banner kind="ok">{msg}</Banner>}

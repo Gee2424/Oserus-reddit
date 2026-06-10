@@ -172,20 +172,44 @@ function register(ipcMain) {
 
       // Scoped: single engagement session.
       if (profileId && platform) {
+        const { getDb } = require('../db');
+        const modelName = (getDb().prepare(
+          'SELECT name FROM model_profiles WHERE id = ?'
+        ).get(profileId) || {}).name || `model ${profileId}`;
+
         let id = accountId;
         if (!id) {
-          const { getDb } = require('../db');
           const row = getDb().prepare(
             `SELECT id FROM reddit_accounts
               WHERE profile_id = ? AND platform = ? AND status IN ('warming','ready')
               ORDER BY RANDOM() LIMIT 1`
           ).get(profileId, platform);
-          if (!row) throw new Error(`No active ${platform} accounts for this profile`);
+          if (!row) {
+            // Distinguish "no accounts at all" from "all banned/paused".
+            const anyOnPlat = getDb().prepare(
+              `SELECT COUNT(*) AS n FROM reddit_accounts WHERE profile_id = ? AND platform = ?`
+            ).get(profileId, platform);
+            if (!anyOnPlat || !anyOnPlat.n) {
+              throw new Error(`No ${platform} accounts linked to "${modelName}". Add one on the model profile, then come back.`);
+            }
+            throw new Error(`All ${platform} accounts on "${modelName}" are paused or banned — set one to 'warming' or 'ready' to run.`);
+          }
           id = row.id;
         }
         const { runSession } = require('../services/engagement');
         const res = await runSession(id, { dryRun: !!dryRun });
-        log(user, 'autopilot.runNow', 'engagement', id, dryRun ? 'dry-run' : `posts_seen=${res.stats?.posts_seen || 0}`);
+        // runSession returns { ok, error?, stats, seconds, sessionId }
+        // — surface its error verbatim to the UI rather than masking
+        // a useful message behind a successful IPC envelope.
+        if (!res.ok && res.error) {
+          log(user, 'autopilot.runNow', 'engagement', id, `error: ${res.error}`);
+          return { ok: false, error: res.error, stats: res.stats, seconds: res.seconds, sessionId: res.sessionId };
+        }
+        const s = res.stats || {};
+        const summary = dryRun
+          ? `dry-run · seen=${s.posts_seen || 0} · would_like=${s.would_like || 0} · would_follow=${s.would_follow || 0} · would_comment=${s.would_comment || 0}`
+          : `seen=${s.posts_seen || 0} · liked=${s.likes || 0} · followed=${s.follows || 0} · commented=${s.comments || 0}`;
+        log(user, 'autopilot.runNow', 'engagement', id, summary);
         return res;
       }
 
@@ -208,20 +232,55 @@ function register(ipcMain) {
     }
   });
 
-  // Recent post events (autopilot + manual), for the activity feed on the page.
+  // Recent events for the activity feed. Unions post_events (posts,
+  // API comments, scheduled fires) with engagement_sessions (DOM
+  // scroll-likes-follows-comments) so the operator sees a single
+  // chronological feed and can prove autopilot actually ran. Without
+  // this, the engagement loop appears silent — its work goes only
+  // to engagement_sessions, which the UI never read.
   ipcMain.handle('protocols:events', (_e, { token, limit }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       protocols.ensureTables();
-      const rows = getDb().prepare(
-        `SELECT e.*, a.username AS account_username, p.name AS profile_name
+      const cap = Math.min(Number(limit) || 100, 500);
+      const posts = getDb().prepare(
+        `SELECT e.id, e.platform, e.account_id, e.profile_id, e.subreddit,
+                e.title, e.status, e.source, e.error, e.created_at, e.remote_id,
+                a.username AS account_username, p.name AS profile_name,
+                'post' AS event_kind
          FROM post_events e
          LEFT JOIN reddit_accounts a ON a.id = e.account_id
          LEFT JOIN model_profiles p ON p.id = e.profile_id
          ORDER BY e.id DESC LIMIT ?`
-      ).all(Math.min(Number(limit) || 100, 500));
-      return { ok: true, events: rows };
+      ).all(cap);
+      let sessions = [];
+      try {
+        sessions = getDb().prepare(
+          `SELECT s.id, s.platform, s.account_id,
+                  a.profile_id AS profile_id,
+                  NULL AS subreddit,
+                  NULL AS title,
+                  CASE
+                    WHEN s.error IS NULL              THEN 'engaged'
+                    WHEN s.error LIKE 'dry-run%'      THEN 'dry-run'
+                    ELSE 'engaged-err'
+                  END AS status,
+                  'engagement' AS source,
+                  s.error, s.started_at AS created_at, NULL AS remote_id,
+                  a.username AS account_username, p.name AS profile_name,
+                  'session' AS event_kind,
+                  s.posts_seen, s.likes, s.follows, s.comments, s.seconds
+           FROM engagement_sessions s
+           LEFT JOIN reddit_accounts a ON a.id = s.account_id
+           LEFT JOIN model_profiles p ON p.id = a.profile_id
+           ORDER BY s.id DESC LIMIT ?`
+        ).all(cap);
+      } catch {}
+      const events = [...posts, ...sessions]
+        .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+        .slice(0, cap);
+      return { ok: true, events };
     } catch (err) {
       return { ok: false, error: err.message };
     }

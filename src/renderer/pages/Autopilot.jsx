@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
 import AccountSelector from '../components/AccountSelector.jsx';
+import PlatformExplainer from '../components/PlatformExplainer.jsx';
 import { Banner } from '../components/ui.jsx';
 
 // Autopilot page.
@@ -165,7 +166,7 @@ export default function AutopilotPage() {
           <div className="eyebrow">Automation</div>
           <h1>Autopilot</h1>
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Pick a model and platform. Configure how the autopilot behaves there, then Run.
+            Three steps: <strong>1.</strong> Enable the master switch. <strong>2.</strong> Pick a model + platform and save your settings. <strong>3.</strong> Click <em>Dry run</em> to preview, then <em>Run now</em> to fire a live session.
           </div>
         </div>
         <div style={{ marginLeft: 'auto' }}>
@@ -173,6 +174,15 @@ export default function AutopilotPage() {
         </div>
       </div>
 
+      {/* ── 1. Master switch ─────────────────────────────────────── */}
+      <MasterBanner
+        on={masterOn}
+        status={status}
+        canManage={canManage}
+        onToggle={toggleAutopilot}
+      />
+
+      {/* ── 2. Scope selector ──────────────────────────────────── */}
       <AccountSelector
         accounts={accounts}
         profiles={profiles}
@@ -183,52 +193,51 @@ export default function AutopilotPage() {
       {err && <Banner kind="err">{err}</Banner>}
       {msg && <Banner kind="ok">{msg}</Banner>}
 
-      {/* ── Status & controls ──────────────────────────────────────── */}
-      <div className="card" style={{ padding: 16, marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <span style={{ ...statusDot, background: masterOn ? 'var(--ok)' : 'var(--text-3)' }} />
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>
-              {masterOn ? 'Autopilot is running' : 'Autopilot is paused'}
+      {/* ── 3. Per-platform explainer + run controls ─────────────── */}
+      <PlatformExplainer surface="autopilot" platform={sel.platform} />
+
+      {sel.platform && (
+        <div className="card" style={{ padding: 14, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ fontWeight: 600, fontSize: 13 }}>
+                {protoOn
+                  ? `Autopilot is ENABLED for ${sel.platform}`
+                  : `Autopilot is paused for ${sel.platform}`}
+              </div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                {proto?.last_run_at
+                  ? `Last live run ${formatRelative(proto.last_run_at)}`
+                  : 'Has never run live for this scope.'}
+                {!masterOn && ' · Background loop is paused (master switch off above).'}
+              </div>
             </div>
-            <div className="muted" style={{ fontSize: 11 }}>
-              {status?.lastRun
-                ? `Last system pass ${new Date(status.lastRun).toLocaleString()}`
-                : 'No system passes yet'}
-              {status?.running ? ' · pass in progress' : ''}
-              {proto && (
-                <> · This scope: {protoOn ? 'enabled' : 'disabled'}
-                  {proto.last_run_at ? ` · last run ${formatRelative(proto.last_run_at)}` : ' · never run'}
-                </>
-              )}
-            </div>
+
+            {canRun && (
+              <>
+                <button
+                  className="ghost"
+                  disabled={busy}
+                  onClick={() => runNow({ dryRun: true })}
+                  title="Open a hidden browser as this account, scroll the feed, and report what a live pass would do. No clicks, no posts. ~60s."
+                >
+                  Preview (dry run)
+                </button>
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={() => runNow({ dryRun: false })}
+                  title="Real session: scroll, like, follow, comment per your rates. 6–14 min by default."
+                >
+                  {busy ? 'Running…' : 'Run live now'}
+                </button>
+              </>
+            )}
           </div>
 
-          {canManage && (
-            <button className={masterOn ? 'danger' : 'primary'} onClick={toggleAutopilot} style={{ marginLeft: 'auto' }}>
-              {masterOn ? 'Pause master' : 'Enable master'}
-            </button>
-          )}
-
-          {canRun && (
-            <>
-              <button className="ghost" disabled={busy} onClick={() => runNow({ dryRun: true })}>Dry run</button>
-              <button className="primary" disabled={busy} onClick={() => runNow({ dryRun: false })}>
-                {busy ? 'Running…' : 'Run now'}
-              </button>
-            </>
-          )}
+          {lastRun && <RunResult result={lastRun} platform={sel.platform} />}
         </div>
-
-        {lastRun && <RunResult result={lastRun} />}
-        {!lastRun && canRun && (
-          <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>
-            Dry run = settings preview, finishes in a second. Run now opens a
-            hidden, proxied browser as this account, scrolls the feed for the
-            configured session window (typically 6–14 min), and reports back.
-          </div>
-        )}
-      </div>
+      )}
 
       {/* ── Engagement settings for this (profile, platform) ──────── */}
       <ProtocolEditor
@@ -253,13 +262,57 @@ export default function AutopilotPage() {
   );
 }
 
+// ─────────────────────────────────────────────────── Master switch banner
+//
+// Big visible state. Most operators look at this first when they open
+// the page; the rest of the UI is meaningless if the master is off.
+
+function MasterBanner({ on, status, canManage, onToggle }) {
+  const next = status?.intervalMin ? `~${status.intervalMin} min` : 'on the configured interval';
+  return (
+    <div className="card" style={{
+      padding: '14px 16px', marginBottom: 14,
+      background: on
+        ? 'linear-gradient(180deg, rgba(122,154,90,0.10), transparent 70%)'
+        : 'linear-gradient(180deg, rgba(180,90,90,0.08), transparent 70%)',
+      border: `1px solid ${on ? 'rgba(122,154,90,0.40)' : 'rgba(180,90,90,0.40)'}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <span style={{ ...statusDot, width: 14, height: 14, background: on ? 'var(--ok)' : '#e2a3a3' }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>
+            {on ? '🟢 Autopilot master is RUNNING' : '⏸ Autopilot master is PAUSED'}
+          </div>
+          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+            {on
+              ? <>Background loop ticks every <strong>{status?.intervalMin ?? 30} min</strong>. Engagement runs about every 4 min. Scheduler fires every 1 min.</>
+              : <>Background loop is off. Scheduled posts won\'t fire, engagement won\'t run. Live-run buttons below still work for one-off tests.</>}
+            {status?.lastRun && (
+              <> · Last system pass {new Date(status.lastRun).toLocaleString()}.</>
+            )}
+          </div>
+        </div>
+        {canManage && (
+          <button
+            className={on ? 'danger' : 'primary'}
+            onClick={onToggle}
+            style={{ fontSize: 13, padding: '8px 14px' }}
+          >
+            {on ? 'Pause background loop' : '▶ Start background loop'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────── Run-result block
 
-function RunResult({ result }) {
+function RunResult({ result, platform }) {
   if (result.state === 'running') {
     return (
       <div style={resultBox(true)}>
-        <span style={spinDot} /> Opening session, navigating to feed…
+        <span style={spinDot} /> Opening hidden browser, navigating to feed…
       </div>
     );
   }
@@ -271,13 +324,41 @@ function RunResult({ result }) {
     );
   }
   const s = result.stats || {};
+  const isDry = !!result.dryRun;
+  const labelFor = (k) => ({ posts_seen: 'seen', likes: 'liked', follows: 'followed', comments: 'commented' })[k];
   return (
     <div style={resultBox(false)}>
-      ✓ {result.dryRun ? 'Dry run' : 'Pass'} complete in {result.seconds ?? '?'}s ·{' '}
-      seen {s.posts_seen || 0} · liked {s.likes || 0} · followed {s.follows || 0} · commented {s.comments || 0}
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>
+        {isDry
+          ? `✓ Preview complete in ${result.seconds ?? '?'}s`
+          : `✓ Live ${platform || ''} pass complete in ${result.seconds ?? '?'}s`}
+      </div>
+      {isDry ? (
+        <div style={{ fontSize: 12 }}>
+          Saw <strong>{s.posts_seen || 0}</strong> posts. A live pass would have
+          {' '}<strong>liked {s.would_like || 0}</strong>,
+          {' '}<strong>followed {s.would_follow || 0}</strong>,
+          {' '}<strong>commented on {s.would_comment || 0}</strong>.
+          <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+            No clicks happened — these numbers are what your rates produced over the feed we scrolled.
+          </div>
+        </div>
+      ) : (
+        <div style={{ fontSize: 12 }}>
+          Saw <strong>{s.posts_seen || 0}</strong> posts ·
+          {' '}<strong>liked {s.likes || 0}</strong> ·
+          {' '}<strong>followed {s.follows || 0}</strong> ·
+          {' '}<strong>commented {s.comments || 0}</strong>.
+          {platform === 'reddit' && (s.comments > 0) && (
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              On Reddit, the comment fires via API after the scroll-engagement window.
+            </div>
+          )}
+        </div>
+      )}
       {Array.isArray(s.errors) && s.errors.length > 0 && (
-        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
-          {s.errors.slice(0, 3).join(' · ')}
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
+          {s.errors.filter((x) => !/^dry-run/.test(x)).slice(0, 3).join(' · ')}
         </div>
       )}
     </div>
@@ -720,19 +801,27 @@ function RecentActivity({ events }) {
       </div>
       {events.length === 0 ? (
         <div style={{ padding: 24, color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>
-          Nothing logged for this scope yet.
+          Nothing logged for this scope yet. Click "Preview" or "Run live now" above and it'll show up here.
         </div>
       ) : (
         <div style={{ maxHeight: 420, overflowY: 'auto' }}>
           {events.map((e) => (
-            <div key={e.id} style={eventRow}>
+            <div key={`${e.event_kind || 'post'}-${e.id}`} style={eventRow}>
               <span style={{ ...pill, ...statusPillStyle(e.status) }}>{e.status}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {e.subreddit ? `r/${e.subreddit} · ` : ''}{e.title || e.error || '—'}
-                </div>
+                {e.event_kind === 'session' ? (
+                  <div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {e.platform || '?'} engagement: seen {e.posts_seen ?? 0} · liked {e.likes ?? 0} · followed {e.follows ?? 0} · commented {e.comments ?? 0}
+                    {e.seconds ? ` · ${e.seconds}s` : ''}
+                    {e.error ? ` · ${String(e.error).slice(0, 80)}` : ''}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {e.subreddit ? `r/${e.subreddit} · ` : ''}{e.title || e.error || '—'}
+                  </div>
+                )}
                 <div className="muted" style={{ fontSize: 11 }}>
-                  {e.account_username ? `u/${e.account_username}` : `acct ${e.account_id}`}
+                  {e.account_username ? `${e.platform === 'reddit' ? 'u/' : '@'}${e.account_username}` : `acct ${e.account_id}`}
                   {e.profile_name ? ` · ${e.profile_name}` : ''}
                   {' · '}{e.source}
                   {' · '}{e.created_at ? new Date(e.created_at.replace(' ', 'T') + 'Z').toLocaleString() : ''}
@@ -822,8 +911,9 @@ function formatRelative(isoLike) {
 }
 
 function statusPillStyle(s) {
-  if (s === 'posted') return { background: 'rgba(122,154,90,0.15)', color: '#bdd5a3' };
-  if (s === 'failed') return { background: 'rgba(180,90,90,0.15)', color: '#e2a3a3' };
+  if (s === 'posted' || s === 'engaged') return { background: 'rgba(122,154,90,0.15)', color: '#bdd5a3' };
+  if (s === 'failed' || s === 'engaged-err') return { background: 'rgba(180,90,90,0.15)', color: '#e2a3a3' };
+  if (s === 'dry-run') return { background: 'rgba(212,166,74,0.15)', color: 'var(--gold)' };
   return { background: 'rgba(255,255,255,0.06)', color: 'var(--text-3)' };
 }
 

@@ -35,7 +35,15 @@ function buildScript(platform, opts) {
   return `(async () => {
     const cfg = ${cfg};
     const sel = ${selJSON};
-    const stats = { posts_seen: 0, likes: 0, follows: 0, comments: 0, errors: [] };
+    // Stats include 'would_*' counters so a dry-run can report the
+    // actions it would have taken — operator sees real numbers ("would
+    // have liked 4, followed 1, commented on 1") instead of a row of
+    // zeros. Live runs ignore the 'would_*' fields.
+    const stats = {
+      posts_seen: 0, likes: 0, follows: 0, comments: 0,
+      would_like: 0, would_follow: 0, would_comment: 0,
+      errors: [],
+    };
     const start = Date.now();
     const endBy = start + cfg.sessionSeconds * 1000;
     const seen = new WeakSet();
@@ -112,6 +120,10 @@ function buildScript(platform, opts) {
       if (!sel.commentBtn || !sel.commentInput) return;
       const isVid = sel.isVideo ? !!p.querySelector(sel.isVideo) : true;
       if (cfg.commentVideosOnly && !isVid) return;
+      // Dry-run preview path: we rolled the dice + survived the video
+      // filter, so this is what a live pass would have commented on.
+      // Skip the AI call (don't burn tokens) + skip the click.
+      if (cfg.dryRun) { stats.would_comment++; return; }
 
       const caption = visibleText(findIn(p, sel.caption)).slice(0, 600);
       const creator = (visibleText(findIn(p, sel.creator)) || '').replace(/^@/, '').split(/\\s+/)[0];
@@ -201,11 +213,15 @@ function buildScript(platform, opts) {
           if (roll(cfg.likeRatePct)) {
             const likeBtn = p.querySelector(sel.like);
             if (likeBtn) {
-              try {
-                (likeBtn.closest('button, [role="button"], a') || likeBtn).click();
-                stats.likes++;
-                await sleep(rnd(400, 1200));
-              } catch (e) { stats.errors.push('like:' + e.message); }
+              if (cfg.dryRun) {
+                stats.would_like++;
+              } else {
+                try {
+                  (likeBtn.closest('button, [role="button"], a') || likeBtn).click();
+                  stats.likes++;
+                  await sleep(rnd(400, 1200));
+                } catch (e) { stats.errors.push('like:' + e.message); }
+              }
             }
           }
 
@@ -217,11 +233,15 @@ function buildScript(platform, opts) {
                 .replace(/^\\//, '').split('/')[0].toLowerCase();
               const allowed = followSet.size === 0 || followSet.has(handle);
               if (allowed) {
-                try {
-                  followBtn.click();
-                  stats.follows++;
-                  await sleep(rnd(800, 1800));
-                } catch (e) { stats.errors.push('follow:' + e.message); }
+                if (cfg.dryRun) {
+                  stats.would_follow++;
+                } else {
+                  try {
+                    followBtn.click();
+                    stats.follows++;
+                    await sleep(rnd(800, 1800));
+                  } catch (e) { stats.errors.push('follow:' + e.message); }
+                }
               }
             }
           }
@@ -324,11 +344,26 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
        FROM reddit_accounts WHERE id = ?`
   ).get(accountId);
   if (!acct) return { ok: false, error: 'Account not found' };
-  const proto = db.prepare(
+  let proto = db.prepare(
     `SELECT * FROM autopilot_protocols WHERE profile_id = ? AND platform = ?`
   ).get(acct.profile_id, acct.platform);
-  if (!proto) return { ok: false, error: 'No autopilot protocol for this profile + platform' };
-  if (!proto.enabled) return { ok: false, error: 'Protocol disabled' };
+  // Lazy-create the row with defaults the FIRST time the operator hits
+  // Run Now on a (model, platform) pair that's never been saved. They
+  // shouldn't have to find the editor + click Save just to test the
+  // platform — the defaults are sensible (3 sessions/day, like 18%,
+  // follow 4%, comment 0%). Dry-run uses these too.
+  if (!proto) {
+    try {
+      const autopilotProtocol = require('./autopilotProtocol');
+      proto = autopilotProtocol.upsert(acct.profile_id, acct.platform, { enabled: 1 });
+    } catch (e) {
+      return { ok: false, error: `Could not create autopilot row for ${acct.platform}: ${e.message}` };
+    }
+  } else if (!proto.enabled) {
+    // Operator explicitly disabled it for this scope. Don't silently
+    // re-enable on Run Now — just tell them why nothing happens.
+    return { ok: false, error: `Autopilot is paused for this ${acct.platform} scope. Toggle the per-scope switch in Engagement settings.` };
+  }
 
   const url = urlFor(acct.platform);
   const minMin = Math.max(1, proto.session_minutes_min || 6);
@@ -433,23 +468,27 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
   try {
     await win.loadURL(landingUrl);
     await new Promise((r) => setTimeout(r, 4000));
-    if (dryRun) {
-      stats = { posts_seen: 0, likes: 0, follows: 0, comments: 0, errors: ['dry-run, no actions'] };
-    } else {
-      const script = buildScript(acct.platform, {
-        sessionSeconds,
-        likeRatePct:     Math.max(0, Math.min(100, proto.like_rate_pct ?? 18)),
-        followRatePct:   Math.max(0, Math.min(100, proto.follow_rate_pct ?? 4)),
-        watchFullRatePct:Math.max(0, Math.min(100, proto.watch_full_rate_pct ?? 25)),
-        commentRatePct:  Math.max(0, Math.min(100, proto.comment_rate_pct ?? 0)),
-        commentVideosOnly:(proto.comment_videos_only ?? 1) ? true : false,
-        followList,
-        // Bridge looks the row up fresh to honor the persona + filter
-        // even if the user just edited them.
-        protocolId: proto.id,
-      });
-      stats = await win.webContents.executeJavaScript(script);
-    }
+    // Dry-run is now a real preview: same scroll, same probability rolls,
+    // same selector lookups, but every action goes into a 'would_*'
+    // counter instead of clicking. Operator sees what the next live pass
+    // will actually do. Dry-run session caps at 60s so the preview is
+    // quick — long enough to observe a feed, short enough not to make
+    // the operator wait.
+    const previewSeconds = Math.min(sessionSeconds, 60);
+    const script = buildScript(acct.platform, {
+      sessionSeconds: dryRun ? previewSeconds : sessionSeconds,
+      dryRun: !!dryRun,
+      likeRatePct:     Math.max(0, Math.min(100, proto.like_rate_pct ?? 18)),
+      followRatePct:   Math.max(0, Math.min(100, proto.follow_rate_pct ?? 4)),
+      watchFullRatePct:Math.max(0, Math.min(100, proto.watch_full_rate_pct ?? 25)),
+      commentRatePct:  Math.max(0, Math.min(100, proto.comment_rate_pct ?? 0)),
+      commentVideosOnly:(proto.comment_videos_only ?? 1) ? true : false,
+      followList,
+      // Bridge looks the row up fresh to honor the persona + filter
+      // even if the user just edited them.
+      protocolId: proto.id,
+    });
+    stats = await win.webContents.executeJavaScript(script);
   } catch (e) {
     err = e.message;
     elog.warn('[engagement] session failed', { accountId, platform: acct.platform, error: err });
@@ -458,6 +497,19 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
   }
 
   const seconds = Math.round((Date.now() - startedAt) / 1000);
+  // For dry-runs, fold the 'would_*' counters into the error/notes
+  // field so the row in engagement_sessions explains what a live pass
+  // would have done. Activity feed reads this back so the operator
+  // sees real evidence the autopilot ran.
+  const noteParts = [];
+  if (dryRun) {
+    noteParts.push('dry-run');
+    if (stats.would_like)    noteParts.push(`would_like=${stats.would_like}`);
+    if (stats.would_follow)  noteParts.push(`would_follow=${stats.would_follow}`);
+    if (stats.would_comment) noteParts.push(`would_comment=${stats.would_comment}`);
+  }
+  if (err) noteParts.push(err);
+  if (stats.errors?.length) noteParts.push(...stats.errors.slice(0, 4));
   db.prepare(
     `UPDATE engagement_sessions
         SET ended_at = datetime('now'),
@@ -465,10 +517,13 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
       WHERE id = ?`
   ).run(
     seconds, stats.posts_seen, stats.likes, stats.follows, stats.comments || 0,
-    err || (stats.errors?.length ? stats.errors.join(' · ') : null),
+    noteParts.length ? noteParts.join(' · ') : null,
     sessionId
   );
-  autopilotProtocol.markRan(acct.profile_id, acct.platform);
+  // Only stamp last_run_at on a LIVE run. Dry-runs are previews; if
+  // we stamp them, the engagement tick thinks this scope ran recently
+  // and silently skips the next live session.
+  if (!dryRun) autopilotProtocol.markRan(acct.profile_id, acct.platform);
 
   // Reddit hybrid: when commenting is enabled on a Reddit protocol we
   // also fire one API-based comment via redditAutoComment in the same
@@ -535,15 +590,22 @@ async function engagementTick() {
   ).get(pick.profile_id, pick.platform);
   if (!acct) return;
 
-  // Daily-cap guard. Sum post + comment events for this account in the
-  // last 24h; if we'd blow either cap with the upcoming session, skip.
-  // Engagement sessions can produce multiple comments per run — we
-  // gate on whether ANY comment would push us over.
+  // Daily-cap guard. Comments live in engagement_sessions (DOM-comment
+  // path) AND in post_events (Reddit API-comment path) — sum both so
+  // the cap actually caps. The previous version only counted
+  // post_events 'posted' rows, which DOM comments never produce.
   try {
     if (pick.daily_cap_comments > 0) {
-      const recent = countPostsSince(pick.platform, acct.id, dayAgoIso);
+      const dayAgoSql = dayAgoIso.replace('T', ' ').slice(0, 19);
+      const engCount = (db.prepare(
+        `SELECT COALESCE(SUM(comments), 0) AS n
+           FROM engagement_sessions
+          WHERE account_id = ? AND started_at >= ?`
+      ).get(acct.id, dayAgoSql) || { n: 0 }).n;
+      const postCount = countPostsSince(pick.platform, acct.id, dayAgoIso);
+      const recent = engCount + postCount;
       if (recent >= pick.daily_cap_comments) {
-        elog.info('[engagement] skip — daily comment cap reached', { account: acct.id, cap: pick.daily_cap_comments });
+        elog.info('[engagement] skip — daily comment cap reached', { account: acct.id, recent, cap: pick.daily_cap_comments });
         return;
       }
     }
