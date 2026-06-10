@@ -212,11 +212,10 @@ function mainWorldPatch(fp) {
     };
     // Date.prototype.getTimezoneOffset → use a fixed offset matched to FP.timezone.
     // Best-effort table; falls back to 0 (UTC) if unknown.
-    const OFFSETS = {
-      'America/Los_Angeles': 480, 'America/New_York': 300, 'America/Chicago': 360,
-      'America/Toronto': 300, 'Europe/London': 0, 'Australia/Sydney': -600,
-    };
-    const off = OFFSETS[FP.timezone] ?? 0;
+    // Offset is precomputed in main when the fingerprint is loaded so we
+    // can support any IANA timezone the proxy geo returns, not a hand-
+    // maintained shortlist. Falls back to 0 (UTC) if main forgot to set it.
+    const off = (typeof FP.timezoneOffset === 'number') ? FP.timezoneOffset : 0;
     const origGTO = Date.prototype.getTimezoneOffset;
     Date.prototype.getTimezoneOffset = function () { return off; };
     // toString / toLocaleString fall back to a label patch.

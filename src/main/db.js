@@ -579,6 +579,18 @@ function initDatabase() {
       db.exec("ALTER TABLE reddit_accounts ADD COLUMN os_profile TEXT NOT NULL DEFAULT 'desktop'");
       console.log('[db] os_profile column added. Existing accounts default to "desktop".');
     }
+    // Cached proxy geo — populated by the in-browser proxy check. Used
+    // by fingerprint.loadOrCreate to overlay timezone + language onto
+    // the static fingerprint so they always match the proxy's IP. Stops
+    // browserscan / DataDome flagging an en-CA navigator on a US IP, or
+    // a Europe/London timezone on an America/New_York exit.
+    const hasGeoTz = cols.some((c) => c.name === 'geo_timezone');
+    if (!hasGeoTz) {
+      db.exec("ALTER TABLE reddit_accounts ADD COLUMN geo_timezone TEXT");
+      db.exec("ALTER TABLE reddit_accounts ADD COLUMN geo_country TEXT");
+      db.exec("ALTER TABLE reddit_accounts ADD COLUMN geo_checked_at TEXT");
+      console.log('[db] geo cache columns added (timezone, country, checked_at).');
+    }
   } catch (e) {
     console.error('[db] Platform migration failed:', e.message);
   }

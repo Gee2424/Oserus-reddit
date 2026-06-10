@@ -815,12 +815,34 @@ function registerTabIpc() {
       if (row) proxyExpected = row;
     } catch {}
 
+    // Persist the geo on the account so the fingerprint can overlay
+    // timezone + language to match. Re-runs on every proxy check so
+    // sticky-session rotations to a different city update the FP.
+    if (geo?.timezone || geo?.country) {
+      try {
+        getDb().prepare(
+          `UPDATE reddit_accounts
+              SET geo_timezone = COALESCE(?, geo_timezone),
+                  geo_country  = COALESCE(?, geo_country),
+                  geo_checked_at = datetime('now')
+            WHERE id = ?`
+        ).run(geo?.timezone || null, geo?.country_code || geo?.country || null, st.accountId);
+        // Mark the fingerprint as stale so the next loadOrCreate regenerates
+        // with the fresh timezone / language overlay. Cheap — JSON parse + rebuild.
+        try {
+          const { invalidateFingerprintForGeo } = require('./fingerprint');
+          invalidateFingerprintForGeo(getDb(), st.accountId);
+        } catch {}
+      } catch {}
+    }
+
     return {
       ok: true,
       ip,
       city:    geo?.city || null,
       region:  geo?.region || null,
       country: geo?.country_name || geo?.country || null,
+      timezone: geo?.timezone || null,
       org:     geo?.org || null,
       asn:     geo?.asn || null,
       proxy:   proxyExpected,

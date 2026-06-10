@@ -324,25 +324,114 @@ function generateFingerprint(accountId, osProfile = 'desktop') {
   };
 }
 
+// Country code (ISO-2) → primary BCP-47 language tag the locals would
+// have set as their primary in Chrome. Falls back to en-US for the
+// long tail so an unknown country never produces a worse-than-random
+// guess. List is biased toward the markets operators run accounts in.
+const COUNTRY_LANG = {
+  US: 'en-US', CA: 'en-CA', GB: 'en-GB', AU: 'en-AU', NZ: 'en-NZ', IE: 'en-IE',
+  IN: 'en-IN', ZA: 'en-ZA', SG: 'en-SG', PH: 'en-PH',
+  DE: 'de-DE', AT: 'de-AT', CH: 'de-CH',
+  FR: 'fr-FR', BE: 'fr-BE', LU: 'fr-LU',
+  ES: 'es-ES', MX: 'es-MX', AR: 'es-AR', CL: 'es-CL', CO: 'es-CO',
+  IT: 'it-IT',
+  PT: 'pt-PT', BR: 'pt-BR',
+  NL: 'nl-NL',
+  PL: 'pl-PL',
+  SE: 'sv-SE', NO: 'nb-NO', DK: 'da-DK', FI: 'fi-FI',
+  JP: 'ja-JP', KR: 'ko-KR', CN: 'zh-CN', TW: 'zh-TW', HK: 'zh-HK',
+  RU: 'ru-RU', UA: 'uk-UA', TR: 'tr-TR',
+  ID: 'id-ID', TH: 'th-TH', VN: 'vi-VN', MY: 'ms-MY',
+};
+
+function languagesForCountry(cc) {
+  const primary = COUNTRY_LANG[String(cc || '').toUpperCase()] || 'en-US';
+  const stem = primary.split('-')[0];
+  // Chrome always sends [primary, stem] for non-English locales and
+  // [primary, 'en'] for English locales — match that pattern.
+  if (stem === 'en') return [primary, 'en'];
+  return [primary, stem, 'en'];
+}
+
+// Compute the timezone offset in minutes (the value Date.getTimezoneOffset
+// returns — negative for east of UTC) for an IANA timezone at the current
+// instant. Works for any tz; lets us drop the hand-maintained OFFSETS table.
+function tzOffsetMinutes(tz) {
+  try {
+    const now = new Date();
+    const utcMs = Date.UTC(
+      now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(),
+      now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds()
+    );
+    // Format 'now' as wall-clock in target tz, then parse back as if
+    // it were UTC. Difference is the offset.
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(now).reduce((o, p) => { o[p.type] = p.value; return o; }, {});
+    const localUtcMs = Date.UTC(
+      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+      Number(parts.hour) % 24, Number(parts.minute), Number(parts.second)
+    );
+    return Math.round((utcMs - localUtcMs) / 60000);
+  } catch { return 0; }
+}
+
+// Overlay the cached proxy geo (timezone + country → language) onto a
+// fingerprint. Identity-shaping fields (UA, screen, hwc, WebGL) stay
+// stable across launches; only the fields the IP geolocates against
+// (timezone, language, languages, acceptLanguage, offset) flip when
+// the operator's proxy moves to a new region.
+function applyGeoOverlay(fp, geoTimezone, geoCountry) {
+  if (!geoTimezone && !geoCountry) return fp;
+  const tz = geoTimezone || fp.timezone;
+  const langs = geoCountry ? languagesForCountry(geoCountry) : fp.languages;
+  return {
+    ...fp,
+    timezone: tz,
+    timezoneOffset: tzOffsetMinutes(tz),
+    languages: langs,
+    acceptLanguage: langs.length >= 2 ? `${langs[0]},${langs[1]};q=0.9` : `${langs[0]}`,
+    geoCountry: geoCountry || fp.geoCountry || null,
+  };
+}
+
 function loadOrCreate(db, accountId) {
-  // Pull os_profile so a flip Desktop ↔ Android regenerates the
-  // fingerprint instead of using a stale one from the previous OS.
+  // Pull os_profile + cached geo so a flip Desktop ↔ Android regenerates
+  // the fingerprint and an updated proxy geo overlays the timezone +
+  // language onto the existing identity.
   const row = db.prepare(
-    'SELECT fingerprint_json, os_profile FROM reddit_accounts WHERE id = ?'
+    'SELECT fingerprint_json, os_profile, geo_timezone, geo_country FROM reddit_accounts WHERE id = ?'
   ).get(accountId);
   const targetOs = (row && row.os_profile) || 'desktop';
+  let base = null;
   if (row && row.fingerprint_json) {
     try {
       const cached = JSON.parse(row.fingerprint_json);
-      if ((cached.osProfile || 'desktop') === targetOs) return cached;
+      if ((cached.osProfile || 'desktop') === targetOs) base = cached;
     } catch {}
   }
-  const fp = generateFingerprint(accountId, targetOs);
-  try {
-    db.prepare('UPDATE reddit_accounts SET fingerprint_json = ? WHERE id = ?')
-      .run(JSON.stringify(fp), accountId);
-  } catch {}
-  return fp;
+  if (!base) {
+    base = generateFingerprint(accountId, targetOs);
+    try {
+      db.prepare('UPDATE reddit_accounts SET fingerprint_json = ? WHERE id = ?')
+        .run(JSON.stringify(base), accountId);
+    } catch {}
+  }
+  // Always compute offset for whatever timezone we end up with, including
+  // a no-geo fallback so the preload never has to guess.
+  return applyGeoOverlay(base, row?.geo_timezone, row?.geo_country);
+}
+
+// Force a fresh load on next prepareSessionForAccount by NUL-ing out the
+// cached JSON — the next loadOrCreate call regenerates with the new geo.
+// Used by the in-browser proxy check after persisting a new timezone.
+function invalidateFingerprintForGeo(db, accountId) {
+  // Don't null fingerprint_json — keep the stable identity. Just bump
+  // a cache key. The overlay is computed fresh on every loadOrCreate
+  // anyway, so the next session pickup naturally uses the new geo.
+  return; // no-op — overlay always recomputes
 }
 
 function summarize(fp) {
@@ -381,4 +470,8 @@ module.exports = {
   loadOrCreate,
   summarize,
   getDeviceEmulationParams,
+  invalidateFingerprintForGeo,
+  applyGeoOverlay,
+  languagesForCountry,
+  tzOffsetMinutes,
 };
