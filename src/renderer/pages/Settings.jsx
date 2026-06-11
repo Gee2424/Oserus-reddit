@@ -701,6 +701,42 @@ function CloudSyncSection() {
           </span>
         </div>
 
+        {/* Up-front diagnostic. The most common "no data is moving"
+            cause is the baked SUPABASE_ANON_KEY in the build being
+            empty (admin forgot to paste it before the release) AND no
+            per-install override having been saved. Call that out
+            directly instead of leaving the operator to interpret a
+            blank Pushed/Pulled counter. */}
+        {!status.connected && cfg.url && !cfg.anonKey && (
+          <div style={{
+            background: 'rgba(231,196,120,0.10)',
+            border: '1px solid var(--gold)',
+            borderRadius: 6,
+            padding: '10px 12px',
+            marginBottom: 12,
+            fontSize: 12,
+            color: 'var(--gold-bright)',
+          }}>
+            ⚠ <strong>Not connected.</strong> The build has a Supabase URL but no anon key.
+            Paste the anon key below + click <em>Save and connect</em> to start syncing.
+            (Anon key lives in Supabase Dashboard → Project Settings → API → "anon public".)
+          </div>
+        )}
+        {!status.connected && !cfg.url && (
+          <div style={{
+            background: 'rgba(231,196,120,0.10)',
+            border: '1px solid var(--gold)',
+            borderRadius: 6,
+            padding: '10px 12px',
+            marginBottom: 12,
+            fontSize: 12,
+            color: 'var(--gold-bright)',
+          }}>
+            ⚠ <strong>Not connected.</strong> No Supabase project configured.
+            Paste your URL + anon key below + click <em>Save and connect</em>.
+          </div>
+        )}
+
         {saveMsg && (
           <div className={saveMsg.kind === 'err' ? 'error-banner' : ''}
                style={saveMsg.kind === 'ok' ? styles.ok : { marginBottom: 10 }}>

@@ -72,14 +72,44 @@ const PERMISSIONS = [
 
 const PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);
 
-// admin is a hidden bootstrap role; users create everything else from the
-// Roles page.
+// admin is a hidden bootstrap role with every permission.
+//
+// operator is a default starter role that gives a new teammate access
+// to the day-to-day surfaces (dashboard, models, scheduler, autopilot,
+// intelligence) without touching team / role / billing / secrets
+// settings. Without this, a fresh install has zero non-admin roles and
+// the Users → Add page can't proceed (the role dropdown is empty
+// because listRoles() filters out admin). Owners can edit / delete
+// this role from the Roles page like any other.
+const OPERATOR_PERMISSIONS = [
+  // Pages
+  'page.dashboard', 'page.profiles', 'page.analytics',
+  'page.reddit-api', 'page.operations', 'page.subreddits',
+  'page.autopilot', 'page.scheduler', 'page.intel',
+  'page.activity', 'page.docs', 'page.webviews',
+  'page.reddit', 'page.redgifs',
+  // Day-to-day actions
+  'redditapi.posting', 'redditapi.reddit', 'redditapi.inbox',
+  'accounts.create', 'accounts.edit', 'accounts.bulk_import',
+  'posts.publish', 'content.add',
+  'protocols.run',
+  'activity.view',
+  'infra.proxies.view',
+  'infra.upvotes.view', 'infra.upvotes.place_order',
+].filter((p) => PERMISSION_KEYS.includes(p));
+
 const BUILTIN_ROLES = [
   {
     key: 'admin',
     label: 'Admin',
     description: 'Full access to everything.',
     permissions: PERMISSION_KEYS, // all
+  },
+  {
+    key: 'operator',
+    label: 'Operator',
+    description: 'Day-to-day account operator. Can view models, run autopilot, schedule posts, browse intel. Cannot manage users / roles / settings.',
+    permissions: OPERATOR_PERMISSIONS,
   },
 ];
 
