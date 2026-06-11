@@ -3,6 +3,15 @@ const os = require('os');
 const crypto = require('crypto');
 const { BrowserWindow } = require('electron');
 const { getDb, getKv, setKv } = require('../db');
+const defaultBackend = require('./defaultBackend');
+
+// `ws` shim for Supabase Realtime. Electron 32 ships Node 20, which
+// (until 22) has no global WebSocket — supabase-realtime crashes with
+// "Node.js 20 detected without native WebSocket support" if we don't
+// hand it one. Require lazily so the rest of the module still loads
+// in environments where ws couldn't install (we'll just skip realtime).
+let WS = null;
+try { WS = require('ws'); } catch (e) { elog.warn('[cloud] ws not installed:', e?.message); }
 
 let createClient = null;
 try {
@@ -48,12 +57,32 @@ function maskKey(k) {
   return '*'.repeat(Math.max(0, s.length - 8)) + s.slice(-8);
 }
 
+// Read order for URL + anon key: per-install override → baked-in
+// defaults from src/main/sync/defaultBackend.js. When the build ships
+// with baked credentials, every install auto-connects to the same
+// Supabase project — the admin doesn't have to email each operator the
+// URL + key. Local overrides via Settings still work for testing or
+// when an operator needs to point at a staging project.
 function readConfig() {
-  return {
+  const override = {
     url: getKv('cloud.supabase.url') || '',
     anonKey: getKv('cloud.supabase.anon_key') || '',
+  };
+  const usingBaked = !override.url && !override.anonKey && defaultBackend.hasBakedBackend();
+  const url = override.url || defaultBackend.SUPABASE_URL || '';
+  const anonKey = override.anonKey || defaultBackend.SUPABASE_ANON_KEY || '';
+  // 'enabled' is the operator's explicit on/off. When baked credentials
+  // exist AND the operator has never touched the switch (kv unset),
+  // default to ON so the central backend just works after install.
+  const explicit = getKv('cloud.enabled');
+  const enabled = explicit === null || explicit === undefined
+    ? usingBaked
+    : explicit === '1';
+  return {
+    url, anonKey,
     deviceName: getKv('cloud.device.name') || os.hostname() || 'device',
-    enabled: getKv('cloud.enabled') === '1',
+    enabled,
+    source: usingBaked ? 'baked' : (override.url ? 'override' : 'none'),
   };
 }
 
@@ -274,7 +303,12 @@ async function start() {
   } catch { state.appVersion = 'unknown'; }
   try {
     state.client = createClient(cfg.url, cfg.anonKey, {
-      realtime: { params: { eventsPerSecond: 5 } },
+      // Node 20 (Electron 32) has no native WebSocket. Hand realtime a
+      // 'ws' instance or every channel subscribe fails out of the gate.
+      realtime: {
+        params: { eventsPerSecond: 5 },
+        ...(WS ? { transport: WS } : {}),
+      },
       auth: { persistSession: false },
     });
     subscribeRealtime();
@@ -347,6 +381,8 @@ function getConfig() {
     anonKey: cfg.anonKey ? maskKey(cfg.anonKey) : '',
     deviceName: cfg.deviceName,
     enabled: cfg.enabled,
+    source: cfg.source,
+    hasBaked: defaultBackend.hasBakedBackend(),
   };
 }
 
@@ -371,7 +407,10 @@ async function testConnection({ url, anonKey } = {}) {
   if (!createClient) return { ok: false, error: '@supabase/supabase-js not installed' };
   if (!url || !anonKey) return { ok: false, error: 'Missing url or anon key' };
   try {
-    const client = createClient(url, anonKey, { auth: { persistSession: false } });
+    const client = createClient(url, anonKey, {
+      auth: { persistSession: false },
+      realtime: { ...(WS ? { transport: WS } : {}) },
+    });
     const { error } = await client.from('activity_log').select('id').limit(1);
     if (error) {
       const msg = error.message || String(error);

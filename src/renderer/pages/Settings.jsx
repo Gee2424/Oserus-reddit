@@ -615,12 +615,13 @@ function BrowserDevicesSection() {
 }
 
 function CloudSyncSection() {
-  const [cfg, setCfg] = useState({ url: '', anonKey: '', deviceName: '', enabled: false });
+  const [cfg, setCfg] = useState({ url: '', anonKey: '', deviceName: '', enabled: false, source: 'none', hasBaked: false });
   const [status, setStatus] = useState({ connected: false, lastSyncAt: null, lastError: null, pushed: 0, pulled: 0, peers: [] });
   const [showKey, setShowKey] = useState(false);
   const [testMsg, setTestMsg] = useState(null);
   const [saveMsg, setSaveMsg] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [overrideMode, setOverrideMode] = useState(false);
 
   useEffect(() => {
     if (!window.api?.cloud) return;
@@ -677,7 +678,9 @@ function CloudSyncSection() {
   return (
     <Section
       title="Cloud Sync"
-      subtitle="Mirror activity, posts, comments, and engagement sessions to Supabase so multiple computers stay in sync in near-realtime. Paste your project URL + anon key, run the setup SQL once, then save."
+      subtitle={cfg.source === 'baked'
+        ? "This build ships with a central Supabase backend baked in — every install auto-connects to the same project, so activity, posts, comments, and engagement sessions stay in sync across the whole team without per-machine setup."
+        : "Mirror activity, posts, comments, and engagement sessions to Supabase so multiple computers stay in sync in near-realtime. Paste your project URL + anon key, run the setup SQL once, then save."}
     >
       <Subcard title="Supabase">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
@@ -711,6 +714,42 @@ function CloudSyncSection() {
           </div>
         )}
 
+        {cfg.source === 'baked' && !overrideMode && (
+          <div style={{
+            background: 'rgba(122,154,90,0.08)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            padding: 12,
+            marginBottom: 12,
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+              Central backend (built-in)
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-2)', lineHeight: 1.5 }}>
+              This install is auto-connected to the central Oserus Supabase project shipped with the build.
+              You don't need to paste anything — sync is on by default.
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              <div>
+                <label style={{ fontSize: 10 }}>Device name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Studio iMac"
+                  value={cfg.deviceName}
+                  onChange={(e) => setCfg({ ...cfg, deviceName: e.target.value })}
+                  autoComplete="off"
+                />
+              </div>
+              <div style={{ alignSelf: 'flex-end' }}>
+                <button type="button" className="ghost" onClick={() => setOverrideMode(true)}>
+                  Override (admin)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(cfg.source !== 'baked' || overrideMode) && (<>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
           <div>
             <label>Supabase URL</label>
@@ -755,12 +794,18 @@ function CloudSyncSection() {
           <button type="button" className="primary" onClick={onSave} disabled={busy}>Save and connect</button>
           <button type="button" className="danger" onClick={onDisconnect} disabled={busy}>Disconnect</button>
           <button type="button" className="ghost" onClick={onCopySql} disabled={busy}>Copy setup SQL</button>
+          {cfg.source === 'baked' && overrideMode && (
+            <button type="button" className="ghost" onClick={() => setOverrideMode(false)}>
+              Cancel override
+            </button>
+          )}
         </div>
 
         <p style={{ ...cardDesc, marginTop: 12, marginBottom: 0 }}>
           Paste the URL and anon key from your Supabase project (Project Settings → API).
           Click "Copy setup SQL", run it once in the SQL editor, then click "Save and connect".
         </p>
+        </>)}
       </Subcard>
     </Section>
   );
