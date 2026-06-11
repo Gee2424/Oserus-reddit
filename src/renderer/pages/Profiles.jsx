@@ -74,7 +74,7 @@ export default function ProfilesPage({ navigate }) {
   }
 
   async function del(id) {
-    if (!confirm('Delete this model profile? All its Reddit account records will be removed too.')) return;
+    if (!confirm('Delete this model profile? All its linked platform accounts will be removed too.')) return;
     await window.api.profiles.delete({ token, profileId: id });
     load();
   }

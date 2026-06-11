@@ -6,8 +6,8 @@ import ProxiesPanel from '../components/ProxiesPanel.jsx';
 const TABS = [
   { key: 'bulk',    label: 'Bulk Paste',          hint: 'username:password per line' },
   { key: 'direct',  label: 'Direct Input',        hint: 'one account at a time' },
-  { key: 'login',   label: 'Login Authentication', hint: 'sign into Reddit in-app' },
-  { key: 'warmup',  label: 'Warm-up Subs',         hint: 'subreddits for karma farming' },
+  { key: 'login',   label: 'Login Authentication', hint: 'sign into the platform in-app' },
+  { key: 'warmup',  label: 'Warm-up Subs',         hint: 'communities for early account credibility (Reddit)' },
   { key: 'backup',  label: 'Backup Pool',          hint: 'replace banned accounts' },
   { key: 'proxies', label: 'Proxies',              hint: 'create/edit proxy pool' },
 ];
@@ -201,7 +201,7 @@ export default function AddAccountsPage({ navigate, initialTab }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
                   <label>Username</label>
-                  <input value={form.username} onChange={(e) => set('username', e.target.value)} placeholder="reddit_handle" />
+                  <input value={form.username} onChange={(e) => set('username', e.target.value)} placeholder="account_handle" />
                 </div>
                 <div>
                   <label>Password</label>
@@ -228,7 +228,7 @@ export default function AddAccountsPage({ navigate, initialTab }) {
               <h3 style={{ marginBottom: 6 }}>Sign in inside the in-app browser</h3>
               <div className="muted" style={{ fontSize: 13, maxWidth: 520, margin: '0 auto', lineHeight: 1.6 }}>
                 Create the empty account here first (Direct Input or Bulk), then open it in the
-                in-app browser and sign into Reddit normally. The browser's cookies are stored
+                in-app browser and sign into the platform normally. The browser's cookies are stored
                 in that account's isolated session, so the Inbox / Autopilot / Scheduler all
                 read from the live login automatically.
               </div>

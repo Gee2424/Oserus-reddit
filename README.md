@@ -1,6 +1,6 @@
-# Reddit Manager v0.2
+# Oserus Management
 
-Team Reddit account management for OnlyFans agencies. Electron desktop app with browser-like tabs, per-account session + proxy isolation, credential vault, and exportable profile bundles for sending to creators.
+Multi-platform account management for OnlyFans agencies — Reddit, RedGifs, X, Instagram, TikTok. Electron desktop app with browser-like tabs, per-account session + proxy isolation, credential vault, antidetect fingerprinting, and exportable profile bundles for sending to creators.
 
 ## Setup
 

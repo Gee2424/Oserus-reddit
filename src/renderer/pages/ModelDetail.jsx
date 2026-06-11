@@ -258,7 +258,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
         <div style={{ display: 'flex', gap: 8 }}>
           {accounts.some(a => a.platform !== 'redgifs') && (
             <button
-              title="Start the first Reddit account and open the Reddit browser"
+              title="Start the highest-priority linked account (Reddit / X / Instagram / TikTok) and open it in the browser"
               onClick={async () => {
                 const pick = pickPreferredAccount(accounts.filter(a => a.platform !== 'redgifs'));
                 if (pick) {
@@ -267,7 +267,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
                 }
               }}
               style={playBtnStyle}
-            >▶ Reddit</button>
+            >▶ Start</button>
           )}
           {accounts.some(a => a.platform === 'redgifs') && (
             <button

@@ -324,7 +324,19 @@ async function prepareSessionForAccount(accountId) {
     if (geo && (geo.timezone || geo.country)) {
       // Persist so the rest of the app (panel, autopilot, scheduler)
       // sees consistent values even when they don't run a fresh probe.
+      // Write to BOTH the profile (canonical, shared across every
+      // platform account on this model) and the account (legacy
+      // fallback for code paths that haven't been moved over yet).
       try {
+        if (account.profile_id) {
+          getDb().prepare(
+            `UPDATE model_profiles
+                SET geo_timezone = COALESCE(?, geo_timezone),
+                    geo_country  = COALESCE(?, geo_country),
+                    geo_checked_at = datetime('now')
+              WHERE id = ?`
+          ).run(geo.timezone || null, geo.country || null, account.profile_id);
+        }
         getDb().prepare(
           `UPDATE reddit_accounts
               SET geo_timezone = COALESCE(?, geo_timezone),

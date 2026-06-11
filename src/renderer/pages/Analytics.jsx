@@ -46,7 +46,7 @@ export default function AnalyticsPage() {
           <div className="eyebrow">Performance</div>
           <h1>Analytics</h1>
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Karma growth and post engagement across your Reddit accounts.
+            Reach, engagement, and account growth across every platform you operate.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -95,7 +95,7 @@ export default function AnalyticsPage() {
           </div>
         </div>
         {redditAccounts.length === 0 ? (
-          <div className="empty-state" style={{ padding: 30, border: 'none' }}>No Reddit accounts yet.</div>
+          <div className="empty-state" style={{ padding: 30, border: 'none' }}>No accounts linked yet.</div>
         ) : (
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
             <thead>

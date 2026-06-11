@@ -591,6 +591,25 @@ function initDatabase() {
       db.exec("ALTER TABLE reddit_accounts ADD COLUMN geo_checked_at TEXT");
       console.log('[db] geo cache columns added (timezone, country, checked_at).');
     }
+
+    // Per-profile fingerprint. A real person has ONE device, not a
+    // separate one per platform — so the fingerprint, OS profile, and
+    // proxy-geo cache live on model_profiles and get reused by every
+    // account linked to that profile. The matching columns on
+    // reddit_accounts are kept around so a future "override per
+    // account" feature has a place to write, and so older builds that
+    // still read them don't break on first launch.
+    try {
+      const pcols = db.prepare('PRAGMA table_info(model_profiles)').all();
+      const pHave = (n) => pcols.some((c) => c.name === n);
+      if (!pHave('fingerprint_json')) db.exec('ALTER TABLE model_profiles ADD COLUMN fingerprint_json TEXT');
+      if (!pHave('os_profile'))       db.exec("ALTER TABLE model_profiles ADD COLUMN os_profile TEXT NOT NULL DEFAULT 'desktop'");
+      if (!pHave('geo_timezone'))     db.exec('ALTER TABLE model_profiles ADD COLUMN geo_timezone TEXT');
+      if (!pHave('geo_country'))      db.exec('ALTER TABLE model_profiles ADD COLUMN geo_country TEXT');
+      if (!pHave('geo_checked_at'))   db.exec('ALTER TABLE model_profiles ADD COLUMN geo_checked_at TEXT');
+    } catch (e) {
+      console.error('[db] model_profiles fingerprint migration failed:', e.message);
+    }
   } catch (e) {
     console.error('[db] Platform migration failed:', e.message);
   }

@@ -6,7 +6,7 @@ You're picking up an in-progress Electron desktop app built collaboratively with
 
 ## What this app is
 
-A team Reddit + RedGifs account management tool for an OnlyFans agency. The owner runs several models; each model has multiple Reddit accounts (some warming up to build karma, some "ready" for NSFW promo) and RedGifs accounts. Team members (Reddit VAs, chatters, managers) log in and operate the accounts assigned to them.
+A multi-platform account management tool for an OnlyFans agency. Supported platforms: Reddit, RedGifs, X (Twitter), Instagram, TikTok. The owner runs several models; each model has multiple platform accounts (some warming up, some "ready" for NSFW promo). Team members (operators, chatters, managers) log in and operate the accounts assigned to them.
 
 The product name is **Oserus Management**. The logo lives at `src/renderer/assets/logo.png`. Theme is green/black/gold.
 

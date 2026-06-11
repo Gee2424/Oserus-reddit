@@ -8,6 +8,10 @@ const STATUS_META = {
   banned: { color: '#b3473a', label: 'banned' },
 };
 
+function platformLabel(p) {
+  return ({ reddit: 'Reddit', redgifs: 'RedGifs', x: 'X', instagram: 'Instagram', tiktok: 'TikTok' })[p] || p || 'platform';
+}
+
 const PLATFORM_PREFIX = { reddit: 'u/', redgifs: '@' };
 
 // Platform-filtered switcher. `platform` prop: 'reddit' or 'redgifs'.
@@ -102,9 +106,7 @@ export default function AccountSwitcher({ platform }) {
           {filtered.length === 0 ? (
             <div style={{ padding: 14, color: 'var(--text-2)', fontStyle: 'italic', fontSize: 13 }}>
               {accounts.length === 0
-                ? (platform === 'redgifs'
-                    ? 'No RedGifs accounts yet. Link one from a Model Profile.'
-                    : 'No Reddit accounts yet. Link one from a Model Profile.')
+                ? `No ${platformLabel(platform)} accounts yet. Link one from a Model Profile.`
                 : `No ${filter} accounts.`}
             </div>
           ) : (

@@ -160,7 +160,7 @@ export default function ProxiesPanel() {
     <div>
       <div className="card" style={{ marginBottom: 18, padding: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
         <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, flex: 1 }}>
-          Proxies are assigned per Reddit account. Each account routes its browsing and posting through its assigned proxy.
+          Proxies are assigned per account. Each account routes its browsing and posting through its assigned proxy.
           Supported types: HTTP, HTTPS, SOCKS5.
         </div>
         {canManage && (

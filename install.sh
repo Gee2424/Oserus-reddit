@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reddit Manager — installer (macOS / Linux)
+# Oserus Management — installer (macOS / Linux)
 set -e
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
@@ -8,7 +8,7 @@ if [ -t 1 ]; then
   C_BOLD="\033[1m"; C_DIM="\033[2m"; C_RED="\033[31m"; C_GRN="\033[32m"; C_YEL="\033[33m"; C_CYA="\033[36m"; C_RST="\033[0m"
 else C_BOLD=""; C_DIM=""; C_RED=""; C_GRN=""; C_YEL=""; C_CYA=""; C_RST=""; fi
 
-printf "\n${C_BOLD}Reddit Manager — installer${C_RST}\n\n"
+printf "\n${C_BOLD}Oserus Management — installer${C_RST}\n\n"
 
 if ! command -v node >/dev/null 2>&1; then
   printf "${C_RED}✗ Node.js is not installed.${C_RST}\n  Install from ${C_CYA}https://nodejs.org${C_RST} (LTS), then re-run.\n\n"; exit 1

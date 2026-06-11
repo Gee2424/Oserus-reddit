@@ -1,10 +1,10 @@
 @echo off
-REM Reddit Manager - installer (Windows)
+REM Oserus Management - installer (Windows)
 setlocal
 cd /d "%~dp0"
 
 echo.
-echo === Reddit Manager - installer ===
+echo === Oserus Management - installer ===
 echo.
 
 where node >nul 2>nul

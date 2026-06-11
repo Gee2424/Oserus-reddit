@@ -406,33 +406,85 @@ function applyGeoOverlay(fp, geoTimezone, geoCountry) {
 const FP_VERSION = 2;
 
 function loadOrCreate(db, accountId) {
-  // Pull os_profile + cached geo so a flip Desktop ↔ Android regenerates
-  // the fingerprint and an updated proxy geo overlays the timezone +
-  // language onto the existing identity.
-  const row = db.prepare(
-    'SELECT fingerprint_json, os_profile, geo_timezone, geo_country FROM reddit_accounts WHERE id = ?'
-  ).get(accountId);
-  const targetOs = (row && row.os_profile) || 'desktop';
+  // One fingerprint per MODEL PROFILE, not per account. A real person
+  // has one device + one home network; every platform account they own
+  // logs in from that same device. So we cache the fingerprint on
+  // model_profiles and every linked account on that profile reuses it.
+  //
+  // Migration story for installs that still have per-account
+  // fingerprints from older builds:
+  //   1. If model_profiles.fingerprint_json is set → use it.
+  //   2. Else, inherit from the FIRST linked account that has a
+  //      non-null fingerprint_json. That preserves the identity an
+  //      account was already presenting (no surprise re-fingerprint
+  //      on the next prep) and seeds the profile in passing.
+  //   3. Else, generate fresh from the accountId seed so different
+  //      profiles still hash to different fingerprints.
+  //
+  // os_profile + geo_* columns also live on model_profiles now. The
+  // matching columns on reddit_accounts are read as fallback only.
+  const acct = db.prepare(
+    'SELECT profile_id, os_profile, fingerprint_json, geo_timezone, geo_country FROM reddit_accounts WHERE id = ?'
+  ).get(accountId) || {};
+  const profileId = acct.profile_id;
+  const profile = profileId
+    ? db.prepare(
+        'SELECT id, fingerprint_json, os_profile, geo_timezone, geo_country FROM model_profiles WHERE id = ?'
+      ).get(profileId)
+    : null;
+
+  const targetOs = (profile && profile.os_profile) || acct.os_profile || 'desktop';
   let base = null;
-  if (row && row.fingerprint_json) {
+
+  // 1. Profile-level cache wins.
+  if (profile && profile.fingerprint_json) {
     try {
-      const cached = JSON.parse(row.fingerprint_json);
-      const sameOs = (cached.osProfile || 'desktop') === targetOs;
+      const cached = JSON.parse(profile.fingerprint_json);
+      const sameOs  = (cached.osProfile || 'desktop') === targetOs;
       const sameVer = (cached.version || 0) === FP_VERSION;
       if (sameOs && sameVer) base = cached;
     } catch {}
   }
-  if (!base) {
-    base = generateFingerprint(accountId, targetOs);
-    base.version = FP_VERSION;
+
+  // 2. Inherit from an existing account fingerprint on this profile.
+  if (!base && profileId) {
     try {
-      db.prepare('UPDATE reddit_accounts SET fingerprint_json = ? WHERE id = ?')
-        .run(JSON.stringify(base), accountId);
+      const sibling = db.prepare(
+        `SELECT fingerprint_json FROM reddit_accounts
+          WHERE profile_id = ? AND fingerprint_json IS NOT NULL
+          ORDER BY id ASC LIMIT 1`
+      ).get(profileId);
+      if (sibling && sibling.fingerprint_json) {
+        const cached = JSON.parse(sibling.fingerprint_json);
+        const sameOs  = (cached.osProfile || 'desktop') === targetOs;
+        const sameVer = (cached.version || 0) === FP_VERSION;
+        if (sameOs && sameVer) base = cached;
+      }
     } catch {}
   }
-  // Always compute offset for whatever timezone we end up with, including
-  // a no-geo fallback so the preload never has to guess.
-  return applyGeoOverlay(base, row?.geo_timezone, row?.geo_country);
+
+  // 3. Fresh generation. Seed off the profile id when available so two
+  //    accounts on the same model always produce the same identity even
+  //    if the inheritance path failed.
+  if (!base) {
+    base = generateFingerprint(profileId || accountId, targetOs);
+    base.version = FP_VERSION;
+  }
+
+  // Persist back to the profile so every other linked account picks it
+  // up next time loadOrCreate runs for them.
+  if (profileId) {
+    try {
+      db.prepare('UPDATE model_profiles SET fingerprint_json = ?, os_profile = ? WHERE id = ?')
+        .run(JSON.stringify(base), targetOs, profileId);
+    } catch {}
+  }
+
+  // Geo cache: prefer profile, fall back to per-account (the old
+  // location), so a single proxy-check on one account propagates.
+  const tz      = (profile && profile.geo_timezone)  || acct.geo_timezone;
+  const country = (profile && profile.geo_country)   || acct.geo_country;
+  return applyGeoOverlay(base, tz, country);
 }
 
 // Force a fresh load on next prepareSessionForAccount by NUL-ing out the

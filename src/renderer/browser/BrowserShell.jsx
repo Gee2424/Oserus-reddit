@@ -486,7 +486,7 @@ function AddContentForm({ platform, onDone }) {
   if (!isReddit) {
     return (
       <div style={{ padding: '10px 12px', fontSize: 11, color: BRAND.text2, borderBottom: `1px solid ${BRAND.bg4}` }}>
-        Add-from-browser supported on Reddit accounts only for now. ({platform})
+        Add-from-browser isn't wired up for {platform} yet — it currently works on Reddit.
       </div>
     );
   }
