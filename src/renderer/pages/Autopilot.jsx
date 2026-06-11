@@ -44,6 +44,7 @@ export default function AutopilotPage() {
   const [msg, setMsg] = useState(null);
   const [err, setErr] = useState(null);
   const [lastRun, setLastRun] = useState(null);   // result of the most recent Run Now
+  const [lastPost, setLastPost] = useState(null); // result of the most recent Post Now
 
   // -- bootstrap profile + account lists --
   useEffect(() => {
@@ -73,7 +74,7 @@ export default function AutopilotPage() {
   }, [token]);
   useEffect(() => {
     loadStatus();
-    const id = setInterval(loadStatus, 15000);
+    const id = setInterval(loadStatus, 5000);
     return () => clearInterval(id);
   }, [loadStatus]);
 
@@ -151,6 +152,49 @@ export default function AutopilotPage() {
     loadStatus(); // refresh recent activity
   }
 
+  async function postNow() {
+    if (!sel.profileId || !sel.platform) { setErr('Pick a model and platform first.'); return; }
+    setBusy(true); setLastPost({ state: 'running' });
+    const r = await window.api.autopilot.postNow({
+      token, profileId: sel.profileId, platform: sel.platform,
+      accountId: sel.accountId || undefined,
+    });
+    setBusy(false);
+    if (!r?.ok) {
+      setLastPost({ state: 'failed', error: r?.error || 'Post failed' });
+      setErr(r?.error || 'Post failed');
+      return;
+    }
+    const s = r.summary || {};
+    setLastPost({
+      state: 'ok',
+      posted: s.posted || 0,
+      skipped: s.skipped || 0,
+      failed: s.failed || 0,
+      reason: Object.keys(s.reasons || {})[0] || null,
+      error: (s.errors || [])[0] || null,
+    });
+    loadStatus();
+  }
+
+  // Per-scope enable toggle — saves the autopilot_protocols row and,
+  // because autopilot:set auto-enables the master kv when scope=on,
+  // refreshes status to reflect the master flipping on too.
+  async function toggleScopeEnabled(next) {
+    if (!sel.profileId || !sel.platform) return;
+    setBusy(true);
+    const r = await window.api.autopilot.set({
+      token, profileId: sel.profileId, platform: sel.platform,
+      patch: { ...(proto || {}), enabled: next ? 1 : 0 },
+    });
+    setBusy(false);
+    if (r.ok) {
+      setProto(r.protocol);
+      setMsg(next ? `Autopilot ON for ${sel.platform}.` : `Autopilot OFF for ${sel.platform}.`);
+      loadStatus();
+    } else setErr(r.error || 'Failed to toggle');
+  }
+
   async function toggleAutopilot() {
     const next = !status?.enabled;
     const r = await window.api.autopilot.setEnabled({ token, enabled: next });
@@ -168,7 +212,7 @@ export default function AutopilotPage() {
           <div className="eyebrow">Automation</div>
           <h1>Autopilot</h1>
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Three steps: <strong>1.</strong> Enable the master switch. <strong>2.</strong> Pick a model + platform and save your settings. <strong>3.</strong> Click <em>Dry run</em> to preview, then <em>Run now</em> to fire a live session.
+            <strong>1.</strong> Pick a model + platform. <strong>2.</strong> Edit the settings below and Save. <strong>3.</strong> Flip <em>Turn ON for &lt;platform&gt;</em>. Saving with the switch on auto-starts the background loop — no separate master step.
           </div>
         </div>
         <div style={{ marginLeft: 'auto' }}>
@@ -200,44 +244,74 @@ export default function AutopilotPage() {
 
       {sel.platform && (
         <div className="card" style={{ padding: 14, marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {/* Row 1: scope state + the per-scope on/off switch.
+              Pulled out of the editor card so the operator sees and
+              flips it in the same place they trigger runs from. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+            <span style={{
+              ...statusDot,
+              width: 10, height: 10,
+              background: protoOn ? 'var(--ok)' : '#e2a3a3',
+            }} />
             <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontWeight: 600, fontSize: 13 }}>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>
                 {protoOn
-                  ? `Autopilot is ENABLED for ${sel.platform}`
-                  : `Autopilot is paused for ${sel.platform}`}
+                  ? `Autopilot is ON for ${sel.platform}`
+                  : `Autopilot is OFF for ${sel.platform}`}
               </div>
               <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
                 {proto?.last_run_at
-                  ? `Last live run ${formatRelative(proto.last_run_at)}`
-                  : 'Has never run live for this scope.'}
-                {!masterOn && ' · Background loop is paused (master switch off above).'}
+                  ? `Last live run ${formatRelative(proto.last_run_at)}.`
+                  : 'No live runs yet for this scope.'}
+                {' '}Saving with this switch on auto-enables the master loop.
               </div>
             </div>
-
-            {canRun && (
-              <>
-                <button
-                  className="ghost"
-                  disabled={busy}
-                  onClick={() => runNow({ dryRun: true })}
-                  title="Open a hidden browser as this account, scroll the feed, and report what a live pass would do. No clicks, no posts. ~60s."
-                >
-                  Preview (dry run)
-                </button>
-                <button
-                  className="primary"
-                  disabled={busy}
-                  onClick={() => runNow({ dryRun: false })}
-                  title="Real session: scroll, like, follow, comment per your rates. 6–14 min by default."
-                >
-                  {busy ? 'Running…' : 'Run live now'}
-                </button>
-              </>
+            {canManage && (
+              <button
+                className={protoOn ? 'danger' : 'primary'}
+                disabled={busy}
+                onClick={() => toggleScopeEnabled(!protoOn)}
+                style={{ fontSize: 12, padding: '6px 12px' }}
+              >
+                {protoOn ? 'Turn OFF for this scope' : `Turn ON for ${sel.platform}`}
+              </button>
             )}
           </div>
 
-          {lastRun && <RunResult result={lastRun} platform={sel.platform} />}
+          {/* Row 2: manual actions. Three buttons, one row, in the
+              order an operator uses them: preview → engage → post. */}
+          {canRun && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                className="ghost"
+                disabled={busy}
+                onClick={() => runNow({ dryRun: true })}
+                title="Open a hidden browser as this account, scroll the feed, and report what a live pass would do. No clicks, no posts. ~60s."
+              >
+                Preview (dry run)
+              </button>
+              <button
+                className="primary"
+                disabled={busy}
+                onClick={() => runNow({ dryRun: false })}
+                title="Real engagement session: scroll, like, follow, comment per your rates. 6–14 min by default."
+              >
+                {busy ? 'Running…' : 'Run engagement now'}
+              </button>
+              <button
+                className="primary"
+                disabled={busy}
+                onClick={postNow}
+                title="Generate an AI post and submit it through the platform adapter, right now. Same code path the background loop uses."
+                style={{ background: 'var(--gold)' }}
+              >
+                {busy ? '…' : 'Post one now'}
+              </button>
+            </div>
+          )}
+
+          {lastRun  && <RunResult  result={lastRun}  platform={sel.platform} />}
+          {lastPost && <PostResult result={lastPost} platform={sel.platform} />}
         </div>
       )}
 
@@ -270,7 +344,14 @@ export default function AutopilotPage() {
 // the page; the rest of the UI is meaningless if the master is off.
 
 function MasterBanner({ on, status, canManage, onToggle }) {
-  const next = status?.intervalMin ? `~${status.intervalMin} min` : 'on the configured interval';
+  const next = status?.nextRunInSec || {};
+  const fmt = (s) => {
+    if (s == null) return '—';
+    if (s <= 0) return 'now';
+    if (s < 60) return `${s}s`;
+    if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
+    return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  };
   return (
     <div className="card" style={{
       padding: '14px 16px', marginBottom: 14,
@@ -283,14 +364,20 @@ function MasterBanner({ on, status, canManage, onToggle }) {
         <span style={{ ...statusDot, width: 14, height: 14, background: on ? 'var(--ok)' : '#e2a3a3' }} />
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>
-            {on ? '🟢 Autopilot master is RUNNING' : '⏸ Autopilot master is PAUSED'}
+            {on ? 'Autopilot master is RUNNING' : 'Autopilot master is PAUSED'}
           </div>
           <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-            {on
-              ? <>Background loop ticks every <strong>{status?.intervalMin ?? 30} min</strong>. Engagement runs about every 4 min. Scheduler fires every 1 min.</>
-              : <>Background loop is off. Scheduled posts won\'t fire, engagement won\'t run. Live-run buttons below still work for one-off tests.</>}
+            {on ? (
+              <>
+                Next posts pass: <strong>{fmt(next.autopilot)}</strong>
+                {' · '}engagement: <strong>{fmt(next.engagement)}</strong>
+                {' · '}scheduler: <strong>{fmt(next.scheduled)}</strong>
+              </>
+            ) : (
+              <>Background loop is off. Saving any scope with its switch ON will auto-start it.</>
+            )}
             {status?.lastRun && (
-              <> · Last system pass {new Date(status.lastRun).toLocaleString()}.</>
+              <> · Last pass {new Date(status.lastRun).toLocaleString()}</>
             )}
           </div>
         </div>
@@ -300,7 +387,7 @@ function MasterBanner({ on, status, canManage, onToggle }) {
             onClick={onToggle}
             style={{ fontSize: 13, padding: '8px 14px' }}
           >
-            {on ? 'Pause background loop' : '▶ Start background loop'}
+            {on ? 'Pause' : 'Start'}
           </button>
         )}
       </div>
@@ -367,6 +454,44 @@ function RunResult({ result, platform }) {
   );
 }
 
+// ─────────────────────────────────────────────────── Post-result block
+//
+// Mirrors RunResult but speaks in posting terms — generated, submitted,
+// failed — so the operator can tell at a glance whether the AI post path
+// actually fired (and which step it hit if not).
+
+function PostResult({ result, platform }) {
+  if (result.state === 'running') {
+    return <div style={resultBox(true)}><span style={spinDot} /> Generating + submitting one post…</div>;
+  }
+  if (result.state === 'failed') {
+    return <div style={{ ...resultBox(false), color: '#e2a3a3', borderColor: 'rgba(180,90,90,0.4)' }}>✗ {result.error}</div>;
+  }
+  if (result.posted) {
+    return (
+      <div style={resultBox(false)}>
+        <div style={{ fontWeight: 600 }}>✓ Posted on {platform}</div>
+        <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+          Look in the activity feed for the post_event row + remote id.
+        </div>
+      </div>
+    );
+  }
+  // Posted=0 — coordinator ran but didn't actually submit. Surface the
+  // reason ("Protocol disabled", "Daily cap reached", "Too soon", etc.)
+  // so the operator knows what to fix rather than seeing a silent no-op.
+  return (
+    <div style={{ ...resultBox(false), color: '#e7c478', borderColor: 'rgba(231,196,120,0.4)' }}>
+      <div style={{ fontWeight: 600 }}>Did not post.</div>
+      <div style={{ fontSize: 12, marginTop: 4 }}>
+        {result.error ? result.error
+          : result.reason ? `Skipped: ${result.reason.replace(/_/g, ' ')}`
+          : 'Coordinator returned no posted rows — check the editor settings (cap, quiet hours, hours-between).'}
+      </div>
+    </div>
+  );
+}
+
 // ──────────────────────────────────────────── Engagement protocol editor
 
 function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) {
@@ -409,15 +534,9 @@ function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) 
         </span>
       </div>
 
-      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 14, fontSize: 13 }}>
-        <input
-          type="checkbox"
-          checked={!!proto.enabled}
-          onChange={(e) => onChange({ enabled: e.target.checked ? 1 : 0 })}
-          disabled={!canManage}
-        />
-        Autopilot enabled for this profile + platform
-      </label>
+      {/* Per-scope on/off now lives on the run-controls card above so
+          the operator can flip it in the same place they trigger runs.
+          Don't duplicate it here. */}
 
       {/* Pacing */}
       <Section title="Pacing">
@@ -622,10 +741,16 @@ function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) 
       </Section>
 
       {canManage && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-          <button className="primary" disabled={busy} onClick={onSave}>Save</button>
-          <span className="muted" style={{ fontSize: 11, alignSelf: 'center' }}>
-            Changes take effect on the next engagement tick.
+        <div style={{
+          position: 'sticky', bottom: 0, marginTop: 12, padding: '10px 0',
+          background: 'linear-gradient(180deg, transparent, var(--bg-0) 30%)',
+          display: 'flex', gap: 10, alignItems: 'center',
+        }}>
+          <button className="primary" disabled={busy} onClick={onSave} style={{ minWidth: 120 }}>
+            {busy ? 'Saving…' : 'Save settings'}
+          </button>
+          <span className="muted" style={{ fontSize: 11 }}>
+            Settings apply on the next tick (≤4 min for engagement, ≤30 min for posts). Use the buttons above to fire now.
           </span>
         </div>
       )}

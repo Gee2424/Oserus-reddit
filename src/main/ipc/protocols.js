@@ -232,6 +232,53 @@ function register(ipcMain) {
     }
   });
 
+  // One-off post. Different from runNow (which is engagement):
+  // this calls into the same code path the background autopilot uses
+  // to generate AI content + submit it via the platform adapter, but
+  // restricted to a single account picked by the operator. Used by the
+  // "Post one now" button on the Autopilot page so operators can see
+  // the posting loop actually move without waiting 30 min for the
+  // background tick.
+  ipcMain.handle('autopilot:postNow', async (_e, { token, profileId, platform, accountId }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'protocols.run');
+      if (!profileId || !platform) throw new Error('profileId + platform required');
+
+      const { getDb } = require('../db');
+      let id = accountId;
+      if (!id) {
+        const row = getDb().prepare(
+          `SELECT id FROM reddit_accounts
+            WHERE profile_id = ? AND platform = ? AND status IN ('warming','ready')
+            ORDER BY RANDOM() LIMIT 1`
+        ).get(profileId, platform);
+        if (!row) throw new Error(`No active ${platform} accounts on this profile.`);
+        id = row.id;
+      }
+      const acct = getDb().prepare(
+        `SELECT a.id, a.username, a.status, a.platform, a.profile_id,
+                a.proxy_id, a.partition_key,
+                p.name AS profile_name, p.niche, p.brand_voice
+           FROM reddit_accounts a
+           JOIN model_profiles p ON p.id = a.profile_id
+          WHERE a.id = ?`
+      ).get(id);
+      if (!acct) throw new Error('Account not found');
+
+      const summary = { considered: 1, posted: 0, skipped: 0, failed: 0,
+                        reasons: {}, errors: [], perPlatform: {} };
+      await coordinator.runForAccount(acct, summary);
+      log(user, 'autopilot.postNow', 'engagement', id,
+        `posted=${summary.posted} failed=${summary.failed} ` +
+        `reasons=${Object.keys(summary.reasons).join(',') || '-'}`);
+      return { ok: true, summary };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   // Recent events for the activity feed. Unions post_events (posts,
   // API comments, scheduled fires) with engagement_sessions (DOM
   // scroll-likes-follows-comments) so the operator sees a single

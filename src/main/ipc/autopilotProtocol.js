@@ -10,6 +10,7 @@ const { userFromToken } = require('./auth');
 const { hasPermission } = require('../permissions');
 const autopilotProtocol = require('../services/autopilotProtocol');
 const { getDb } = require('../db');
+const { setSetting } = require('../services/settings');
 
 function canAccessProfile(user, profileId) {
   if (hasPermission(user, 'profiles.manage')) return true;
@@ -55,6 +56,13 @@ function register(ipcMain) {
         norm.target_filter_json = JSON.stringify(norm.target_filter);
       }
       const row = autopilotProtocol.upsert(profileId, platform, norm);
+      // Saving a protocol with enabled=1 implicitly turns on the master
+      // background loop — operators expect "I enabled it for this scope
+      // and saved" to actually make things happen, not to silently no-op
+      // because a separate master kv was off.
+      if (row && row.enabled) {
+        try { setSetting('autopilot_enabled', '1'); } catch {}
+      }
       return { ok: true, protocol: row };
     } catch (err) { return { ok: false, error: err.message }; }
   });

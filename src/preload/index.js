@@ -188,6 +188,7 @@ const api = {
     setEnabled:     (data) => ipcRenderer.invoke('autopilot:setEnabled', data),
     setInterval:    (data) => ipcRenderer.invoke('autopilot:setInterval', data),
     runNow:         (data) => ipcRenderer.invoke('autopilot:runNow', data),
+    postNow:        (data) => ipcRenderer.invoke('autopilot:postNow', data),
     listForProfile: (data) => ipcRenderer.invoke('autopilot:listForProfile', data),
     get:            (data) => ipcRenderer.invoke('autopilot:get', data),
     set:            (data) => ipcRenderer.invoke('autopilot:set', data),

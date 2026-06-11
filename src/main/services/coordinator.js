@@ -571,13 +571,23 @@ function stop() {
 }
 
 function status() {
+  // Per-job countdowns so the UI can show "Next post in 14m 32s"
+  // instead of a static "every 30 min" hint. Reported in seconds —
+  // the renderer formats. Negative values mean the job is overdue
+  // (running or queued); the UI shows "now" in that case.
+  const now = Date.now();
+  const nextBy = {};
+  for (const j of jobs) {
+    nextBy[j.name] = Math.max(0, Math.round((j.nextRun - now) / 1000));
+  }
   return {
     enabled: isEnabled(),
     running, lastRun, lastSummary,
     intervalMin: Number(getSetting('autopilot_interval_min') || 30),
     holder: HOLDER,
     platforms: postablePlatforms(),
+    nextRunInSec: nextBy,
   };
 }
 
-module.exports = { start, stop, runOnce, status, HOLDER };
+module.exports = { start, stop, runOnce, runForAccount, status, HOLDER };
