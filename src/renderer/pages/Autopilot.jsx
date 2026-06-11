@@ -512,13 +512,10 @@ function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) 
     });
   }, [proto, onChange]);
 
-  if (!proto) {
-    return (
-      <div className="card" style={{ padding: 14, marginBottom: 16, color: 'var(--text-3)', fontSize: 13 }}>
-        Pick a model and platform to load its autopilot settings.
-      </div>
-    );
-  }
+  // No scope picked → render nothing. The AccountSelector at the top of
+  // the page already directs the operator to pick a model + platform;
+  // a redundant placeholder card here just adds vertical space.
+  if (!proto) return null;
 
   let targetFilter = {};
   try { targetFilter = JSON.parse(proto.target_filter_json || '{}') || {}; } catch {}
@@ -585,7 +582,7 @@ function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) 
       </Section>
 
       {/* Targeting */}
-      <Section title="Targeting · which accounts your model engages with">
+      <Section title="Targeting · which accounts your model engages with" collapsible defaultOpen={false}>
         <Grid cols={2}>
           <NumField label="Min followers" placeholder="(no minimum)"
             value={targetFilter.min_followers ?? ''} min={0}
@@ -656,7 +653,7 @@ function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) 
       </Section>
 
       {/* AI comment persona */}
-      <Section title="How the AI comments">
+      <Section title="How the AI comments" collapsible defaultOpen={false}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
           <label style={{ fontSize: 11, color: 'var(--text-2)', margin: 0 }}>AI provider</label>
           <select value={proto.ai_provider || 'claude'}
@@ -703,7 +700,7 @@ function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) 
       </Section>
 
       {/* Per-platform lists */}
-      <Section title="Lists">
+      <Section title="Lists · hashtags, follow-list, target subs" collapsible defaultOpen={false}>
         <Grid cols={2}>
           <div>
             <label>Follow-list (handles)</label>
@@ -964,13 +961,40 @@ function RecentActivity({ events }) {
 
 // ─────────────────────────────────────────────────── small helpers / styles
 
-function Section({ title, children }) {
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-        {title}
+// Collapsible section. `collapsible` opens an expand/collapse affordance
+// on the header; sections passing { defaultOpen: false } start hidden so
+// the editor doesn't drown the user in 400+ rows of inputs on first
+// open. Pacing + Engagement rates default open (every operator needs
+// them); Targeting / AI persona / Lists default closed.
+function Section({ title, children, collapsible = false, defaultOpen = true }) {
+  const [open, setOpen] = useState(defaultOpen);
+  if (!collapsible) {
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+          {title}
+        </div>
+        {children}
       </div>
-      {children}
+    );
+  }
+  return (
+    <div style={{ marginBottom: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="muted"
+        style={{
+          width: '100%', textAlign: 'left',
+          fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: open ? 6 : 0,
+          background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
+          display: 'flex', alignItems: 'center', gap: 8,
+        }}
+      >
+        <span style={{ display: 'inline-block', width: 10, color: 'var(--text-3)' }}>{open ? '▾' : '▸'}</span>
+        {title}
+      </button>
+      {open && <div style={{ marginTop: 8 }}>{children}</div>}
     </div>
   );
 }

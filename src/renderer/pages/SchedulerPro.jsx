@@ -147,14 +147,26 @@ export default function SchedulerProPage() {
             onError={setErr}
           />
 
-          <AISettings token={token} onMsg={setMsg} onError={setErr} />
-
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '14px 0 10px' }}>
             <h3 style={{ margin: 0, fontSize: 15 }}>Queue for this account</h3>
             <button className="ghost" onClick={load}>↻ Refresh</button>
           </div>
 
           <StatusColumns posts={posts} onCancel={cancel} onDelete={del} />
+
+          {/* AI Settings sits BELOW the kanban now. First-time use is
+              "pick account → composer → schedule → see it in the queue"
+              without scrolling past 200 lines of fine-tuning that 90% of
+              operators never touch. Power users still get to it without
+              leaving the page. */}
+          <details style={{ marginTop: 18, border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', background: 'var(--bg-elev)' }}>
+            <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--text-2)', padding: '4px 0' }}>
+              AI generation settings · persona, tone, length, custom prompt
+            </summary>
+            <div style={{ marginTop: 10 }}>
+              <AISettings token={token} onMsg={setMsg} onError={setErr} />
+            </div>
+          </details>
         </>
       )}
     </div>

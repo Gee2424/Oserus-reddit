@@ -321,36 +321,31 @@ export default function ModelDetailPage({ modelId, navigate }) {
         </div>
         {canManage && tab === 'resources' && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span className="dim" style={{ fontSize: 11, marginRight: 4 }}>+ Add account:</span>
+            <span className="dim" style={{ fontSize: 11, marginRight: 4 }}>+ Link account:</span>
             {PLATFORMS.map((plat) => {
               const active = showAddPlatform === plat.v;
               const connected = accounts.filter((a) => (a.platform || 'reddit') === plat.v).length;
               return (
                 <button
                   key={plat.v}
-                  onClick={() => {
-                    if (connected > 0) {
-                      // Already linked — surface that fact instead of silently
-                      // popping a second-add form. User can still add another
-                      // from the per-platform section below.
-                      alert(`Account already connected (${connected} ${plat.label} ${connected === 1 ? 'account' : 'accounts'}). Scroll down to that section to add another or manage them.`);
-                      return;
-                    }
-                    startAddFor(plat.v);
-                  }}
-                  title={connected > 0 ? `Account already connected · ${connected}` : `Link a new ${plat.label} account to this model`}
+                  onClick={() => startAddFor(plat.v)}
+                  title={connected > 0
+                    ? `Link another ${plat.label} account (${connected} already linked)`
+                    : `Link a new ${plat.label} account to this model`}
                   style={{
                     background: active ? plat.color : 'var(--bg-1)',
                     color: active ? '#fff' : 'var(--text-1)',
-                    border: `1px solid ${active ? plat.color : (connected > 0 ? 'var(--green)' : 'var(--border)')}`,
+                    border: `1px solid ${active ? plat.color : 'var(--border)'}`,
                     borderRadius: 999, padding: '5px 14px', fontSize: 12, fontWeight: 600,
-                    cursor: 'pointer', opacity: connected > 0 ? 0.85 : 1,
+                    cursor: 'pointer',
                     display: 'inline-flex', alignItems: 'center', gap: 6,
                   }}
                 >
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: plat.color }} />
                   {plat.label}
-                  {connected > 0 && <span style={{ fontSize: 9, color: 'var(--green-bright)', fontWeight: 700 }}>✓</span>}
+                  {connected > 0 && (
+                    <span className="mono" style={{ fontSize: 10, opacity: 0.75 }}>· {connected}</span>
+                  )}
                 </button>
               );
             })}
