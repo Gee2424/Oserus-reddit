@@ -23,6 +23,44 @@ const { BrowserWindow, WebContentsView, Menu, clipboard, ipcMain, shell } = requ
 const path = require('path');
 const fs = require('fs');
 const elog = require('electron-log');
+
+// Per-user counter of open browser windows. While > 0, the presence
+// heartbeat treats the user as active in the browser even if they're
+// not poking the management app. Drives "time on task" inclusion of
+// browsing time per the dashboard spec.
+const browserOwners = new Map(); // userId → count
+let presenceTickStarted = false;
+
+function startPresenceTicker() {
+  if (presenceTickStarted) return;
+  presenceTickStarted = true;
+  // Every 20s we credit each user who currently has at least one
+  // Oserus Browser window open with another "active" beat. Matches the
+  // app's HEARTBEAT_MS so cumulative seconds add up cleanly.
+  setInterval(() => {
+    if (!browserOwners.size) return;
+    try {
+      const { tickBrowserHeartbeat } = require('./ipc/auth');
+      if (typeof tickBrowserHeartbeat !== 'function') return;
+      for (const userId of browserOwners.keys()) {
+        try { tickBrowserHeartbeat(userId); } catch {}
+      }
+    } catch {}
+  }, 20_000);
+}
+
+function registerBrowserOwner(userId) {
+  if (!userId) return;
+  browserOwners.set(userId, (browserOwners.get(userId) || 0) + 1);
+  startPresenceTicker();
+}
+
+function unregisterBrowserOwner(userId) {
+  if (!userId) return;
+  const n = (browserOwners.get(userId) || 0) - 1;
+  if (n <= 0) browserOwners.delete(userId);
+  else browserOwners.set(userId, n);
+}
 const { getDb } = require('./db');
 
 // Brand assets — read once at module load and cache. The Oserus logo
@@ -304,7 +342,8 @@ async function openForAccount(accountId) {
   }
 
   const acct = getDb().prepare(
-    `SELECT a.username, a.platform, a.profile_id, p.name AS profile_name
+    `SELECT a.username, a.platform, a.profile_id, p.name AS profile_name,
+            p.assigned_user_id AS owner_user_id
        FROM reddit_accounts a JOIN model_profiles p ON p.id = a.profile_id
       WHERE a.id = ?`
   ).get(accountId);
@@ -342,6 +381,7 @@ async function openForAccount(accountId) {
     findOpen: false,
   });
   accountWindows.set(accountId, win);
+  registerBrowserOwner(acct.owner_user_id);
 
   win.on('closed', () => {
     const st = windowState.get(win);
@@ -349,6 +389,7 @@ async function openForAccount(accountId) {
       try { t.view.webContents.destroy(); } catch {}
     }
     if (accountWindows.get(accountId) === win) accountWindows.delete(accountId);
+    unregisterBrowserOwner(acct.owner_user_id);
   });
   win.on('resize', () => layoutActiveTab(win));
 

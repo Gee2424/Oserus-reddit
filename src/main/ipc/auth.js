@@ -1,6 +1,49 @@
 const bcrypt = require('bcryptjs');
 const { getDb } = require('../db');
 
+// Presence + time-on-task schema. Idempotent: extra columns are
+// added once on first heartbeat. Applies to every user automatically
+// (any new employee created later inherits them by the same ALTER).
+//
+//   last_seen_at    Most recent heartbeat from any window owned by
+//                   this user (app or Oserus Browser).
+//   last_action_at  Most recent moment the user actually interacted
+//                   (click / key / scroll / IPC mutation). Used to
+//                   decide "active vs idle" — > 5 min idle → paused.
+//   today_seconds   Cumulative active seconds since today_date.
+//                   Only incremented when the user is active.
+//   today_date      YYYY-MM-DD of the day today_seconds represents.
+//                   Roll-over zeroes today_seconds.
+let presenceMigrated = false;
+function ensurePresenceColumns() {
+  if (presenceMigrated) return;
+  const db = getDb();
+  const cols = db.prepare(`PRAGMA table_info(users)`).all().map((c) => c.name);
+  const add = (sql) => { try { db.exec(sql); } catch (e) { if (!/duplicate column/i.test(e?.message || '')) throw e; } };
+  if (!cols.includes('last_seen_at'))   add(`ALTER TABLE users ADD COLUMN last_seen_at TEXT`);
+  if (!cols.includes('last_action_at')) add(`ALTER TABLE users ADD COLUMN last_action_at TEXT`);
+  if (!cols.includes('today_seconds'))  add(`ALTER TABLE users ADD COLUMN today_seconds INTEGER NOT NULL DEFAULT 0`);
+  if (!cols.includes('today_date'))     add(`ALTER TABLE users ADD COLUMN today_date TEXT`);
+  presenceMigrated = true;
+}
+
+// 5-minute idle window. Tuned to the user's spec: if no input for 5
+// minutes, the timer pauses; it resumes the next time they do anything.
+const IDLE_GAP_MS = 5 * 60 * 1000;
+
+// Per-user in-memory accumulator. We compute "seconds to add" as the
+// gap between this heartbeat and the previous one, capped at the
+// renderer's heartbeat interval, and only counted when active.
+const lastBeat = new Map(); // user_id → { t, lastActionAt }
+
+function todayLocal() {
+  // YYYY-MM-DD in the operator's local timezone — matches "today's"
+  // hours from the user's perspective even across midnight UTC.
+  const d = new Date();
+  const tz = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+}
+
 // Sessions are mirrored to SQLite so that closing/restarting the app doesn't
 // log everyone out. The in-memory Map is a write-through cache.
 const sessions = new Map();
@@ -107,6 +150,65 @@ function register(ipcMain) {
     return user ? { ok: true, user } : { ok: false };
   });
 
+  // Heartbeat — renderer (and Oserus Browser windows) ping this every
+  // ~20s carrying their own "last user input" timestamp. We add the
+  // elapsed gap to today_seconds only if the input was within
+  // IDLE_GAP_MS (5 min). Otherwise the timer pauses.
+  //
+  // Multiple windows for the same user merge naturally: each beat
+  // updates last_action_at to the most recent across all sources, and
+  // the per-user lastBeat cache makes sure we don't double-count when
+  // two windows tick at almost the same time.
+  ipcMain.handle('auth:heartbeat', (_e, { token, lastActionAt, source } = {}) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) return { ok: false };
+      ensurePresenceColumns();
+      const db = getDb();
+
+      const now = Date.now();
+      const inputAt = Number(lastActionAt) || now;
+      const isActive = (now - inputAt) <= IDLE_GAP_MS;
+
+      // Roll over today_seconds at local midnight.
+      const today = todayLocal();
+      const row = db.prepare(
+        `SELECT today_seconds, today_date, last_action_at FROM users WHERE id = ?`
+      ).get(user.id) || {};
+      if (row.today_date !== today) {
+        db.prepare(`UPDATE users SET today_seconds = 0, today_date = ? WHERE id = ?`).run(today, user.id);
+        row.today_seconds = 0;
+      }
+
+      // Active-seconds delta: time since last beat, capped at 30s so a
+      // closed-laptop gap doesn't credit hours when the app wakes up.
+      let add = 0;
+      const prev = lastBeat.get(user.id);
+      if (isActive && prev) {
+        add = Math.min(30, Math.max(0, Math.round((now - prev.t) / 1000)));
+      }
+      lastBeat.set(user.id, { t: now, lastActionAt: inputAt });
+
+      const newSeconds = (row.today_seconds || 0) + add;
+      const newAction = isActive
+        ? new Date(inputAt).toISOString().replace('T', ' ').slice(0, 19)
+        : row.last_action_at;
+
+      db.prepare(`
+        UPDATE users
+           SET last_seen_at   = datetime('now'),
+               last_action_at = COALESCE(?, last_action_at),
+               today_seconds  = ?,
+               today_date     = ?
+         WHERE id = ?
+      `).run(newAction || null, newSeconds, today, user.id);
+
+      return { ok: true, active: isActive, todaySeconds: newSeconds, source: source || 'app' };
+    } catch (e) {
+      return { ok: false, error: e?.message };
+    }
+  });
+
   ipcMain.handle('auth:createUser', (_e, { token, username, password, role, displayName, email, phone, notes }) => {
     try {
       const me = requireManagerOrAdmin(token);
@@ -211,7 +313,37 @@ function register(ipcMain) {
   });
 }
 
+// Browser-side beat — called by main/browser.js for any user with at
+// least one open Oserus Browser window. Reuses the active-time
+// accumulator so app + browser seconds merge into one today_seconds.
+function tickBrowserHeartbeat(userId) {
+  if (!userId) return;
+  try {
+    ensurePresenceColumns();
+    const db = getDb();
+    const now = Date.now();
+    const today = todayLocal();
+    const row = db.prepare(`SELECT today_seconds, today_date FROM users WHERE id = ?`).get(userId) || {};
+    if (row.today_date !== today) {
+      db.prepare(`UPDATE users SET today_seconds = 0, today_date = ? WHERE id = ?`).run(today, userId);
+      row.today_seconds = 0;
+    }
+    const prev = lastBeat.get(userId);
+    const add = prev ? Math.min(30, Math.max(0, Math.round((now - prev.t) / 1000))) : 0;
+    lastBeat.set(userId, { t: now, lastActionAt: now });
+    db.prepare(`
+      UPDATE users
+         SET last_seen_at   = datetime('now'),
+             last_action_at = datetime('now'),
+             today_seconds  = ?,
+             today_date     = ?
+       WHERE id = ?
+    `).run((row.today_seconds || 0) + add, today, userId);
+  } catch {}
+}
+
 module.exports = register;
 module.exports.userFromToken = userFromToken;
 module.exports.requireAdmin = requireAdmin;
 module.exports.requireManagerOrAdmin = requireManagerOrAdmin;
+module.exports.tickBrowserHeartbeat = tickBrowserHeartbeat;

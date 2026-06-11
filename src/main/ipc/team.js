@@ -19,18 +19,29 @@ const { getDb } = require('../db');
 const { userFromToken } = require('./auth');
 const { requirePermission } = require('../permissions');
 
-// "Recent" / "online" windows (ms). last_seen ≤ 15 min → online,
-// ≤ 90 min → idle, otherwise offline. Tuned for in-app polling.
-const ONLINE_MS = 15 * 60 * 1000;
-const IDLE_MS   = 90 * 60 * 1000;
+// Presence is derived from two heartbeat-maintained columns:
+//
+//   last_seen_at    bumped on every heartbeat (≤20s cadence)
+//   last_action_at  bumped only when the user actually interacted
+//
+// Online = the app is open AND they did something in the last 5 min.
+// Idle   = the app is open but no action for 5+ min.
+// Offline= no heartbeat received in 2+ min (window closed or computer
+//          suspended).
+const ONLINE_GAP_MS   = 2  * 60 * 1000;   // window-open threshold
+const ACTIVE_GAP_MS   = 5  * 60 * 1000;   // user-active threshold
 
-function tierFor(lastSeenIso) {
-  if (!lastSeenIso) return 'offline';
-  const t = new Date(lastSeenIso.replace(' ', 'T') + 'Z').getTime();
-  const age = Date.now() - t;
-  if (age < ONLINE_MS) return 'online';
-  if (age < IDLE_MS)   return 'idle';
-  return 'offline';
+function parseTs(s) {
+  if (!s) return 0;
+  return new Date(s.replace(' ', 'T') + 'Z').getTime();
+}
+
+function tierFor(lastSeenIso, lastActionIso) {
+  const seenAge = Date.now() - parseTs(lastSeenIso);
+  if (!lastSeenIso || seenAge > ONLINE_GAP_MS) return 'offline';
+  const actAge = Date.now() - parseTs(lastActionIso || lastSeenIso);
+  if (actAge > ACTIVE_GAP_MS) return 'idle';
+  return 'online';
 }
 
 function register(ipcMain) {
@@ -122,9 +133,10 @@ function register(ipcMain) {
                 WHERE p.assigned_user_id = u.id
               )
           ) AS engagement_seconds_today,
-          (
-            SELECT MAX(created_at) FROM activity_log WHERE user_id = u.id
-          ) AS last_seen,
+          u.last_seen_at   AS last_seen,
+          u.last_action_at AS last_action,
+          u.today_seconds  AS today_seconds_active,
+          u.today_date     AS today_date,
           (
             SELECT COUNT(*) FROM activity_log
             WHERE user_id = u.id AND created_at >= datetime('now', '-1 day')
@@ -170,12 +182,25 @@ function register(ipcMain) {
         }
       } catch {}
 
-      const members = rows.map((r) => ({
-        ...r,
-        karma_today: karmaPerUser[r.id] || 0,
-        engagement_minutes_today: Math.round((r.engagement_seconds_today || 0) / 60),
-        presence: tierFor(r.last_seen),
-      }));
+      // Roll over today_seconds_active when its stored day no longer
+      // matches local "today" — keeps the dashboard from showing a
+      // stale number across a midnight boundary before the next beat.
+      const today = (() => {
+        const d = new Date();
+        const tz = d.getTimezoneOffset() * 60000;
+        return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+      })();
+      const members = rows.map((r) => {
+        const todaySec = r.today_date === today ? (r.today_seconds_active || 0) : 0;
+        return {
+          ...r,
+          karma_today: karmaPerUser[r.id] || 0,
+          engagement_minutes_today: Math.round((r.engagement_seconds_today || 0) / 60),
+          // time_on_task = active minutes in the app today (heartbeat-driven)
+          time_on_task_minutes: Math.round(todaySec / 60),
+          presence: tierFor(r.last_seen, r.last_action),
+        };
+      });
 
       // Org-wide totals — what owners see at the top of the hub.
       const totals = {
@@ -185,6 +210,7 @@ function register(ipcMain) {
         comments_today:   members.reduce((s, m) => s + m.comments_today, 0),
         karma_today:      members.reduce((s, m) => s + m.karma_today, 0),
         engagement_minutes_today: members.reduce((s, m) => s + m.engagement_minutes_today, 0),
+        time_on_task_minutes:     members.reduce((s, m) => s + (m.time_on_task_minutes || 0), 0),
         accounts_active:  db.prepare("SELECT COUNT(*) AS n FROM reddit_accounts WHERE status != 'banned'").get().n,
         accounts_banned:  db.prepare("SELECT COUNT(*) AS n FROM reddit_accounts WHERE status = 'banned'").get().n,
         models_total:     db.prepare("SELECT COUNT(*) AS n FROM model_profiles").get().n,

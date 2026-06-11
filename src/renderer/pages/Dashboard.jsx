@@ -59,10 +59,12 @@ export default function DashboardPage() {
   }, [token]);
 
   useEffect(() => { refresh(); }, [refresh]);
-  // Live refresh every 30s — cheap on the backend, keeps "online" presence
-  // and today's counters from going stale while a manager is watching.
+  // Live refresh every 10s so heartbeat-driven presence and time-on-task
+  // visibly tick while a manager is watching. The query is one round-trip
+  // of indexed sub-selects, so this is still cheap even with dozens of
+  // users.
   useEffect(() => {
-    const id = setInterval(refresh, 30_000);
+    const id = setInterval(refresh, 10_000);
     return () => clearInterval(id);
   }, [refresh]);
 
@@ -167,7 +169,7 @@ function OrgStrip({ totals }) {
     { label: 'Posts today',    value: totals.posts_today,               tone: 'var(--gold-bright)' },
     { label: 'Comments today', value: totals.comments_today,            tone: '#9fc0ea' },
     { label: 'Karma · 24h',    value: totals.karma_today,               tone: '#e7c478' },
-    { label: 'Time on task',   value: formatMins(totals.engagement_minutes_today), tone: 'var(--text-0)' },
+    { label: 'Time on task',   value: formatMins(totals.time_on_task_minutes || 0), tone: 'var(--text-0)' },
     { label: 'Accounts',       value: totals.accounts_active,           tone: 'var(--text-0)', sub: totals.accounts_banned ? `${totals.accounts_banned} banned` : null },
     { label: 'Models',         value: totals.models_total,              tone: 'var(--text-0)' },
   ];
@@ -261,8 +263,8 @@ function TeamTable({ members, expandedId, onExpand, detail }) {
                   <td style={{ ...td, textAlign: 'right' }} className="mono" title="Karma gained on assigned accounts in the last 24h">
                     {(m.karma_today || 0) > 0 ? `+${m.karma_today.toLocaleString()}` : (m.karma_today || 0).toLocaleString()}
                   </td>
-                  <td style={{ ...td, textAlign: 'right' }} className="mono" title="Engagement-session seconds across assigned accounts in the last 24h">
-                    {formatMins(m.engagement_minutes_today || 0)}
+                  <td style={{ ...td, textAlign: 'right' }} className="mono" title="Active time in the app + Oserus Browser today. Pauses after 5 min of no input.">
+                    {formatMins(m.time_on_task_minutes || 0)}
                   </td>
                   <td style={{ ...td, textAlign: 'right' }} className="mono dim">
                     {m.last_seen ? formatRelative(m.last_seen) : '—'}

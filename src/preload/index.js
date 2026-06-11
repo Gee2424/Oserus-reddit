@@ -15,6 +15,7 @@ const api = {
     login: (data) => ipcRenderer.invoke('auth:login', data),
     logout: (data) => ipcRenderer.invoke('auth:logout', data),
     me: (data) => ipcRenderer.invoke('auth:me', data),
+    heartbeat: (data) => ipcRenderer.invoke('auth:heartbeat', data),
     createUser: (data) => ipcRenderer.invoke('auth:createUser', data),
     updateUser: (data) => ipcRenderer.invoke('auth:updateUser', data),
     deleteUser: (data) => ipcRenderer.invoke('auth:deleteUser', data),
