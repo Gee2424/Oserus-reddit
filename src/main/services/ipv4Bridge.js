@@ -28,6 +28,11 @@ function buildKey({ scheme, host, port, username, password }) {
   return `${scheme}|${host}|${port}|${username || ''}|${password ? password.length : 0}`;
 }
 
+// Local DNS is ONLY used as a last resort (for plain SOCKS4 which has
+// no remote-resolution mode). For every other upstream scheme we hand
+// the hostname to the proxy and let IT resolve, so the operator's ISP
+// resolver never sees a lookup for reddit.com / instagram.com / etc.
+// That eliminates the DNS-leak finding on BrowserScan.
 async function resolveIpv4(host) {
   if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) return host;
   const { address } = await dns.lookup(host, { family: 4 });
@@ -35,9 +40,17 @@ async function resolveIpv4(host) {
 }
 
 // --- Per-scheme upstream connectors. Each returns a Node socket that's
-//     already tunneled to (targetIp, targetPort) via the upstream proxy. ---
+//     already tunneled to (targetHost, targetPort) via the upstream proxy.
+//     targetHost may be an IP or a hostname — the connector picks the
+//     right representation for its scheme so DNS happens remotely. ---
 
-async function connectViaSocks(upstream, targetIp, targetPort) {
+async function connectViaSocks(upstream, targetHost, targetPort) {
+  // SOCKS5 supports a "domain" address type → the proxy resolves. The
+  // `socks` library auto-picks domain when destination.host is not an
+  // IP literal. SOCKS4 has no remote DNS, so for that one path we fall
+  // back to local resolution via socks4a-style or — if scheme is
+  // strictly 'socks4' — pre-resolve to v4 before we get here (handled
+  // upstream of this call).
   const conn = await SocksClient.createConnection({
     proxy: {
       host: upstream.host,
@@ -47,20 +60,22 @@ async function connectViaSocks(upstream, targetIp, targetPort) {
       password: upstream.password || undefined,
     },
     command: 'connect',
-    destination: { host: targetIp, port: targetPort },
+    destination: { host: targetHost, port: targetPort },
     timeout: 15000,
   });
   return conn.socket;
 }
 
-async function connectViaHttpProxy(upstream, targetIp, targetPort) {
-  // Open a TCP (or TLS) socket to the upstream, send CONNECT, parse
-  // the 200, return the raw socket for tunnelled traffic.
+async function connectViaHttpProxy(upstream, targetHost, targetPort) {
+  // CONNECT carries the destination as `host:port`. HTTP proxies (squid,
+  // 3proxy, every commercial residential gateway) resolve that hostname
+  // themselves — so handing them the hostname (not a pre-resolved IP)
+  // keeps DNS off the operator's machine.
   return new Promise((resolve, reject) => {
     const useTls = upstream.scheme === 'https';
     const headers = [
-      `CONNECT ${targetIp}:${targetPort} HTTP/1.1`,
-      `Host: ${targetIp}:${targetPort}`,
+      `CONNECT ${targetHost}:${targetPort} HTTP/1.1`,
+      `Host: ${targetHost}:${targetPort}`,
     ];
     if (upstream.username) {
       const auth = Buffer.from(`${upstream.username}:${upstream.password || ''}`).toString('base64');
@@ -109,12 +124,18 @@ async function connectViaHttpProxy(upstream, targetIp, targetPort) {
   });
 }
 
-async function dialUpstream(upstream, targetIp, targetPort) {
+async function dialUpstream(upstream, targetHost, targetPort) {
   if (upstream.scheme === 'http' || upstream.scheme === 'https') {
-    return connectViaHttpProxy(upstream, targetIp, targetPort);
+    return connectViaHttpProxy(upstream, targetHost, targetPort);
   }
-  // socks4 / socks4a / socks5 / socks5h all funnel through socks lib
-  return connectViaSocks(upstream, targetIp, targetPort);
+  // socks4 / socks4a / socks5 / socks5h all funnel through socks lib.
+  // For plain socks4 (no remote-resolution), pre-resolve to IPv4 here
+  // since the protocol can't carry a hostname. For everything else, hand
+  // the hostname over so the proxy resolves it.
+  if (upstream.scheme === 'socks4' && !/^\d+\.\d+\.\d+\.\d+$/.test(targetHost)) {
+    targetHost = await resolveIpv4(targetHost);
+  }
+  return connectViaSocks(upstream, targetHost, targetPort);
 }
 
 // --- Bridge server ---
@@ -140,12 +161,9 @@ async function getOrCreateBridge(upstream) {
     try {
       const [reqHost, reqPort] = req.url.split(':');
       const targetPort = parseInt(reqPort, 10) || 443;
-      let targetIp;
-      try { targetIp = await resolveIpv4(reqHost); }
-      catch {
-        clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n'); clientSocket.end(); return;
-      }
-      upSock = await dialUpstream(normalized, targetIp, targetPort);
+      // Hand the hostname directly to dialUpstream — it only falls back
+      // to local DNS when the scheme literally cannot carry one (socks4).
+      upSock = await dialUpstream(normalized, reqHost, targetPort);
       clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
       if (head && head.length) upSock.write(head);
       upSock.pipe(clientSocket);
@@ -167,9 +185,8 @@ async function getOrCreateBridge(upstream) {
   server.on('request', async (req, res) => {
     try {
       const target = new URL(req.url);
-      const targetIp = await resolveIpv4(target.hostname);
       const targetPort = parseInt(target.port || '80', 10);
-      const upSock = await dialUpstream(normalized, targetIp, targetPort);
+      const upSock = await dialUpstream(normalized, target.hostname, targetPort);
       const proxyReq = http.request({
         createConnection: () => upSock,
         method: req.method,

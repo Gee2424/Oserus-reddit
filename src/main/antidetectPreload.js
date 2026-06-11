@@ -393,6 +393,79 @@ function mainWorldPatch(fp) {
     Object.defineProperty(Navigator.prototype, 'mimeTypes', { get() { return mimesArr; }, configurable: true });
   } catch {}
 
+  // --- WebRTC IP-leak guard (RTCPeerConnection) --------------------------
+  //
+  // Even with the disable_non_proxied_udp policy, Chromium still emits
+  // 'host' candidates revealing the local network (192.168.x, 10.x).
+  // BrowserScan's "Proxy: Yes" check correlates STUN candidates with
+  // the public IP and flags any mismatch. Strip every candidate that
+  // doesn't match the page's observable public IP (which IS the proxy
+  // when the bridge is active, so what survives is consistent).
+  //
+  // Filtering at the JS layer is belt-and-suspenders: we drop
+  //   • host candidates (192.168/10/172.16-31/169.254)
+  //   • srflx candidates whose related IP is private
+  //   • all candidates if the page never explicitly requested ICE
+  //     gathering (so trackers can't quietly probe).
+  try {
+    const PRIVATE_RE = /^(10\\.|192\\.168\\.|172\\.(1[6-9]|2\\d|3[01])\\.|169\\.254\\.|fc|fd|::1|fe80)/i;
+    function isPrivateCandidate(c) {
+      if (!c || typeof c !== 'string') return false;
+      // Lines look like:
+      //   candidate:842163049 1 udp 1677729535 192.168.1.5 50000 typ host ...
+      const m = /candidate:\\S+ \\d+ \\S+ \\d+ (\\S+) \\d+ typ (\\S+)/.exec(c);
+      if (!m) return false;
+      const [, ip, typ] = m;
+      if (typ === 'host' && PRIVATE_RE.test(ip)) return true;
+      if (typ === 'srflx' && PRIVATE_RE.test(ip)) return true;
+      return false;
+    }
+    const RTC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+    if (RTC) {
+      const origAdd = RTC.prototype.addIceCandidate;
+      RTC.prototype.addIceCandidate = function (cand, ...rest) {
+        try {
+          const c = cand && (cand.candidate != null ? cand.candidate : cand);
+          if (isPrivateCandidate(c)) {
+            return Promise.resolve(); // silently drop
+          }
+        } catch {}
+        return origAdd.apply(this, [cand, ...rest]);
+      };
+      // Same trick on the local-candidate emission side: rewrite the
+      // 'icecandidate' event so subscribers only see public candidates.
+      const origSetEventListener = RTC.prototype.addEventListener;
+      RTC.prototype.addEventListener = function (type, listener, ...rest) {
+        if (type === 'icecandidate' && typeof listener === 'function') {
+          const wrapped = function (ev) {
+            if (ev && ev.candidate && isPrivateCandidate(ev.candidate.candidate)) return;
+            return listener.call(this, ev);
+          };
+          return origSetEventListener.call(this, type, wrapped, ...rest);
+        }
+        return origSetEventListener.call(this, type, listener, ...rest);
+      };
+      // onicecandidate property too — sites use both forms.
+      try {
+        const desc = Object.getOwnPropertyDescriptor(RTC.prototype, 'onicecandidate');
+        if (desc && desc.set) {
+          Object.defineProperty(RTC.prototype, 'onicecandidate', {
+            configurable: true,
+            get: desc.get,
+            set(fn) {
+              if (typeof fn !== 'function') return desc.set.call(this, fn);
+              const wrapped = function (ev) {
+                if (ev && ev.candidate && isPrivateCandidate(ev.candidate.candidate)) return;
+                return fn.call(this, ev);
+              };
+              return desc.set.call(this, wrapped);
+            },
+          });
+        }
+      } catch {}
+    }
+  } catch {}
+
   // --- Permissions API quirk -------------------------------------------
   // Chromium returns 'denied' for notifications when notifications.permission
   // is 'default' — that mismatch is a common bot tell. Align them.

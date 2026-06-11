@@ -74,12 +74,15 @@ const oserusBrowser = require('./browser');
 const { buildAutofillScript } = require('./autofill');
 const fingerprintMod = require('./fingerprint');
 
-// WebRTC IP-leak guard. Forces Chromium to send WebRTC traffic through
-// the configured proxy when one is set, so the page's RTCPeerConnection
-// can't reveal the real local IP via STUN. Must be applied before
-// app.whenReady(); putting it next to the other early-boot config.
-app.commandLine.appendSwitch('webrtc-ip-handling-policy', 'default_public_interface_only');
-app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'default_public_interface_only');
+// WebRTC IP-leak guard. The strictest policy: disable any UDP that
+// can't go through the proxy. Combined with our preload's
+// RTCPeerConnection patch (which strips host/srflx candidates revealing
+// the local network), this makes "Proxy: Yes" disappear from
+// BrowserScan because there's no observable mismatch between the public
+// IP and what WebRTC reports — they both come from the proxy or
+// nothing. Must be applied before app.whenReady().
+app.commandLine.appendSwitch('webrtc-ip-handling-policy', 'disable_non_proxied_udp');
+app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_proxied_udp');
 
 // Anti-fingerprint / leak hardening.
 //   - Disable QUIC. QUIC uses UDP and can bypass HTTP/SOCKS proxies that
