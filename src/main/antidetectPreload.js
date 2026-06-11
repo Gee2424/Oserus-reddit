@@ -93,7 +93,7 @@ function mainWorldPatch(fp) {
   } catch {}
   // webdriver flag — most antibot stacks check this first. Override on
   // both the instance and the prototype, and also delete the property
-  // descriptor so `'webdriver' in navigator && navigator.webdriver`
+  // descriptor so an "in navigator" probe combined with a value read
   // can't catch us out via a truthy check on the getter's existence.
   try {
     Object.defineProperty(Navigator.prototype, 'webdriver', {
