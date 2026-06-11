@@ -85,6 +85,11 @@ export default function IntelligencePage() {
   const [sel, setSel] = useState({ profileId: null, platform: 'reddit', accountId: null });
   const [msg, setMsg] = useState(null);
   const [err, setErr] = useState(null);
+  // Reddit shows three workspaces (Discover · Requirements ·
+  // Compatibility). They used to stack vertically — the page was 4
+  // viewports tall on a fresh account with no scraped data. Tabs swap
+  // them in place so the operator works on one task at a time.
+  const [tab, setTab] = useState('discover');
 
   useEffect(() => {
     window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
@@ -132,26 +137,61 @@ export default function IntelligencePage() {
         </div>
       ) : (
         <>
-          <DiscoverPanel
-            token={token}
-            accountId={sel.accountId}
-            profileId={sel.profileId}
-            platform={platform}
-            lang={lang}
-            onMsg={setMsg}
-            onError={setErr}
-          />
-
+          {/* Tab strip — Reddit gets three workspaces, every other
+              platform only has Discover, so we skip the strip there
+              and just render the panel inline. */}
           {platform === 'reddit' && (
-            <>
-              <RequirementsPanel
-                token={token}
-                accountId={sel.accountId}
-                onMsg={setMsg}
-                onError={setErr}
-              />
-              <CompatibilityPanel token={token} accountId={sel.accountId} accounts={accounts} />
-            </>
+            <div style={{
+              display: 'flex', gap: 4, marginBottom: 14,
+              background: 'var(--bg-1)', border: '1px solid var(--border)',
+              borderRadius: 999, padding: 3, width: 'fit-content',
+            }}>
+              {[
+                { k: 'discover',     label: 'Discover',     hint: 'Scrape · analyze trends · AI plan' },
+                { k: 'requirements', label: 'Requirements', hint: 'Karma + age gates + rules per subreddit' },
+                { k: 'compatibility',label: 'Compatibility',hint: 'Which subs this account qualifies for' },
+              ].map((t) => {
+                const active = tab === t.k;
+                return (
+                  <button
+                    key={t.k}
+                    onClick={() => setTab(t.k)}
+                    title={t.hint}
+                    style={{
+                      padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 999,
+                      border: 'none', cursor: 'pointer',
+                      background: active ? 'var(--gold)' : 'transparent',
+                      color: active ? '#1a1410' : 'var(--text-2)',
+                    }}
+                  >{t.label}</button>
+                );
+              })}
+            </div>
+          )}
+
+          {(platform !== 'reddit' || tab === 'discover') && (
+            <DiscoverPanel
+              token={token}
+              accountId={sel.accountId}
+              profileId={sel.profileId}
+              platform={platform}
+              lang={lang}
+              onMsg={setMsg}
+              onError={setErr}
+            />
+          )}
+
+          {platform === 'reddit' && tab === 'requirements' && (
+            <RequirementsPanel
+              token={token}
+              accountId={sel.accountId}
+              onMsg={setMsg}
+              onError={setErr}
+            />
+          )}
+
+          {platform === 'reddit' && tab === 'compatibility' && (
+            <CompatibilityPanel token={token} accountId={sel.accountId} accounts={accounts} />
           )}
         </>
       )}
@@ -339,23 +379,17 @@ function DiscoverPanel({ token, accountId, profileId, platform, lang, onMsg, onE
         {busy ? <><Spinner /> {stageLabel}</> : `→ ${stageLabel}`}
       </button>
 
-      {posts.length > 0 && (
-        <div style={{ marginTop: 18 }}>
-          <div style={subhead}>{lang.resultUnit[0].toUpperCase() + lang.resultUnit.slice(1)} · {posts.length}</div>
-          <div style={{ maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {posts.slice(0, 60).map((p) => (
-              <a key={p.id || p.url || p.title} href={p.url} target="_blank" rel="noreferrer" style={resultRow}>
-                <span className="mono" style={{ minWidth: 60, color: 'var(--gold)' }}>
-                  {(p.score ?? 0).toLocaleString()}{platform === 'reddit' ? '↑' : ''}
-                </span>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {p.title || '(no caption)'}
-                </span>
-                <span className="dim" style={{ minWidth: 70, textAlign: 'right' }}>
-                  {p.author ? `@${p.author}` : ''}
-                </span>
-              </a>
-            ))}
+      {/* Results — three flat sections in order of usefulness for a
+          first read: the AI plan (the thing the operator actually
+          wanted), Trends (numeric backing), and the raw posts list
+          (deep-dive). Plan + Trends are open by default; the posts
+          list collapsed so the page doesn't grow by 280px for what's
+          mostly a sanity-check list. */}
+      {plan && (
+        <div style={planBox}>
+          <div style={subhead}>AI content plan {plan.savedDocId ? '· saved to docs' : ''}</div>
+          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.55 }}>
+            {plan.plan || plan.text || JSON.stringify(plan)}
           </div>
         </div>
       )}
@@ -380,13 +414,27 @@ function DiscoverPanel({ token, accountId, profileId, platform, lang, onMsg, onE
         </div>
       )}
 
-      {plan && (
-        <div style={planBox}>
-          <div style={subhead}>AI content plan {plan.savedDocId ? '· saved to docs' : ''}</div>
-          <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.55 }}>
-            {plan.plan || plan.text || JSON.stringify(plan)}
+      {posts.length > 0 && (
+        <details style={{ marginTop: 18, border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', background: 'var(--bg-elev)' }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--text-2)', padding: '4px 0' }}>
+            {lang.resultUnit[0].toUpperCase() + lang.resultUnit.slice(1)} scraped · {posts.length}
+          </summary>
+          <div style={{ marginTop: 10, maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {posts.slice(0, 60).map((p) => (
+              <a key={p.id || p.url || p.title} href={p.url} target="_blank" rel="noreferrer" style={resultRow}>
+                <span className="mono" style={{ minWidth: 60, color: 'var(--gold)' }}>
+                  {(p.score ?? 0).toLocaleString()}{platform === 'reddit' ? '↑' : ''}
+                </span>
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {p.title || '(no caption)'}
+                </span>
+                <span className="dim" style={{ minWidth: 70, textAlign: 'right' }}>
+                  {p.author ? `@${p.author}` : ''}
+                </span>
+              </a>
+            ))}
           </div>
-        </div>
+        </details>
       )}
     </div>
   );
