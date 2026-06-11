@@ -91,8 +91,31 @@ function mainWorldPatch(fp) {
       defineGetter(Navigator.prototype, 'deviceMemory', FP.deviceMemory);
     }
   } catch {}
-  // webdriver flag — most antibot stacks check this first.
-  try { defineGetter(Navigator.prototype, 'webdriver', false); } catch {}
+  // webdriver flag — most antibot stacks check this first. Override on
+  // both the instance and the prototype, and also delete the property
+  // descriptor so `'webdriver' in navigator && navigator.webdriver`
+  // can't catch us out via a truthy check on the getter's existence.
+  try {
+    Object.defineProperty(Navigator.prototype, 'webdriver', {
+      get() { return false; }, configurable: true, enumerable: true,
+    });
+  } catch {}
+  try { delete navigator.__proto__.webdriver; } catch {}
+
+  // Selenium / Playwright / Puppeteer chromedriver leaves a handful of
+  // injected globals: cdc_*, $cdc_*, $chrome_asyncScriptInfo,
+  // __webdriver_*, __selenium_*, __nightmare. Strip them; they're a
+  // pure tell with no legitimate use on a real browser.
+  try {
+    for (const k of Object.keys(window)) {
+      if (/^(cdc_|\\$cdc_|\\$chrome_asyncScriptInfo|__webdriver_|__selenium_|__nightmare)/.test(k)) {
+        try { delete window[k]; } catch {}
+      }
+    }
+    for (const k of Object.keys(document)) {
+      if (/^\\$cdc_/.test(k)) { try { delete document[k]; } catch {} }
+    }
+  } catch {}
 
   // --- Safari-mode: remove Chromium-only surface --------------------------
   // Mobile Safari doesn't ship navigator.userAgentData (UA-CH), the
@@ -142,10 +165,16 @@ function mainWorldPatch(fp) {
   // --- Sec-CH-UA via userAgentData (Chromium-only) ------------------------
   // Skip entirely when impersonating Safari — userAgentData was just
   // deleted above; redefining it here would re-leak Chromium.
+  //
+  // Version MUST match Electron's underlying Chromium. Electron 32 ships
+  // Chromium 128; declaring 131 here lets browserscan flag a UA mismatch
+  // because feature-detection probes find Chrome-128-era APIs behind a
+  // Chrome-131 banner. Keep these literals in sync with the UA strings
+  // in fingerprint.js.
   if (!FP.safari) try {
     const brands = [
-      { brand: 'Chromium', version: '131' },
-      { brand: 'Google Chrome', version: '131' },
+      { brand: 'Chromium', version: '128' },
+      { brand: 'Google Chrome', version: '128' },
       { brand: 'Not_A Brand', version: '24' },
     ];
     // High-entropy fields fork by mobile vs desktop so an anti-bot
@@ -168,8 +197,8 @@ function mainWorldPatch(fp) {
           if (k === 'bitness') return [k, bitness];
           if (k === 'model') return [k, model];
           if (k === 'mobile') return [k, mobile];
-          if (k === 'uaFullVersion') return [k, '131.0.0.0'];
-          if (k === 'fullVersionList') return [k, brands.map((b) => ({ brand: b.brand, version: '131.0.0.0' }))];
+          if (k === 'uaFullVersion') return [k, '128.0.0.0'];
+          if (k === 'fullVersionList') return [k, brands.map((b) => ({ brand: b.brand, version: '128.0.0.0' }))];
           return [k, ''];
         })));
       },
@@ -226,6 +255,12 @@ function mainWorldPatch(fp) {
   } catch {}
 
   // --- WebGL vendor / renderer (UNMASKED_VENDOR_WEBGL = 0x9245) ----------
+  //
+  // Only override the WEBGL_debug_renderer_info extension parameters —
+  // those are what fingerprinters read for GPU identity. The plain
+  // VENDOR (0x1F00) and RENDERER (0x1F01) params on a real Chromium
+  // return masked strings ("WebKit" / "WebKit WebGL"), and returning
+  // anything else for them is a bigger tell than the spoof solves.
   try {
     const UNMASKED_VENDOR = 0x9245;
     const UNMASKED_RENDERER = 0x9246;
@@ -234,8 +269,6 @@ function mainWorldPatch(fp) {
       proto.getParameter = function (p) {
         if (p === UNMASKED_VENDOR)   return FP.webgl.vendor;
         if (p === UNMASKED_RENDERER) return FP.webgl.renderer;
-        if (p === 0x1F00 /* VENDOR */)   return FP.webgl.vendor;
-        if (p === 0x1F01 /* RENDERER */) return FP.webgl.renderer;
         return orig.call(this, p);
       };
     }
@@ -243,15 +276,34 @@ function mainWorldPatch(fp) {
     if (typeof WebGL2RenderingContext !== 'undefined') patchGL(WebGL2RenderingContext.prototype);
   } catch {}
 
-  // --- Canvas noise (tiny per-pixel jitter on read paths) ----------------
+  // --- Canvas noise (deterministic per-pixel jitter) ----------------------
+  //
+  // Browserscan's tampering probe calls getImageData/toDataURL twice and
+  // diffs the output. The old implementation nudged by a fixed loop
+  // stride, which IS stable across two calls on the same canvas — but
+  // only by accident, because nothing keyed the nudge to the underlying
+  // pixel. If a single byte ever changed (animated canvas, font subpixel
+  // drift), the resulting output diverged in an obviously-non-random
+  // way, which is itself a tell.
+  //
+  // Make the jitter a deterministic function of (pixel index, pixel
+  // value, account-seeded canvasNoise). Repeated reads of the same
+  // canvas return byte-for-byte identical data; reads of different
+  // canvases produce a stable per-canvas fingerprint distinct from the
+  // engine default.
   try {
-    const noise = FP.canvasNoise | 0;
+    const SEED = (FP.canvasNoise | 0) || 0;
     function jitter(arr) {
-      // Only nudge a few pixels — too much breaks legitimate UI.
-      for (let i = 0; i < arr.length; i += 4 * 997) {
-        arr[i]   = (arr[i]   + noise) & 0xff;
-        arr[i+1] = (arr[i+1] + noise) & 0xff;
-        arr[i+2] = (arr[i+2] + noise) & 0xff;
+      // xorshift on (i ^ value ^ SEED) keeps the result both small and
+      // deterministic. Touches ~1 in 1000 pixels — enough to change the
+      // hash, too few to break legitimate UI rendering.
+      for (let i = 0; i < arr.length; i += 4) {
+        const h = (i * 2654435761) ^ (arr[i] * 40503) ^ SEED;
+        if ((h & 0x3ff) !== 0) continue; // ~0.1% of pixels
+        const delta = ((h >>> 10) & 0x3) - 1; // -1, 0, 1, 2
+        arr[i]   = (arr[i]   + delta) & 0xff;
+        arr[i+1] = (arr[i+1] + delta) & 0xff;
+        arr[i+2] = (arr[i+2] + delta) & 0xff;
       }
     }
     const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
@@ -274,17 +326,71 @@ function mainWorldPatch(fp) {
     };
   } catch {}
 
-  // --- AudioContext noise -------------------------------------------------
+  // --- AudioContext noise (deterministic) ---------------------------------
+  //
+  // Same trick as canvas: the original samples + a deterministic delta
+  // keyed by index and seed. Two reads of the same buffer return
+  // identical bytes, so the tampering-probe diff is empty.
   try {
-    const eps = +FP.audioNoise || 0;
+    const EPS = +FP.audioNoise || 0;
+    const SEED = ((FP.canvasNoise | 0) >>> 0) || 1;
     const origGCD = AudioBuffer.prototype.getChannelData;
     AudioBuffer.prototype.getChannelData = function (...args) {
       const data = origGCD.apply(this, args);
-      // Apply a barely-perceptible nudge so AudioContext fingerprints differ
-      // from the engine default but the audio still plays correctly.
-      for (let i = 0; i < data.length; i += 521) data[i] = data[i] + eps;
+      for (let i = 0; i < data.length; i += 521) {
+        const h = ((i * 2246822519) ^ SEED) >>> 0;
+        data[i] = data[i] + EPS * (((h & 0xff) / 255) - 0.5);
+      }
       return data;
     };
+  } catch {}
+
+  // --- navigator.plugins / mimeTypes -------------------------------------
+  //
+  // On real Chromium-on-desktop, navigator.plugins lists the bundled PDF
+  // viewer entries (5 plugins, 2 mime types). On Electron, the list is
+  // usually empty or short — a strong "headless / automation" signal.
+  // Don't fabricate plugins for mobile profiles (real mobile Chrome
+  // ships an empty list, so adding any would be the tell).
+  if (!FP.mobile && !FP.safari) try {
+    const mkMime = (type, suffixes, desc) => Object.freeze({
+      type, suffixes, description: desc, enabledPlugin: null,
+    });
+    const pdfMime = mkMime('application/pdf', 'pdf', 'Portable Document Format');
+    const xPdfMime = mkMime('text/pdf', 'pdf', 'Portable Document Format');
+    const mkPlugin = (name, filename, desc) => {
+      const p = { name, filename, description: desc, length: 2,
+        0: pdfMime, 1: xPdfMime,
+        item(i) { return i === 0 ? pdfMime : i === 1 ? xPdfMime : null; },
+        namedItem(n) { return n === 'application/pdf' ? pdfMime : n === 'text/pdf' ? xPdfMime : null; },
+      };
+      Object.freeze(p);
+      return p;
+    };
+    const plugins = [
+      mkPlugin('PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+      mkPlugin('Chrome PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+      mkPlugin('Chromium PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+      mkPlugin('Microsoft Edge PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+      mkPlugin('WebKit built-in PDF', 'internal-pdf-viewer', 'Portable Document Format'),
+    ];
+    const pluginsArr = Object.assign(plugins.slice(), {
+      length: plugins.length,
+      item(i) { return plugins[i] || null; },
+      namedItem(n) { return plugins.find((p) => p.name === n) || null; },
+      refresh() {},
+      [Symbol.iterator]() { let i = 0; return { next: () => i < plugins.length
+        ? { value: plugins[i++], done: false } : { value: undefined, done: true } }; },
+    });
+    Object.defineProperty(Navigator.prototype, 'plugins', { get() { return pluginsArr; }, configurable: true });
+
+    const mimes = [pdfMime, xPdfMime];
+    const mimesArr = Object.assign(mimes.slice(), {
+      length: mimes.length,
+      item(i) { return mimes[i] || null; },
+      namedItem(n) { return mimes.find((m) => m.type === n) || null; },
+    });
+    Object.defineProperty(Navigator.prototype, 'mimeTypes', { get() { return mimesArr; }, configurable: true });
   } catch {}
 
   // --- Permissions API quirk -------------------------------------------

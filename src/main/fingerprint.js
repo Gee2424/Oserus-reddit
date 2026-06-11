@@ -81,7 +81,7 @@ const PROFILES = [
   {
     os: 'Windows', platform: 'Win32',
     osVersion: '10.0', osLabel: 'Windows 11',
-    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
     chUaPlatform: '"Windows"',
     webglVendor: 'Google Inc. (NVIDIA)',
     webglRenderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)',
@@ -90,7 +90,7 @@ const PROFILES = [
   {
     os: 'Windows', platform: 'Win32',
     osVersion: '10.0', osLabel: 'Windows 11',
-    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
     chUaPlatform: '"Windows"',
     webglVendor: 'Google Inc. (Intel)',
     webglRenderer: 'ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)',
@@ -100,7 +100,7 @@ const PROFILES = [
   {
     os: 'macOS', platform: 'MacIntel',
     osVersion: '10_15_7', osLabel: 'macOS 14',
-    ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
     chUaPlatform: '"macOS"',
     webglVendor: 'Google Inc. (Apple)',
     webglRenderer: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)',
@@ -116,7 +116,7 @@ const ANDROID_PROFILES = [
   {
     os: 'Android', platform: 'Linux armv81',
     osVersion: '14', osLabel: 'Android 14 (Pixel 8)',
-    ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+    ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36',
     chUaPlatform: '"Android"',
     webglVendor: 'Google Inc. (ARM)',
     webglRenderer: 'ANGLE (ARM, Mali-G715, OpenGL ES 3.2)',
@@ -128,7 +128,7 @@ const ANDROID_PROFILES = [
   {
     os: 'Android', platform: 'Linux armv81',
     osVersion: '14', osLabel: 'Android 14 (Galaxy S24)',
-    ua: 'Mozilla/5.0 (Linux; Android 14; SM-S921U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+    ua: 'Mozilla/5.0 (Linux; Android 14; SM-S921U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36',
     chUaPlatform: '"Android"',
     webglVendor: 'Google Inc. (Qualcomm)',
     webglRenderer: 'ANGLE (Qualcomm, Adreno (TM) 750, OpenGL ES 3.2)',
@@ -140,7 +140,7 @@ const ANDROID_PROFILES = [
   {
     os: 'Android', platform: 'Linux armv81',
     osVersion: '14', osLabel: 'Android 14 (OnePlus 12)',
-    ua: 'Mozilla/5.0 (Linux; Android 14; CPH2581) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+    ua: 'Mozilla/5.0 (Linux; Android 14; CPH2581) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36',
     chUaPlatform: '"Android"',
     webglVendor: 'Google Inc. (Qualcomm)',
     webglRenderer: 'ANGLE (Qualcomm, Adreno (TM) 750, OpenGL ES 3.2)',
@@ -152,7 +152,7 @@ const ANDROID_PROFILES = [
   {
     os: 'Android', platform: 'Linux armv81',
     osVersion: '14', osLabel: 'Android 14 (Pixel 7a)',
-    ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 7a) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+    ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 7a) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36',
     chUaPlatform: '"Android"',
     webglVendor: 'Google Inc. (ARM)',
     webglRenderer: 'ANGLE (ARM, Mali-G710, OpenGL ES 3.2)',
