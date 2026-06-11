@@ -24,7 +24,7 @@ const SUPABASE_URL = 'https://zjqnblddfcumknjepynp.supabase.co';
 // Paste the anon (public) JWT here. Safe to ship — it's the same key
 // the Supabase JS SDK uses in any web client; row-level-security on
 // the project is what actually gates access.
-const SUPABASE_ANON_KEY = '';
+const SUPABASE_ANON_KEY = 'sb_publishable_NBraLlnQnrDF93JMIM_FLg_ZPIPFeBu';
 
 module.exports = {
   SUPABASE_URL,
