@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useAuth } from './auth.jsx';
+import { useCloudReload } from './cloudReload.jsx';
 
 const ActiveAccountCtx = createContext(null);
 
@@ -55,6 +56,11 @@ export function ActiveAccountProvider({ children }) {
   useEffect(() => {
     if (token && user) refresh();
   }, [token, user, refresh]);
+
+  // Live-refresh when another operator's edits land in our local DB.
+  useCloudReload(['reddit_accounts', 'model_profiles', 'proxies'], () => {
+    if (token && user) refresh();
+  });
 
   useEffect(() => {
     for (const id of Object.values(activeIds)) {

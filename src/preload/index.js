@@ -296,6 +296,11 @@ const api = {
       ipcRenderer.on('cloud:status', fn);
       return () => ipcRenderer.removeListener('cloud:status', fn);
     },
+    onDataChanged: (cb) => {
+      const fn = (_e, p) => cb(p);
+      ipcRenderer.on('cloud:dataChanged', fn);
+      return () => ipcRenderer.removeListener('cloud:dataChanged', fn);
+    },
   },
 };
 

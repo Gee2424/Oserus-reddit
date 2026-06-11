@@ -5,6 +5,7 @@ import PopOutButton from '../components/PopOutButton.jsx';
 import AccountSelector from '../components/AccountSelector.jsx';
 import PlatformExplainer from '../components/PlatformExplainer.jsx';
 import { Banner } from '../components/ui.jsx';
+import { useCloudReload } from '../lib/cloudReload.jsx';
 
 const PLATFORM_ICON = { reddit: '◈', redgifs: '▮', x: '𝕏', instagram: '◉', tiktok: '♪' };
 const STATUS_COLOR = {
@@ -69,6 +70,7 @@ export default function SchedulerProPage() {
     const id = setInterval(load, 30000);
     return () => clearInterval(id);
   }, [load]);
+  useCloudReload(['scheduled_posts', 'schedule_templates', 'autopilot_protocols'], () => load());
   useEffect(() => {
     if (!msg && !err) return;
     const t = setTimeout(() => { setMsg(null); setErr(null); }, 4000);

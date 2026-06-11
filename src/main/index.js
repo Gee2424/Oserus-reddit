@@ -416,10 +416,13 @@ app.whenReady().then(() => {
   // protocol is enabled. Starting the timer here is harmless when disabled.
   coordinator.start();
 
+  // Auto-start cloud sync at boot. Delegates the credentials decision to
+  // supabase.start() which now reads override → baked fallback and
+  // refuses to spin up if neither is present.
   try {
     const cloud = require('./sync/supabase');
-    const { getKv } = require('./db');
-    if (getKv('cloud.enabled') === '1' && getKv('cloud.supabase.url') && getKv('cloud.supabase.anon_key')) {
+    const cfg = cloud.getConfig();
+    if (cfg.enabled && cfg.url && cfg.anonKey) {
       cloud.start().catch((e) => elog.warn('[cloud] auto-start failed:', e?.message));
     }
   } catch (e) {

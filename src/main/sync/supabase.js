@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { BrowserWindow } = require('electron');
 const { getDb, getKv, setKv } = require('../db');
 const defaultBackend = require('./defaultBackend');
+const { ALL_TABLES, ensureUpdatedAtColumns } = require('./syncSchema');
 
 // `ws` shim for Supabase Realtime. Electron 32 ships Node 20, which
 // (until 22) has no global WebSocket — supabase-realtime crashes with
@@ -20,15 +21,14 @@ try {
   elog.warn('[cloud] @supabase/supabase-js not installed:', e?.message);
 }
 
-const TABLES = [
-  { local: 'activity_log',         remote: 'activity_log',         pk: 'id', watermark: 'id' },
-  { local: 'post_events',          remote: 'post_events',          pk: 'id', watermark: 'id' },
-  { local: 'auto_comment_runs',    remote: 'auto_comment_runs',    pk: 'id', watermark: 'id' },
-  { local: 'engagement_sessions',  remote: 'engagement_sessions',  pk: 'id', watermark: 'id' },
-];
+const TABLES = ALL_TABLES;
 
 const PRESENCE_CHANNEL = 'oserus:presence';
-const PUSH_INTERVAL_MS = 5000;
+// Tight push tick so a save on one machine reaches the others in ~1
+// realtime round-trip + this interval. Remote pulls arrive instantly via
+// the Realtime websocket — the push tick is only the upload side, and
+// markDirty() can prod it sooner when an IPC handler knows it just wrote.
+const PUSH_INTERVAL_MS = 1500;
 const HEARTBEAT_MS = 15000;
 
 const state = {
@@ -150,6 +150,9 @@ async function pushTable(t) {
   const db = getDb();
   const cols = colsFor(t.local);
   if (!cols.length) return 0;
+  // Skip tables that don't have the watermark column yet (a TEAM_SHARED
+  // table whose ensureUpdatedAtColumns() failed, or hasn't run yet).
+  if (!cols.includes(t.watermark)) return 0;
   const wm = getWatermark(t.local);
   let rows = [];
   try {
@@ -168,8 +171,8 @@ async function pushTable(t) {
       setError(`push ${t.remote}: ${error.message}`);
       return 0;
     }
-    const maxId = rows[rows.length - 1][t.watermark];
-    setWatermark(t.local, Number(maxId));
+    const maxWm = rows[rows.length - 1][t.watermark];
+    setWatermark(t.local, Number(maxWm) || 0);
     state.status.pushed += rows.length;
     state.status.lastSyncAt = new Date().toISOString();
     broadcastStatus();
@@ -187,10 +190,32 @@ async function pushLoopTick() {
   }
 }
 
-function applyRemoteRow(table, row) {
+// Prods the push loop without waiting for the timer. Call from IPC
+// handlers right after a local mutation so the change reaches Supabase
+// (and other operators) within a few hundred ms.
+let dirtyTimer = null;
+function markDirty() {
+  if (!state.client) return;
+  if (dirtyTimer) return;
+  dirtyTimer = setTimeout(() => {
+    dirtyTimer = null;
+    pushLoopTick().catch((e) => setError(`dirty push: ${e?.message}`));
+  }, 250);
+}
+
+function broadcastDataChanged(table, eventType, row) {
+  try {
+    const payload = { table, eventType, id: row && (row.id ?? row.key) };
+    for (const win of BrowserWindow.getAllWindows()) {
+      try { win.webContents.send('cloud:dataChanged', payload); } catch {}
+    }
+  } catch {}
+}
+
+function applyRemoteRow(t, row) {
   if (!row) return;
   try {
-    const cols = colsFor(table);
+    const cols = colsFor(t.local);
     if (!cols.length) return;
     const present = cols.filter((c) => Object.prototype.hasOwnProperty.call(row, c));
     if (!present.length) return;
@@ -202,17 +227,21 @@ function applyRemoteRow(table, row) {
       return v;
     });
     getDb().prepare(
-      `INSERT OR REPLACE INTO ${table} (${present.join(', ')}) VALUES (${placeholders})`
+      `INSERT OR REPLACE INTO ${t.local} (${present.join(', ')}) VALUES (${placeholders})`
     ).run(...values);
     state.status.pulled += 1;
     state.status.lastSyncAt = new Date().toISOString();
-    if (typeof row.id === 'number') {
-      const wm = getWatermark(table);
-      if (row.id > wm) setWatermark(table, row.id);
+    // Advance our watermark past whatever just arrived so we don't try
+    // to push it back out as if it were our own write.
+    const wmValue = row[t.watermark];
+    if (wmValue != null && Number.isFinite(Number(wmValue))) {
+      const wm = getWatermark(t.local);
+      const n = Number(wmValue);
+      if (n > wm) setWatermark(t.local, n);
     }
     broadcastStatus();
   } catch (e) {
-    setError(`apply ${table}: ${e?.message}`);
+    setError(`apply ${t.local}: ${e?.message}`);
   }
 }
 
@@ -227,12 +256,14 @@ function subscribeRealtime() {
             try {
               getDb().prepare(`DELETE FROM ${t.local} WHERE ${t.pk} = ?`).run(row[t.pk]);
               broadcastStatus();
+              broadcastDataChanged(t.local, 'DELETE', row);
             } catch (e) {
               setError(`delete ${t.local}: ${e?.message}`);
             }
             return;
           }
-          applyRemoteRow(t.local, row);
+          applyRemoteRow(t, row);
+          broadcastDataChanged(t.local, payload.eventType, row);
         })
         .subscribe();
     } catch (e) {
@@ -297,6 +328,8 @@ async function start() {
   state.starting = true;
   state.userId = ensureUserId();
   state.deviceName = cfg.deviceName;
+  try { ensureUpdatedAtColumns(getDb()); }
+  catch (e) { elog.warn('[cloud] ensureUpdatedAtColumns failed:', e?.message); }
   try {
     const { app } = require('electron');
     state.appVersion = app.getVersion();
@@ -427,4 +460,4 @@ async function testConnection({ url, anonKey } = {}) {
 
 function registerSyncIpc() {}
 
-module.exports = { start, stop, getStatus, getConfig, setCredentials, testConnection, registerSyncIpc };
+module.exports = { start, stop, getStatus, getConfig, setCredentials, testConnection, registerSyncIpc, markDirty };

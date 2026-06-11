@@ -23,6 +23,9 @@ import RedditApiPage from './pages/RedditApi.jsx';
 import InboxPage from './pages/Inbox.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
+import { installCloudReloadBridge } from './lib/cloudReload.jsx';
+
+installCloudReloadBridge();
 
 // A pop-out window loads the renderer with #popout=<route>&k=v&k=v.
 // Detect it, parse extra hash params, and render a minimal standalone shell

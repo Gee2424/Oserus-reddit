@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
+import { useCloudReload } from '../lib/cloudReload.jsx';
 
 const COLORS = ['#c8553d', '#d4a55a', '#7a9a5a', '#5a7a9a', '#9a5a8e', '#8e6a4a'];
 
@@ -51,6 +52,7 @@ export default function ProfilesPage({ navigate }) {
     load();
   }
   useEffect(() => { load(); }, []);
+  useCloudReload(['model_profiles', 'proxies', 'roles', 'role_permissions'], () => { load(); });
 
   async function addProfile(e) {
     e.preventDefault();

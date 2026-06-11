@@ -5,6 +5,7 @@ import PopOutButton from '../components/PopOutButton.jsx';
 import AccountSelector from '../components/AccountSelector.jsx';
 import PlatformExplainer from '../components/PlatformExplainer.jsx';
 import { Banner } from '../components/ui.jsx';
+import { useCloudReload } from '../lib/cloudReload.jsx';
 
 // Autopilot page.
 //
@@ -59,6 +60,7 @@ export default function AutopilotPage() {
     setProto(r.ok ? r.protocol : null);
   }, [token, sel.profileId, sel.platform]);
   useEffect(() => { loadProtocol(); }, [loadProtocol]);
+  useCloudReload(['autopilot_protocols', 'autopilot_prompts'], () => loadProtocol());
 
   // -- master status (enabled / interval / last pass) + recent events --
   const loadStatus = useCallback(async () => {
