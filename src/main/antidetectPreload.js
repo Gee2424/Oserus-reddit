@@ -276,72 +276,89 @@ function mainWorldPatch(fp) {
     if (typeof WebGL2RenderingContext !== 'undefined') patchGL(WebGL2RenderingContext.prototype);
   } catch {}
 
-  // --- Canvas noise (deterministic per-pixel jitter) ----------------------
+  // --- Canvas noise (deterministic, non-destructive) ---------------------
   //
-  // Browserscan's tampering probe calls getImageData/toDataURL twice and
-  // diffs the output. The old implementation nudged by a fixed loop
-  // stride, which IS stable across two calls on the same canvas — but
-  // only by accident, because nothing keyed the nudge to the underlying
-  // pixel. If a single byte ever changed (animated canvas, font subpixel
-  // drift), the resulting output diverged in an obviously-non-random
-  // way, which is itself a tell.
+  // The old implementation called getImageData → jitter → putImageData,
+  // which MODIFIED the canvas. Two consecutive toDataURL calls then
+  // returned different hashes because each call jittered an
+  // already-jittered canvas. That's exactly the tampering signal we
+  // were trying to hide from.
   //
-  // Make the jitter a deterministic function of (pixel index, pixel
-  // value, account-seeded canvasNoise). Repeated reads of the same
-  // canvas return byte-for-byte identical data; reads of different
-  // canvases produce a stable per-canvas fingerprint distinct from the
-  // engine default.
+  // New approach: never touch the source canvas. Clone the pixel array,
+  // jitter the clone, and either return the clone (getImageData) or
+  // copy it into a temporary off-screen canvas for the data-URL encode
+  // (toDataURL). The original canvas stays byte-for-byte identical
+  // across reads, and the noise is a pure deterministic function of
+  // (pixel index, original pixel value, account seed) so the returned
+  // bytes are identical too.
   try {
     const SEED = (FP.canvasNoise | 0) || 0;
-    function jitter(arr) {
-      // xorshift on (i ^ value ^ SEED) keeps the result both small and
-      // deterministic. Touches ~1 in 1000 pixels — enough to change the
-      // hash, too few to break legitimate UI rendering.
-      for (let i = 0; i < arr.length; i += 4) {
-        const h = (i * 2654435761) ^ (arr[i] * 40503) ^ SEED;
-        if ((h & 0x3ff) !== 0) continue; // ~0.1% of pixels
-        const delta = ((h >>> 10) & 0x3) - 1; // -1, 0, 1, 2
-        arr[i]   = (arr[i]   + delta) & 0xff;
-        arr[i+1] = (arr[i+1] + delta) & 0xff;
-        arr[i+2] = (arr[i+2] + delta) & 0xff;
+    function jitterCopy(srcData) {
+      // Copy into a fresh Uint8ClampedArray so the original ImageData
+      // backing the canvas is untouched.
+      const out = new Uint8ClampedArray(srcData);
+      for (let i = 0; i < out.length; i += 4) {
+        const h = (i * 2654435761) ^ (srcData[i] * 40503) ^ SEED;
+        if ((h & 0x3ff) !== 0) continue;
+        const delta = ((h >>> 10) & 0x3) - 1;
+        out[i]   = (out[i]   + delta) & 0xff;
+        out[i+1] = (out[i+1] + delta) & 0xff;
+        out[i+2] = (out[i+2] + delta) & 0xff;
       }
+      return out;
     }
     const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+    const origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
     HTMLCanvasElement.prototype.toDataURL = function (...args) {
       try {
-        const ctx = this.getContext('2d');
-        if (ctx) {
-          const img = ctx.getImageData(0, 0, this.width, this.height);
-          jitter(img.data);
-          ctx.putImageData(img, 0, 0);
-        }
-      } catch {}
-      return origToDataURL.apply(this, args);
+        const w = this.width, h = this.height;
+        const ctx2d = this.getContext && this.getContext('2d');
+        if (!ctx2d || !w || !h) return origToDataURL.apply(this, args);
+        const src = origGetImageData.call(ctx2d, 0, 0, w, h);
+        const noised = jitterCopy(src.data);
+        // Render into an off-screen canvas so the source is untouched.
+        const tmp = document.createElement('canvas');
+        tmp.width = w; tmp.height = h;
+        const tctx = tmp.getContext('2d');
+        const id = tctx.createImageData(w, h);
+        id.data.set(noised);
+        tctx.putImageData(id, 0, 0);
+        return origToDataURL.apply(tmp, args);
+      } catch {
+        return origToDataURL.apply(this, args);
+      }
     };
-    const origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
     CanvasRenderingContext2D.prototype.getImageData = function (...args) {
-      const img = origGetImageData.apply(this, args);
-      jitter(img.data);
-      return img;
+      const src = origGetImageData.apply(this, args);
+      try {
+        const noised = jitterCopy(src.data);
+        // Build a new ImageData with the noised bytes so the caller's
+        // mutation can't reach our internal buffer.
+        return new ImageData(noised, src.width, src.height);
+      } catch { return src; }
     };
   } catch {}
 
-  // --- AudioContext noise (deterministic) ---------------------------------
+  // --- AudioContext noise (deterministic, non-destructive) ---------------
   //
-  // Same trick as canvas: the original samples + a deterministic delta
-  // keyed by index and seed. Two reads of the same buffer return
-  // identical bytes, so the tampering-probe diff is empty.
+  // Same fix as canvas: don't mutate the underlying AudioBuffer. The
+  // page's existing references stay clean; our noise is applied to a
+  // copy that we hand back per call. Because the noise is keyed by
+  // sample index + seed only, two calls return identical Float32Arrays.
   try {
     const EPS = +FP.audioNoise || 0;
     const SEED = ((FP.canvasNoise | 0) >>> 0) || 1;
     const origGCD = AudioBuffer.prototype.getChannelData;
     AudioBuffer.prototype.getChannelData = function (...args) {
-      const data = origGCD.apply(this, args);
-      for (let i = 0; i < data.length; i += 521) {
-        const h = ((i * 2246822519) ^ SEED) >>> 0;
-        data[i] = data[i] + EPS * (((h & 0xff) / 255) - 0.5);
-      }
-      return data;
+      const src = origGCD.apply(this, args);
+      try {
+        const out = new Float32Array(src);
+        for (let i = 0; i < out.length; i += 521) {
+          const h = ((i * 2246822519) ^ SEED) >>> 0;
+          out[i] = out[i] + EPS * (((h & 0xff) / 255) - 0.5);
+        }
+        return out;
+      } catch { return src; }
     };
   } catch {}
 

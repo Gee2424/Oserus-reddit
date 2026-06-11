@@ -397,6 +397,14 @@ function applyGeoOverlay(fp, geoTimezone, geoCountry) {
   };
 }
 
+// Stored fingerprint schema version. Bump whenever the UA strings
+// or UA-CH brands in this file change so existing accounts get a
+// fresh regeneration on next prep, instead of replaying a stale
+// blob with the old Chrome version (the cause of "UserAgent is
+// different" / "Different browser version" on BrowserScan when a
+// build that updated the UA shipped over an existing install).
+const FP_VERSION = 2;
+
 function loadOrCreate(db, accountId) {
   // Pull os_profile + cached geo so a flip Desktop ↔ Android regenerates
   // the fingerprint and an updated proxy geo overlays the timezone +
@@ -409,11 +417,14 @@ function loadOrCreate(db, accountId) {
   if (row && row.fingerprint_json) {
     try {
       const cached = JSON.parse(row.fingerprint_json);
-      if ((cached.osProfile || 'desktop') === targetOs) base = cached;
+      const sameOs = (cached.osProfile || 'desktop') === targetOs;
+      const sameVer = (cached.version || 0) === FP_VERSION;
+      if (sameOs && sameVer) base = cached;
     } catch {}
   }
   if (!base) {
     base = generateFingerprint(accountId, targetOs);
+    base.version = FP_VERSION;
     try {
       db.prepare('UPDATE reddit_accounts SET fingerprint_json = ? WHERE id = ?')
         .run(JSON.stringify(base), accountId);

@@ -192,7 +192,22 @@ async function prepareSessionForAccount(accountId) {
   // re-overlay + re-write the preload before any page can navigate.
   let fp = fingerprintMod.loadOrCreate(db, accountId);
   function applyFingerprintToSession(activeFp) {
-    sess.setUserAgent(account.user_agent || activeFp.userAgent, activeFp.acceptLanguage);
+    // ALWAYS use the freshly-generated UA, not the stored one. The
+    // stored account.user_agent column is left over from older builds
+    // (Chrome 131 era) and the JS-side preload always uses activeFp.
+    // If we pull the HTTP UA from the database and the JS UA from
+    // the preload, the two disagree and BrowserScan flags
+    // "UserAgent is different" / "Different browser version".
+    // Source of truth is activeFp.userAgent — bump the stored column
+    // in passing so legacy callers see the new value too.
+    const ua = activeFp.userAgent;
+    if (account.user_agent !== ua) {
+      try {
+        db.prepare('UPDATE reddit_accounts SET user_agent = ? WHERE id = ?').run(ua, accountId);
+        account.user_agent = ua;
+      } catch {}
+    }
+    sess.setUserAgent(ua, activeFp.acceptLanguage);
     try {
       const preloadPath = writePreloadFor(account.partition_key, activeFp);
       sess.setPreloads([preloadPath]);
