@@ -154,6 +154,42 @@ create table if not exists proxies (
   updated_at bigint not null default 0
 );
 
+create table if not exists posting_protocols (
+  id bigint primary key,
+  scope text,
+  scope_id text,
+  config_json text,
+  updated_at bigint not null default 0
+);
+
+create table if not exists engagement_protocols (
+  account_id bigint primary key,
+  enabled integer not null default 0,
+  sessions_per_day integer,
+  session_minutes_min integer,
+  session_minutes_max integer,
+  like_rate_pct integer,
+  follow_rate_pct integer,
+  watch_full_rate_pct integer,
+  comment_rate_pct integer,
+  comment_videos_only integer,
+  hashtags_json text,
+  follow_list_json text,
+  last_run_at text,
+  updated_at bigint not null default 0
+);
+
+create table if not exists auto_comment_protocols (
+  account_id bigint primary key,
+  enabled integer not null default 0,
+  target_subs_json text,
+  comments_per_day integer,
+  session_minutes_min integer,
+  session_minutes_max integer,
+  last_run_at text,
+  updated_at bigint not null default 0
+);
+
 create table if not exists autopilot_protocols (
   id bigint primary key,
   profile_id bigint,
@@ -211,11 +247,84 @@ create table if not exists scheduled_posts (
   updated_at bigint not null default 0
 );
 
+create table if not exists content_sources (
+  id bigint primary key,
+  platform text,
+  scope text,
+  scope_id bigint,
+  kind text,
+  name text,
+  description text,
+  metadata_json text,
+  created_at text,
+  updated_at bigint not null default 0
+);
+
 create table if not exists warmup_subreddits (
   id bigint primary key,
   name text,
   description text,
   vibe text,
+  created_at text,
+  updated_at bigint not null default 0
+);
+
+create table if not exists promo_subreddits (
+  id bigint primary key,
+  profile_id bigint,
+  name text,
+  description text,
+  created_at text,
+  updated_at bigint not null default 0
+);
+
+create table if not exists messaging_templates (
+  id bigint primary key,
+  name text,
+  body text,
+  scope text,
+  profile_id bigint,
+  created_by_user_id bigint,
+  created_at text,
+  updated_at bigint not null default 0
+);
+
+create table if not exists messaging_rules (
+  id bigint primary key,
+  name text,
+  enabled integer not null default 1,
+  profile_id bigint,
+  account_id bigint,
+  match_pattern text,
+  template_id bigint,
+  daily_limit integer,
+  created_by_user_id bigint,
+  created_at text,
+  last_fired_at text,
+  updated_at bigint not null default 0
+);
+
+create table if not exists schedule_templates (
+  id bigint primary key,
+  name text,
+  status text,
+  accounts_json text,
+  subreddits_json text,
+  cadence_min_h real,
+  cadence_max_h real,
+  posts_per_account integer,
+  created_by_user_id bigint,
+  created_at text,
+  last_started_at text,
+  updated_at bigint not null default 0
+);
+
+create table if not exists docs (
+  id bigint primary key,
+  title text,
+  body text,
+  profile_id bigint,
+  author_user_id bigint,
   created_at text,
   updated_at bigint not null default 0
 );
@@ -265,8 +374,10 @@ begin
   for t in select unnest(array[
     'activity_log','post_events','auto_comment_runs','engagement_sessions',
     'users','model_profiles','reddit_accounts','proxies',
-    'autopilot_protocols','scheduled_posts',
-    'warmup_subreddits','homepage_tiles',
+    'autopilot_protocols','engagement_protocols','auto_comment_protocols',
+    'posting_protocols','scheduled_posts',
+    'content_sources','warmup_subreddits','promo_subreddits','homepage_tiles',
+    'messaging_templates','messaging_rules','schedule_templates','docs',
     'roles','role_permissions','settings'
   ]) loop
     execute format('alter table %I enable row level security', t);
@@ -291,8 +402,10 @@ begin
   for t in select unnest(array[
     'activity_log','post_events','auto_comment_runs','engagement_sessions',
     'users','model_profiles','reddit_accounts','proxies',
-    'autopilot_protocols','scheduled_posts',
-    'warmup_subreddits','homepage_tiles',
+    'autopilot_protocols','engagement_protocols','auto_comment_protocols',
+    'posting_protocols','scheduled_posts',
+    'content_sources','warmup_subreddits','promo_subreddits','homepage_tiles',
+    'messaging_templates','messaging_rules','schedule_templates','docs',
     'roles','role_permissions','settings'
   ]) loop
     begin

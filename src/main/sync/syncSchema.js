@@ -44,32 +44,49 @@ const APPEND_ONLY = [
 // Each kept table is fully declared in supabase-schema.sql with its
 // real column list — no more `(id, data)` placeholders.
 const TEAM_SHARED = [
-  // The team. Without this, an employee added on machine A never
-  // appears anywhere else and can't log in elsewhere.
-  { local: 'users',                  remote: 'users',                  pk: 'id',  watermark: 'updated_at' },
-  // Model + account + proxy CRUD — the core "what does the team
-  // operate" set.
-  { local: 'model_profiles',         remote: 'model_profiles',         pk: 'id',  watermark: 'updated_at' },
-  { local: 'reddit_accounts',        remote: 'reddit_accounts',        pk: 'id',  watermark: 'updated_at' },
-  { local: 'proxies',                remote: 'proxies',                pk: 'id',  watermark: 'updated_at' },
-  // Autopilot config per (model, platform). Heaviest single sync
-  // because every protocol edit must converge across machines fast.
-  { local: 'autopilot_protocols',    remote: 'autopilot_protocols',    pk: 'id',  watermark: 'updated_at' },
-  // Scheduled posts. Operators schedule from any machine; every
-  // machine running the coordinator needs to see the queue.
-  { local: 'scheduled_posts',        remote: 'scheduled_posts',        pk: 'id',  watermark: 'updated_at' },
-  // Shared content lists — admins curate, every operator reads.
-  { local: 'warmup_subreddits',      remote: 'warmup_subreddits',      pk: 'id',  watermark: 'updated_at' },
-  { local: 'homepage_tiles',         remote: 'homepage_tiles',         pk: 'id',  watermark: 'updated_at' },
-  // Roles use `key` as PK. role_permissions has a composite PK
-  // (role_key, perm_key) — supabase-js accepts the comma-separated
-  // form, and supabase.js subscribeRealtime now splits composite
-  // PKs for DELETE-event WHERE clauses.
+  // The team itself.
+  { local: 'users',                  remote: 'users',                  pk: 'id',         watermark: 'updated_at' },
+  // Model + account + proxy CRUD.
+  { local: 'model_profiles',         remote: 'model_profiles',         pk: 'id',         watermark: 'updated_at' },
+  { local: 'reddit_accounts',        remote: 'reddit_accounts',        pk: 'id',         watermark: 'updated_at' },
+  { local: 'proxies',                remote: 'proxies',                pk: 'id',         watermark: 'updated_at' },
+  // Autopilot config per (model, platform).
+  { local: 'autopilot_protocols',    remote: 'autopilot_protocols',    pk: 'id',         watermark: 'updated_at' },
+  // Engagement / auto-comment protocols are per-account legacy rows
+  // with account_id as their primary key (one row per account, no
+  // surrogate id). Sync upserts on account_id.
+  { local: 'engagement_protocols',   remote: 'engagement_protocols',   pk: 'account_id', watermark: 'updated_at' },
+  { local: 'auto_comment_protocols', remote: 'auto_comment_protocols', pk: 'account_id', watermark: 'updated_at' },
+  // Posting protocol (older config layer); still consulted in some
+  // codepaths.
+  { local: 'posting_protocols',      remote: 'posting_protocols',      pk: 'id',         watermark: 'updated_at' },
+  // Scheduled posts.
+  { local: 'scheduled_posts',        remote: 'scheduled_posts',        pk: 'id',         watermark: 'updated_at' },
+  // Shared content lists.
+  { local: 'content_sources',        remote: 'content_sources',        pk: 'id',         watermark: 'updated_at' },
+  { local: 'warmup_subreddits',      remote: 'warmup_subreddits',      pk: 'id',         watermark: 'updated_at' },
+  { local: 'promo_subreddits',       remote: 'promo_subreddits',       pk: 'id',         watermark: 'updated_at' },
+  { local: 'homepage_tiles',         remote: 'homepage_tiles',         pk: 'id',         watermark: 'updated_at' },
+  // Messaging.
+  { local: 'messaging_templates',    remote: 'messaging_templates',    pk: 'id',         watermark: 'updated_at' },
+  { local: 'messaging_rules',        remote: 'messaging_rules',        pk: 'id',         watermark: 'updated_at' },
+  // Scheduling templates.
+  { local: 'schedule_templates',     remote: 'schedule_templates',     pk: 'id',         watermark: 'updated_at' },
+  // Docs.
+  { local: 'docs',                   remote: 'docs',                   pk: 'id',         watermark: 'updated_at' },
+  // Roles & permissions (composite PK on role_permissions).
   { local: 'roles',                  remote: 'roles',                  pk: 'key',                  watermark: 'updated_at' },
   { local: 'role_permissions',       remote: 'role_permissions',       pk: 'role_key,perm_key',    watermark: 'updated_at' },
-  // App-wide settings (AI keys, autopilot interval, cloud config).
-  { local: 'settings',               remote: 'settings',               pk: 'key', watermark: 'updated_at' },
+  // App-wide settings.
+  { local: 'settings',               remote: 'settings',               pk: 'key',        watermark: 'updated_at' },
 ];
+
+// Not synced (yet):
+//   autopilot_prompts — uses composite PK (job, profile_id) where
+//   profile_id is NULL for global prompts. Postgres composite UNIQUE
+//   doesn't treat NULLs as equal so onConflict-by-composite mis-resolves
+//   and inserts duplicates instead of upserting. Would need a synthetic
+//   id column or a coercion layer to fix; deferred.
 
 const ALL_TABLES = [...APPEND_ONLY, ...TEAM_SHARED];
 
@@ -91,21 +108,59 @@ function tableExists(db, table) {
   }
 }
 
+function columnInfo(db, table, column) {
+  try {
+    return db.prepare(`PRAGMA table_info(${table})`).all().find((c) => c.name === column) || null;
+  } catch { return null; }
+}
+
 // Adds an `updated_at INTEGER` column (epoch millis) to every
 // TEAM_SHARED table that's missing it, plus INSERT/UPDATE triggers that
 // auto-bump it on every write. The triggers are guarded with WHEN
 // clauses so the inner UPDATE inside the trigger body doesn't recurse.
+//
+// Three tables (posting_protocols, docs, autopilot_protocols family)
+// already had a TEXT `updated_at` column carrying ISO timestamps from
+// older app builds. SQLite stores integers happily in TEXT-typed columns
+// but the lexical ORDER BY needed for the watermark query gives the
+// wrong answer (e.g. '2' > '11'). Migrate those by renaming the legacy
+// column to `updated_at_text` and adding a fresh INTEGER `updated_at`
+// alongside, back-filling from the parseable ISO values where possible.
 function ensureUpdatedAtColumns(db) {
   for (const t of TEAM_SHARED) {
     if (!tableExists(db, t.local)) continue;
-    if (!hasColumn(db, t.local, 'updated_at')) {
+    const existing = columnInfo(db, t.local, 'updated_at');
+    const isText = existing && /TEXT|VARCHAR|CHAR|CLOB/i.test(existing.type || '');
+
+    if (existing && isText) {
+      // Migrate TEXT → INTEGER once. Idempotent: if updated_at_text
+      // already exists from a prior run we skip the rename.
+      try {
+        if (!hasColumn(db, t.local, 'updated_at_text')) {
+          db.exec(`ALTER TABLE ${t.local} RENAME COLUMN updated_at TO updated_at_text`);
+          db.exec(`ALTER TABLE ${t.local} ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`);
+          // Best-effort backfill from the ISO timestamp.
+          db.exec(
+            `UPDATE ${t.local}
+                SET updated_at = CAST((julianday(updated_at_text) - 2440587.5)*86400000 AS INTEGER)
+              WHERE updated_at_text IS NOT NULL
+                AND updated_at_text != ''
+                AND julianday(updated_at_text) IS NOT NULL`
+          );
+        }
+      } catch (e) {
+        // Migration failures shouldn't take sync down for the rest of
+        // the tables — just log and move on.
+        if (!/duplicate column/i.test(e?.message || '')) {
+          try { require('electron-log').warn(`[sync] migrate updated_at on ${t.local}:`, e?.message); } catch {}
+        }
+      }
+    } else if (!existing) {
       try {
         db.exec(`ALTER TABLE ${t.local} ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`);
       } catch (e) {
-        // Column may already exist on a partially-migrated db.
         if (!/duplicate column/i.test(e?.message || '')) throw e;
       }
-      // Backfill so existing rows are eligible for the next push.
       try {
         db.exec(
           `UPDATE ${t.local} SET updated_at = CAST((julianday('now') - 2440587.5)*86400000 AS INTEGER) WHERE updated_at = 0`
