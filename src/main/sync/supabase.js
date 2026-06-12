@@ -254,7 +254,14 @@ function subscribeRealtime() {
           const row = payload.new || payload.old;
           if (payload.eventType === 'DELETE') {
             try {
-              getDb().prepare(`DELETE FROM ${t.local} WHERE ${t.pk} = ?`).run(row[t.pk]);
+              // PK may be composite — split on comma. role_permissions
+              // uses (role_key, perm_key); supabase-js sends both
+              // values in payload.old, so a multi-column WHERE clause
+              // is required to find and delete the right row.
+              const pkCols = t.pk.split(',').map((s) => s.trim());
+              const where  = pkCols.map((c) => `${c} = ?`).join(' AND ');
+              const params = pkCols.map((c) => row[c]);
+              getDb().prepare(`DELETE FROM ${t.local} WHERE ${where}`).run(...params);
               broadcastStatus();
               broadcastDataChanged(t.local, 'DELETE', row);
             } catch (e) {

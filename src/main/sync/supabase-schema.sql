@@ -2,6 +2,12 @@
 -- Idempotent: safe to re-run. Mirrors every local table that Oserus
 -- Management replicates across machines so any change on one operator's
 -- box reaches everyone else within ~1-2 seconds.
+--
+-- The schema rewrite in 0.85.0 dropped placeholder `(id, data)` rows for
+-- tables whose local schema is actually wide (model_profiles,
+-- scheduled_posts, etc.). Pushes for those tables used to fail with
+-- "column X does not exist". The list below mirrors the live SQLite
+-- columns one-for-one so upserts succeed end-to-end.
 
 -- ─────────────────────────── append-only event logs
 
@@ -63,11 +69,16 @@ create index if not exists idx_engagement_sessions_started on engagement_session
 
 -- ─────────────────────────── team-shared editable tables
 --
--- All of these carry an `updated_at bigint` epoch-millis watermark.
--- The SQLite side maintains it via triggers (see syncSchema.js); the
--- server side just stores it and exposes it back to the watermark query.
--- Columns are intentionally permissive (text everywhere) so older app
--- versions don't break when newer ones add fields.
+-- Every column listed here mirrors an existing local SQLite column so
+-- the JS-side rowToPayload() can upsert without "column does not
+-- exist" errors. Type-loose (text everywhere except integer counters
+-- and the bigint updated_at watermark) so older app versions don't
+-- break when newer ones add fields — adding a new local column is a
+-- one-line ALTER TABLE here, no app downtime.
+--
+-- updated_at is the watermark for push and pull. SQLite triggers
+-- (see ensureUpdatedAtColumns in syncSchema.js) maintain it as
+-- epoch millis on every INSERT/UPDATE.
 
 create table if not exists users (
   id bigint primary key,
@@ -95,6 +106,13 @@ create table if not exists model_profiles (
   brand_voice text,
   notes text,
   avatar_color text,
+  proxy_id bigint,
+  main_email text,
+  fingerprint_json text,
+  os_profile text,
+  geo_timezone text,
+  geo_country text,
+  geo_checked_at text,
   created_at text,
   updated_at bigint not null default 0
 );
@@ -111,6 +129,12 @@ create table if not exists reddit_accounts (
   status text,
   proxy_id bigint,
   notes text,
+  user_agent text,
+  os_profile text,
+  fingerprint_json text,
+  geo_timezone text,
+  geo_country text,
+  geo_checked_at text,
   created_at text,
   updated_at bigint not null default 0
 );
@@ -123,51 +147,45 @@ create table if not exists proxies (
   port integer,
   username text,
   password_encrypted text,
-  created_at text,
-  updated_at bigint not null default 0
-);
-
-create table if not exists posting_protocols (
-  id bigint primary key,
-  account_id bigint,
-  data text,
+  rotation_url text,
+  rotation_minutes integer,
+  session_user_template text,
   created_at text,
   updated_at bigint not null default 0
 );
 
 create table if not exists autopilot_protocols (
   id bigint primary key,
-  scope text,
-  scope_id bigint,
+  profile_id bigint,
   platform text,
-  enabled integer,
-  data text,
-  created_at text,
-  updated_at bigint not null default 0
-);
-
-create table if not exists autopilot_prompts (
-  id bigint primary key,
-  platform text,
-  kind text,
-  prompt text,
-  data text,
-  created_at text,
-  updated_at bigint not null default 0
-);
-
-create table if not exists engagement_protocols (
-  id bigint primary key,
-  account_id bigint,
-  data text,
-  created_at text,
-  updated_at bigint not null default 0
-);
-
-create table if not exists auto_comment_protocols (
-  id bigint primary key,
-  account_id bigint,
-  data text,
+  enabled integer not null default 0,
+  sessions_per_day integer,
+  session_minutes_min integer,
+  session_minutes_max integer,
+  hours_between_min real,
+  hours_between_max real,
+  daily_cap_comments integer,
+  daily_cap_posts integer,
+  quiet_start integer,
+  quiet_end integer,
+  like_rate_pct integer,
+  follow_rate_pct integer,
+  watch_full_rate_pct integer,
+  comment_rate_pct integer,
+  comment_videos_only integer,
+  min_upvote_ratio real,
+  min_post_score integer,
+  nsfw_only integer,
+  hashtags_json text,
+  follow_list_json text,
+  target_filter_json text,
+  target_subs_json text,
+  comment_persona text,
+  comment_prompt text,
+  ai_provider text,
+  posts_per_day integer,
+  last_run_at text,
+  last_post_at text,
   created_at text,
   updated_at bigint not null default 0
 );
@@ -175,82 +193,57 @@ create table if not exists auto_comment_protocols (
 create table if not exists scheduled_posts (
   id bigint primary key,
   account_id bigint,
-  data text,
-  status text,
+  platform text,
+  profile_id bigint,
+  subreddit text,
+  title text,
+  body text,
+  kind text,
+  url text,
   scheduled_for text,
+  status text,
+  error text,
+  created_by_user_id bigint,
   created_at text,
-  updated_at bigint not null default 0
-);
-
-create table if not exists content_sources (
-  id bigint primary key,
-  data text,
-  created_at text,
+  posted_at text,
+  posted_url text,
+  auto_generate integer,
   updated_at bigint not null default 0
 );
 
 create table if not exists warmup_subreddits (
   id bigint primary key,
   name text,
-  created_at text,
-  updated_at bigint not null default 0
-);
-
-create table if not exists promo_subreddits (
-  id bigint primary key,
-  name text,
-  created_at text,
-  updated_at bigint not null default 0
-);
-
-create table if not exists messaging_templates (
-  id bigint primary key,
-  data text,
-  created_at text,
-  updated_at bigint not null default 0
-);
-
-create table if not exists messaging_rules (
-  id bigint primary key,
-  data text,
+  description text,
+  vibe text,
   created_at text,
   updated_at bigint not null default 0
 );
 
 create table if not exists homepage_tiles (
   id bigint primary key,
-  data text,
-  sort_order integer,
-  created_at text,
-  updated_at bigint not null default 0
-);
-
-create table if not exists schedule_templates (
-  id bigint primary key,
-  data text,
-  created_at text,
-  updated_at bigint not null default 0
-);
-
-create table if not exists docs (
-  id bigint primary key,
-  data text,
+  label text,
+  url text,
+  color text,
+  sort_order integer not null default 0,
   created_at text,
   updated_at bigint not null default 0
 );
 
 create table if not exists roles (
-  id bigint primary key,
-  data text,
+  key text primary key,
+  label text,
+  description text,
+  is_builtin integer not null default 0,
   created_at text,
   updated_at bigint not null default 0
 );
 
 create table if not exists role_permissions (
-  id bigint primary key,
-  data text,
-  created_at text,
-  updated_at bigint not null default 0
+  role_key text not null,
+  perm_key text not null,
+  updated_at bigint not null default 0,
+  primary key (role_key, perm_key)
 );
 
 create table if not exists settings (
@@ -261,20 +254,19 @@ create table if not exists settings (
 
 -- ─────────────────────────── RLS + anon access
 --
--- Sync uses the anon key. Real gating happens at the Supabase project
--- level (private project, only your team holds the URL+key). Within the
--- project we let anon read+write every synced table.
+-- Sync uses the anon (publishable) key. Real gating happens at the
+-- Supabase project level (private project, only your team holds the
+-- URL + key). Within the project we let anon read+write every synced
+-- table.
 
 do $$
 declare t text;
 begin
   for t in select unnest(array[
     'activity_log','post_events','auto_comment_runs','engagement_sessions',
-    'users','model_profiles','reddit_accounts','proxies','posting_protocols',
-    'autopilot_protocols','autopilot_prompts','engagement_protocols',
-    'auto_comment_protocols','scheduled_posts','content_sources',
-    'warmup_subreddits','promo_subreddits','messaging_templates',
-    'messaging_rules','homepage_tiles','schedule_templates','docs',
+    'users','model_profiles','reddit_accounts','proxies',
+    'autopilot_protocols','scheduled_posts',
+    'warmup_subreddits','homepage_tiles',
     'roles','role_permissions','settings'
   ]) loop
     execute format('alter table %I enable row level security', t);
@@ -298,11 +290,9 @@ declare t text;
 begin
   for t in select unnest(array[
     'activity_log','post_events','auto_comment_runs','engagement_sessions',
-    'users','model_profiles','reddit_accounts','proxies','posting_protocols',
-    'autopilot_protocols','autopilot_prompts','engagement_protocols',
-    'auto_comment_protocols','scheduled_posts','content_sources',
-    'warmup_subreddits','promo_subreddits','messaging_templates',
-    'messaging_rules','homepage_tiles','schedule_templates','docs',
+    'users','model_profiles','reddit_accounts','proxies',
+    'autopilot_protocols','scheduled_posts',
+    'warmup_subreddits','homepage_tiles',
     'roles','role_permissions','settings'
   ]) loop
     begin

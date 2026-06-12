@@ -26,33 +26,48 @@ const APPEND_ONLY = [
   { local: 'engagement_sessions',  remote: 'engagement_sessions',  pk: 'id', watermark: 'id' },
 ];
 
+// Tables that actually sync today. Stripped down from the wider
+// 20-table list shipped in 0.81.0 because most of those entries had
+// silent schema bugs (composite PKs without delete handling, wide
+// local rows vs blob remote rows, TEXT updated_at conflicts with
+// the INTEGER trigger) and every push for them was being rejected
+// by Supabase with "column X does not exist".
+//
+// The cut: keep team-critical state (people, models, accounts,
+// proxies, autopilot config, scheduled posts, shared lists, roles +
+// their permissions, settings) and drop the legacy/rarely-used
+// rows (engagement_protocols/auto_comment_protocols replaced by
+// autopilot_protocols, posting_protocols superseded, autopilot_prompts
+// composite+nullable, content_sources / promo_subreddits / messaging_*
+// / schedule_templates / docs).
+//
+// Each kept table is fully declared in supabase-schema.sql with its
+// real column list — no more `(id, data)` placeholders.
 const TEAM_SHARED = [
-  // The team itself. Without this, creating an employee on machine A
-  // never appears on machine B — they show up as "missing user_id" in
-  // every other operator's activity feed and can't log in elsewhere.
-  // Carries password_hash + last_seen_at + today_seconds so login
-  // works AND the presence panel on the dashboard stays accurate
-  // across machines.
+  // The team. Without this, an employee added on machine A never
+  // appears anywhere else and can't log in elsewhere.
   { local: 'users',                  remote: 'users',                  pk: 'id',  watermark: 'updated_at' },
+  // Model + account + proxy CRUD — the core "what does the team
+  // operate" set.
   { local: 'model_profiles',         remote: 'model_profiles',         pk: 'id',  watermark: 'updated_at' },
   { local: 'reddit_accounts',        remote: 'reddit_accounts',        pk: 'id',  watermark: 'updated_at' },
   { local: 'proxies',                remote: 'proxies',                pk: 'id',  watermark: 'updated_at' },
-  { local: 'posting_protocols',      remote: 'posting_protocols',      pk: 'id',  watermark: 'updated_at' },
+  // Autopilot config per (model, platform). Heaviest single sync
+  // because every protocol edit must converge across machines fast.
   { local: 'autopilot_protocols',    remote: 'autopilot_protocols',    pk: 'id',  watermark: 'updated_at' },
-  { local: 'autopilot_prompts',      remote: 'autopilot_prompts',      pk: 'id',  watermark: 'updated_at' },
-  { local: 'engagement_protocols',   remote: 'engagement_protocols',   pk: 'id',  watermark: 'updated_at' },
-  { local: 'auto_comment_protocols', remote: 'auto_comment_protocols', pk: 'id',  watermark: 'updated_at' },
+  // Scheduled posts. Operators schedule from any machine; every
+  // machine running the coordinator needs to see the queue.
   { local: 'scheduled_posts',        remote: 'scheduled_posts',        pk: 'id',  watermark: 'updated_at' },
-  { local: 'content_sources',        remote: 'content_sources',        pk: 'id',  watermark: 'updated_at' },
+  // Shared content lists — admins curate, every operator reads.
   { local: 'warmup_subreddits',      remote: 'warmup_subreddits',      pk: 'id',  watermark: 'updated_at' },
-  { local: 'promo_subreddits',       remote: 'promo_subreddits',       pk: 'id',  watermark: 'updated_at' },
-  { local: 'messaging_templates',    remote: 'messaging_templates',    pk: 'id',  watermark: 'updated_at' },
-  { local: 'messaging_rules',        remote: 'messaging_rules',        pk: 'id',  watermark: 'updated_at' },
   { local: 'homepage_tiles',         remote: 'homepage_tiles',         pk: 'id',  watermark: 'updated_at' },
-  { local: 'schedule_templates',     remote: 'schedule_templates',     pk: 'id',  watermark: 'updated_at' },
-  { local: 'docs',                   remote: 'docs',                   pk: 'id',  watermark: 'updated_at' },
-  { local: 'roles',                  remote: 'roles',                  pk: 'id',  watermark: 'updated_at' },
-  { local: 'role_permissions',       remote: 'role_permissions',       pk: 'id',  watermark: 'updated_at' },
+  // Roles use `key` as PK. role_permissions has a composite PK
+  // (role_key, perm_key) — supabase-js accepts the comma-separated
+  // form, and supabase.js subscribeRealtime now splits composite
+  // PKs for DELETE-event WHERE clauses.
+  { local: 'roles',                  remote: 'roles',                  pk: 'key',                  watermark: 'updated_at' },
+  { local: 'role_permissions',       remote: 'role_permissions',       pk: 'role_key,perm_key',    watermark: 'updated_at' },
+  // App-wide settings (AI keys, autopilot interval, cloud config).
   { local: 'settings',               remote: 'settings',               pk: 'key', watermark: 'updated_at' },
 ];
 
