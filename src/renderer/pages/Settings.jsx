@@ -843,7 +843,97 @@ function CloudSyncSection() {
         </p>
         </>)}
       </Subcard>
+
+      <Subcard title="Per-table sync status">
+        <TableSyncDiagnostic />
+      </Subcard>
     </Section>
+  );
+}
+
+// Per-table sync diagnostic. Lists every table the client tries to
+// push/pull with its current state. Shows a colored dot per table, the
+// last error verbatim, and a Push-now / Pull-all pair to force a sync
+// attempt and re-paint immediately. This is what to look at when the
+// global pill says "Connected" but a specific table (model_profiles,
+// users, …) isn't moving — the row's lastError tells you why.
+function TableSyncDiagnostic() {
+  const [rows, setRows] = React.useState([]);
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState(null);
+
+  const refresh = React.useCallback(async () => {
+    try {
+      const r = await window.api.cloud.tableStatus();
+      if (r && r.ok) setRows(r.tables || []);
+    } catch {}
+  }, []);
+  React.useEffect(() => { refresh(); const id = setInterval(refresh, 4000); return () => clearInterval(id); }, [refresh]);
+
+  async function onPush() {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await window.api.cloud.pushNow();
+      if (r && r.ok) { setRows(r.tables || []); setMsg('Pushed. Check the per-row status for any failures.'); }
+      else setMsg(r?.error || 'Push failed.');
+    } finally { setBusy(false); }
+  }
+  async function onPull() {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await window.api.cloud.pullAll();
+      if (r && r.ok) { setRows(r.tables || []); setMsg('Pulled. Local DB now mirrors Supabase.'); }
+      else setMsg(r?.error || 'Pull failed.');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div>
+      <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
+        Each row is one synced table. Green = pushing + pulling cleanly. Red = the last attempt errored — hover the row to read the message. Use <em>Push now</em> after editing model profiles / accounts / etc. to force a sync right away; use <em>Pull all</em> on a fresh install to mirror everything Supabase already has.
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <button className="primary" type="button" disabled={busy} onClick={onPush}>{busy ? '…' : 'Push now'}</button>
+        <button className="ghost"   type="button" disabled={busy} onClick={onPull}>{busy ? '…' : 'Pull all'}</button>
+        <button className="ghost"   type="button" disabled={busy} onClick={refresh}>↻ Refresh</button>
+      </div>
+      {msg && <div className="muted" style={{ fontSize: 11, marginBottom: 8 }}>{msg}</div>}
+      <div style={{
+        display: 'grid', gridTemplateColumns: '14px 1fr 80px 80px 1fr',
+        rowGap: 2, fontSize: 12, fontFamily: 'var(--font-mono)',
+      }}>
+        <div className="muted" style={{ fontSize: 10 }}></div>
+        <div className="muted" style={{ fontSize: 10 }}>TABLE</div>
+        <div className="muted" style={{ fontSize: 10, textAlign: 'right' }}>PUSHED</div>
+        <div className="muted" style={{ fontSize: 10, textAlign: 'right' }}>PULLED</div>
+        <div className="muted" style={{ fontSize: 10 }}>LAST EVENT</div>
+        {rows.length === 0 && (
+          <div style={{ gridColumn: '1 / -1', padding: 12, color: 'var(--text-3)' }}>
+            Sync isn't running yet, or no tables have been touched. If sync is enabled and you've used the app, click <em>Push now</em>.
+          </div>
+        )}
+        {rows.map((r) => {
+          const color = r.ok === true ? 'var(--ok)' : r.ok === false ? '#e2a3a3' : 'var(--text-3)';
+          const last = r.lastError ? `✗ ${r.lastError}`
+            : r.lastPushAt ? `pushed ${relTime(r.lastPushAt)}`
+            : r.lastPullAt ? `pulled ${relTime(r.lastPullAt)}`
+            : '(no activity yet)';
+          return (
+            <React.Fragment key={r.table}>
+              <div title={r.ok === false ? 'Last attempt errored' : r.ok === true ? 'OK' : 'No activity yet'} style={{ alignSelf: 'center' }}>
+                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: color }} />
+              </div>
+              <div style={{ alignSelf: 'center', color: 'var(--text-1)' }}>{r.table}</div>
+              <div style={{ alignSelf: 'center', textAlign: 'right' }}>{r.pushed || 0}</div>
+              <div style={{ alignSelf: 'center', textAlign: 'right' }}>{r.pulled || 0}</div>
+              <div style={{ alignSelf: 'center', color: r.lastError ? '#e2a3a3' : 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.lastError || ''}>
+                {last}
+              </div>
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

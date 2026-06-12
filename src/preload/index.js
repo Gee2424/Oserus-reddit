@@ -293,6 +293,9 @@ const api = {
     start: () => ipcRenderer.invoke('cloud:start'),
     stop: () => ipcRenderer.invoke('cloud:stop'),
     getSchemaSql: () => ipcRenderer.invoke('cloud:getSchemaSql'),
+    tableStatus: () => ipcRenderer.invoke('cloud:tableStatus'),
+    pushNow: () => ipcRenderer.invoke('cloud:pushNow'),
+    pullAll: () => ipcRenderer.invoke('cloud:pullAll'),
     onStatus: (cb) => {
       const fn = (_e, s) => cb(s);
       ipcRenderer.on('cloud:status', fn);

@@ -44,6 +44,13 @@ const state = {
     pushed: 0,
     pulled: 0,
     peers: [],
+    // Per-table rollup so the Settings panel can show exactly which
+    // tables move vs which silently fail. Keyed by local table name.
+    // Each entry: { pushed, pulled, lastPushAt, lastPullAt,
+    //   lastError, watermark, ok }. The previous single lastError
+    //   field would clobber the most-recent error from any table on
+    //   top of any prior, masking which table was actually broken.
+    perTable: {},
   },
   userId: null,
   deviceName: null,
@@ -146,39 +153,77 @@ function setWatermark(table, n) {
   setKv(`cloud.watermark.${table}`, String(n));
 }
 
+function getOrCreateTableStatus(table) {
+  if (!state.status.perTable[table]) {
+    state.status.perTable[table] = {
+      pushed: 0, pulled: 0,
+      lastPushAt: null, lastPullAt: null,
+      lastError: null, watermark: 0, ok: null,
+    };
+  }
+  return state.status.perTable[table];
+}
+
+function recordTableError(table, message) {
+  const ts = getOrCreateTableStatus(table);
+  ts.lastError = String(message || 'unknown error');
+  ts.ok = false;
+  // Also bubble to the top-level lastError so the pill in the header
+  // shows SOMETHING — but the perTable map is the source of truth for
+  // diagnostics.
+  setError(`${table}: ${message}`);
+}
+
 async function pushTable(t) {
   const db = getDb();
+  const ts = getOrCreateTableStatus(t.local);
   const cols = colsFor(t.local);
-  if (!cols.length) return 0;
+  if (!cols.length) {
+    recordTableError(t.local, 'local table missing');
+    return 0;
+  }
   // Skip tables that don't have the watermark column yet (a TEAM_SHARED
   // table whose ensureUpdatedAtColumns() failed, or hasn't run yet).
-  if (!cols.includes(t.watermark)) return 0;
+  if (!cols.includes(t.watermark)) {
+    recordTableError(t.local, `watermark column "${t.watermark}" not present locally — run ensureUpdatedAtColumns`);
+    return 0;
+  }
   const wm = getWatermark(t.local);
+  ts.watermark = wm;
   let rows = [];
   try {
     rows = db.prepare(
       `SELECT * FROM ${t.local} WHERE ${t.watermark} > ? ORDER BY ${t.watermark} ASC LIMIT 500`
     ).all(wm);
   } catch (e) {
-    setError(`push ${t.local}: ${e?.message}`);
+    recordTableError(t.local, `select: ${e?.message}`);
     return 0;
   }
-  if (!rows.length) return 0;
+  if (!rows.length) {
+    // Nothing to push isn't an error — clear any stale error and mark ok.
+    if (ts.ok !== true) { ts.lastError = null; ts.ok = true; }
+    return 0;
+  }
   const payload = rows.map((r) => rowToPayload(r, cols));
   try {
     const { error } = await state.client.from(t.remote).upsert(payload, { onConflict: t.pk });
     if (error) {
-      setError(`push ${t.remote}: ${error.message}`);
+      recordTableError(t.local, `upsert: ${error.message}`);
       return 0;
     }
     const maxWm = rows[rows.length - 1][t.watermark];
     setWatermark(t.local, Number(maxWm) || 0);
+    ts.watermark = Number(maxWm) || 0;
+    ts.pushed += rows.length;
+    ts.lastPushAt = new Date().toISOString();
+    ts.lastError = null;
+    ts.ok = true;
     state.status.pushed += rows.length;
     state.status.lastSyncAt = new Date().toISOString();
     broadcastStatus();
     return rows.length;
   } catch (e) {
-    setError(`push ${t.remote}: ${e?.message}`);
+    recordTableError(t.local, `upsert threw: ${e?.message}`);
     return 0;
   }
 }
@@ -188,6 +233,57 @@ async function pushLoopTick() {
   for (const t of TABLES) {
     await pushTable(t);
   }
+}
+
+// Manual "push everything now" — used by the diagnostics button in
+// Settings → Cloud Sync. Returns a per-table summary so the renderer
+// can paint each table's status without waiting for the next 1.5s
+// timer tick.
+async function pushNow() {
+  if (!state.client) return { ok: false, error: 'sync is not running' };
+  // Reset per-table state so any "no rows since" entries get re-evaluated.
+  await pushLoopTick();
+  return { ok: true, tables: tableDiagnostics() };
+}
+
+// Initial-pull helper. Used by the "Pull everything now" diagnostics
+// button. For each TEAM_SHARED table, query every row from Supabase
+// and run it through applyRemoteRow — same code path as the realtime
+// stream. Useful for a fresh install joining an existing project.
+async function pullAll() {
+  if (!state.client) return { ok: false, error: 'sync is not running' };
+  for (const t of TABLES) {
+    const ts = getOrCreateTableStatus(t.local);
+    try {
+      const { data, error } = await state.client.from(t.remote).select('*').limit(2000);
+      if (error) { recordTableError(t.local, `pull: ${error.message}`); continue; }
+      for (const row of (data || [])) applyRemoteRow(t, row);
+      ts.lastPullAt = new Date().toISOString();
+      if (ts.ok !== false) ts.ok = true;
+    } catch (e) {
+      recordTableError(t.local, `pull threw: ${e?.message}`);
+    }
+  }
+  return { ok: true, tables: tableDiagnostics() };
+}
+
+function tableDiagnostics() {
+  // Always include every TABLES entry so the UI can paint rows that
+  // haven't ticked yet (otherwise tables with no recent activity look
+  // like they don't exist).
+  return TABLES.map((t) => {
+    const ts = state.status.perTable[t.local] || { pushed: 0, pulled: 0, lastPushAt: null, lastPullAt: null, lastError: null, watermark: 0, ok: null };
+    return {
+      table: t.local,
+      remote: t.remote,
+      pk: t.pk,
+      watermark: ts.watermark,
+      pushed: ts.pushed, pulled: ts.pulled,
+      lastPushAt: ts.lastPushAt, lastPullAt: ts.lastPullAt,
+      lastError: ts.lastError,
+      ok: ts.ok,
+    };
+  });
 }
 
 // Prods the push loop without waiting for the timer. Call from IPC
@@ -231,6 +327,11 @@ function applyRemoteRow(t, row) {
     ).run(...values);
     state.status.pulled += 1;
     state.status.lastSyncAt = new Date().toISOString();
+    const ts = getOrCreateTableStatus(t.local);
+    ts.pulled += 1;
+    ts.lastPullAt = new Date().toISOString();
+    ts.lastError = null;
+    ts.ok = true;
     // Advance our watermark past whatever just arrived so we don't try
     // to push it back out as if it were our own write.
     const wmValue = row[t.watermark];
@@ -467,4 +568,4 @@ async function testConnection({ url, anonKey } = {}) {
 
 function registerSyncIpc() {}
 
-module.exports = { start, stop, getStatus, getConfig, setCredentials, testConnection, registerSyncIpc, markDirty };
+module.exports = { start, stop, getStatus, getConfig, setCredentials, testConnection, registerSyncIpc, markDirty, pushNow, pullAll, tableDiagnostics };
