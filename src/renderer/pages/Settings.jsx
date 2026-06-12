@@ -859,13 +859,14 @@ function CloudSyncSection() {
 // users, …) isn't moving — the row's lastError tells you why.
 function TableSyncDiagnostic() {
   const [rows, setRows] = React.useState([]);
+  const [running, setRunning] = React.useState(null);
   const [busy, setBusy] = React.useState(false);
   const [msg, setMsg] = React.useState(null);
 
   const refresh = React.useCallback(async () => {
     try {
       const r = await window.api.cloud.tableStatus();
-      if (r && r.ok) setRows(r.tables || []);
+      if (r && r.ok) { setRows(r.tables || []); setRunning(!!r.running); }
     } catch {}
   }, []);
   React.useEffect(() => { refresh(); const id = setInterval(refresh, 4000); return () => clearInterval(id); }, [refresh]);
@@ -886,15 +887,34 @@ function TableSyncDiagnostic() {
       else setMsg(r?.error || 'Pull failed.');
     } finally { setBusy(false); }
   }
+  async function onForceResync() {
+    if (!confirm('Force re-sync? This bumps every local row\'s timestamp and re-pushes everything to Supabase. Use when local data exists but never made it to the cloud. Idempotent — safe to run multiple times.')) return;
+    setBusy(true); setMsg(null);
+    try {
+      const r = await window.api.cloud.forceResync();
+      if (r && r.ok) { setRows(r.tables || []); setMsg(`Force re-sync queued ${r.bumped} rows.`); }
+      else setMsg(r?.error || 'Force re-sync failed.');
+    } finally { setBusy(false); }
+  }
 
   return (
     <div>
       <div className="muted" style={{ fontSize: 12, marginBottom: 10 }}>
         Each row is one synced table. Green = pushing + pulling cleanly. Red = the last attempt errored — hover the row to read the message. Use <em>Push now</em> after editing model profiles / accounts / etc. to force a sync right away; use <em>Pull all</em> on a fresh install to mirror everything Supabase already has.
       </div>
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '4px 10px',
+        borderRadius: 999, background: running === true ? 'rgba(122,154,90,0.18)' : running === false ? 'rgba(180,90,90,0.18)' : 'rgba(255,255,255,0.06)',
+        color: running === true ? '#bdd5a3' : running === false ? '#e8b4b4' : 'var(--text-2)',
+        fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', fontFamily: 'var(--font-mono)',
+      }}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: running === true ? 'var(--ok)' : running === false ? '#e2a3a3' : 'var(--text-3)' }} />
+        SYNC LOOP {running === true ? 'RUNNING' : running === false ? 'STOPPED' : '…'}
+      </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
         <button className="primary" type="button" disabled={busy} onClick={onPush}>{busy ? '…' : 'Push now'}</button>
         <button className="ghost"   type="button" disabled={busy} onClick={onPull}>{busy ? '…' : 'Pull all'}</button>
+        <button className="ghost"   type="button" disabled={busy} onClick={onForceResync} title="Re-push every local row regardless of whether sync thinks it was sent.">{busy ? '…' : '⟳ Force re-sync everything'}</button>
         <button className="ghost"   type="button" disabled={busy} onClick={refresh}>↻ Refresh</button>
       </div>
       {msg && <div className="muted" style={{ fontSize: 11, marginBottom: 8 }}>{msg}</div>}

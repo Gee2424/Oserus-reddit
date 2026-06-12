@@ -10,7 +10,12 @@ module.exports = function registerCloudHandlers(ipcMain) {
   // lists every synced table with its push/pull counters and the most
   // recent error if any. Lets the operator (and us) see exactly which
   // table is stuck instead of guessing from a single global lastError.
-  ipcMain.handle('cloud:tableStatus', () => ({ ok: true, tables: cloud.tableDiagnostics() }));
+  ipcMain.handle('cloud:tableStatus', () => ({
+    ok: true,
+    running: cloud.isRunning(),
+    tables: cloud.tableDiagnostics(),
+  }));
+  ipcMain.handle('cloud:forceResync', () => cloud.forceResync());
   // Force a push of every dirty row right now. Returns the per-table
   // result so the renderer can paint immediately rather than waiting
   // for the 1.5s push tick.

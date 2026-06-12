@@ -296,6 +296,7 @@ const api = {
     tableStatus: () => ipcRenderer.invoke('cloud:tableStatus'),
     pushNow: () => ipcRenderer.invoke('cloud:pushNow'),
     pullAll: () => ipcRenderer.invoke('cloud:pullAll'),
+    forceResync: () => ipcRenderer.invoke('cloud:forceResync'),
     onStatus: (cb) => {
       const fn = (_e, s) => cb(s);
       ipcRenderer.on('cloud:status', fn);

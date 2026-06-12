@@ -78,12 +78,20 @@ function readConfig() {
   const usingBaked = !override.url && !override.anonKey && defaultBackend.hasBakedBackend();
   const url = override.url || defaultBackend.SUPABASE_URL || '';
   const anonKey = override.anonKey || defaultBackend.SUPABASE_ANON_KEY || '';
-  // 'enabled' is the operator's explicit on/off. When baked credentials
-  // exist AND the operator has never touched the switch (kv unset),
-  // default to ON so the central backend just works after install.
+  // Two enable triggers:
+  //   1. usingBaked → always on (build shipped with credentials,
+  //      that's the central-backend contract).
+  //   2. operator explicitly opted in via cloud.enabled='1' (set
+  //      by Save-and-connect in Settings).
+  // Older builds that shipped an empty SUPABASE_ANON_KEY may have
+  // written cloud.enabled='0' as a side-effect of the operator
+  // touching the Disconnect button when nothing was even configured.
+  // We deliberately ignore that stale '0' when the current build has
+  // baked credentials — otherwise central sync stays off forever for
+  // every operator who poked the panel before the key got pasted.
   const explicit = getKv('cloud.enabled');
-  const enabled = explicit === null || explicit === undefined
-    ? usingBaked
+  const enabled = usingBaked
+    ? true
     : explicit === '1';
   return {
     url, anonKey,
@@ -244,6 +252,33 @@ async function pushNow() {
   // Reset per-table state so any "no rows since" entries get re-evaluated.
   await pushLoopTick();
   return { ok: true, tables: tableDiagnostics() };
+}
+
+// Force a full re-sync of every TEAM_SHARED row. Wipes our watermark
+// KVs back to 0 AND bumps every row's updated_at to "now + rowid" so
+// the next push picks up everything regardless of whether the prior
+// push thought it had already shipped it. The user-visible escape
+// hatch for "I have data on machine A that never made it to Supabase
+// even though sync says it's connected." Idempotent — running twice
+// just re-sends the same data.
+async function forceResync() {
+  if (!state.client) return { ok: false, error: 'sync is not running' };
+  const db = getDb();
+  let bumped = 0;
+  for (const t of TABLES) {
+    if (t.watermark !== 'updated_at') continue;
+    try { setKv(`cloud.watermark.${t.local}`, '0'); } catch {}
+    try {
+      const res = db.prepare(
+        `UPDATE ${t.local} SET updated_at = CAST((julianday('now') - 2440587.5)*86400000 AS INTEGER) + rowid`
+      ).run();
+      bumped += res.changes || 0;
+    } catch (e) {
+      elog.warn(`[cloud] forceResync bump ${t.local} failed:`, e?.message);
+    }
+  }
+  await pushLoopTick();
+  return { ok: true, bumped, tables: tableDiagnostics() };
 }
 
 // Initial-pull helper. Used by the "Pull everything now" diagnostics
@@ -420,23 +455,27 @@ function joinPresence(cfg, username) {
 }
 
 async function start() {
+  elog.info('[cloud] start() called. createClient=', !!createClient, 'client=', !!state.client, 'starting=', state.starting);
   if (!createClient) {
     setError('@supabase/supabase-js not installed');
     return { ok: false, error: 'supabase-js missing' };
   }
   if (state.client) {
+    elog.info('[cloud] start() skipped — already running');
     return { ok: true, alreadyRunning: true };
   }
   if (state.starting) return { ok: true, starting: true };
   const cfg = readConfig();
+  elog.info('[cloud] config: source=', cfg.source, 'enabled=', cfg.enabled, 'url=', cfg.url, 'key=', cfg.anonKey ? cfg.anonKey.slice(0, 18) + '…' : '(empty)');
   if (!cfg.url || !cfg.anonKey) {
     setError('missing url or anon key');
+    elog.warn('[cloud] start() bailed — missing credentials');
     return { ok: false, error: 'Missing credentials' };
   }
   state.starting = true;
   state.userId = ensureUserId();
   state.deviceName = cfg.deviceName;
-  try { ensureUpdatedAtColumns(getDb()); }
+  try { ensureUpdatedAtColumns(getDb()); elog.info('[cloud] ensureUpdatedAtColumns OK'); }
   catch (e) { elog.warn('[cloud] ensureUpdatedAtColumns failed:', e?.message); }
   try {
     const { app } = require('electron');
@@ -568,4 +607,6 @@ async function testConnection({ url, anonKey } = {}) {
 
 function registerSyncIpc() {}
 
-module.exports = { start, stop, getStatus, getConfig, setCredentials, testConnection, registerSyncIpc, markDirty, pushNow, pullAll, tableDiagnostics };
+function isRunning() { return !!state.client; }
+
+module.exports = { start, stop, getStatus, getConfig, setCredentials, testConnection, registerSyncIpc, markDirty, pushNow, pullAll, forceResync, tableDiagnostics, isRunning };

@@ -140,9 +140,12 @@ function ensureUpdatedAtColumns(db) {
           db.exec(`ALTER TABLE ${t.local} RENAME COLUMN updated_at TO updated_at_text`);
           db.exec(`ALTER TABLE ${t.local} ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`);
           // Best-effort backfill from the ISO timestamp.
+          // + rowid so every row gets a unique value even if the source
+          // timestamps collide at second-level resolution. See the
+          // matching else-branch comment for why this matters.
           db.exec(
             `UPDATE ${t.local}
-                SET updated_at = CAST((julianday(updated_at_text) - 2440587.5)*86400000 AS INTEGER)
+                SET updated_at = CAST((julianday(updated_at_text) - 2440587.5)*86400000 AS INTEGER) + rowid
               WHERE updated_at_text IS NOT NULL
                 AND updated_at_text != ''
                 AND julianday(updated_at_text) IS NOT NULL`
@@ -161,9 +164,16 @@ function ensureUpdatedAtColumns(db) {
       } catch (e) {
         if (!/duplicate column/i.test(e?.message || '')) throw e;
       }
+      // Backfill so existing rows are eligible for the next push.
+      // CRITICAL: add rowid so every row gets a UNIQUE updated_at value.
+      // Without this, a bulk migration assigns the same wall-clock time
+      // to every row in one statement, and the watermark advance logic
+      // ("WHERE updated_at > maxWm") leaves rows past the 500-row batch
+      // limit permanently stuck because all unsent rows share the same
+      // updated_at as the watermark cursor.
       try {
         db.exec(
-          `UPDATE ${t.local} SET updated_at = CAST((julianday('now') - 2440587.5)*86400000 AS INTEGER) WHERE updated_at = 0`
+          `UPDATE ${t.local} SET updated_at = CAST((julianday('now') - 2440587.5)*86400000 AS INTEGER) + rowid WHERE updated_at = 0`
         );
       } catch {}
     }
