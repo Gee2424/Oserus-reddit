@@ -69,6 +69,24 @@ create index if not exists idx_engagement_sessions_started on engagement_session
 -- Columns are intentionally permissive (text everywhere) so older app
 -- versions don't break when newer ones add fields.
 
+create table if not exists users (
+  id bigint primary key,
+  username text,
+  password_hash text,
+  role text,
+  display_name text,
+  email text,
+  phone text,
+  notes text,
+  avatar_color text,
+  created_at text,
+  last_seen_at text,
+  last_action_at text,
+  today_seconds integer not null default 0,
+  today_date text,
+  updated_at bigint not null default 0
+);
+
 create table if not exists model_profiles (
   id bigint primary key,
   name text,
@@ -252,7 +270,7 @@ declare t text;
 begin
   for t in select unnest(array[
     'activity_log','post_events','auto_comment_runs','engagement_sessions',
-    'model_profiles','reddit_accounts','proxies','posting_protocols',
+    'users','model_profiles','reddit_accounts','proxies','posting_protocols',
     'autopilot_protocols','autopilot_prompts','engagement_protocols',
     'auto_comment_protocols','scheduled_posts','content_sources',
     'warmup_subreddits','promo_subreddits','messaging_templates',
@@ -280,7 +298,7 @@ declare t text;
 begin
   for t in select unnest(array[
     'activity_log','post_events','auto_comment_runs','engagement_sessions',
-    'model_profiles','reddit_accounts','proxies','posting_protocols',
+    'users','model_profiles','reddit_accounts','proxies','posting_protocols',
     'autopilot_protocols','autopilot_prompts','engagement_protocols',
     'auto_comment_protocols','scheduled_posts','content_sources',
     'warmup_subreddits','promo_subreddits','messaging_templates',

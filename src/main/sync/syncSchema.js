@@ -27,6 +27,13 @@ const APPEND_ONLY = [
 ];
 
 const TEAM_SHARED = [
+  // The team itself. Without this, creating an employee on machine A
+  // never appears on machine B — they show up as "missing user_id" in
+  // every other operator's activity feed and can't log in elsewhere.
+  // Carries password_hash + last_seen_at + today_seconds so login
+  // works AND the presence panel on the dashboard stays accurate
+  // across machines.
+  { local: 'users',                  remote: 'users',                  pk: 'id',  watermark: 'updated_at' },
   { local: 'model_profiles',         remote: 'model_profiles',         pk: 'id',  watermark: 'updated_at' },
   { local: 'reddit_accounts',        remote: 'reddit_accounts',        pk: 'id',  watermark: 'updated_at' },
   { local: 'proxies',                remote: 'proxies',                pk: 'id',  watermark: 'updated_at' },
