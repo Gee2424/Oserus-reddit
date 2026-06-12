@@ -16,6 +16,12 @@ module.exports = function registerCloudHandlers(ipcMain) {
     tables: cloud.tableDiagnostics(),
   }));
   ipcMain.handle('cloud:forceResync', () => cloud.forceResync());
+  // One-shot self-diagnosis. Returns a copy-pasteable multi-line text
+  // block covering every checkpoint between "operator clicks save" and
+  // "rows appear on the other machine." When sync is silently broken
+  // this is the one button to press; the output points at the exact
+  // failed step.
+  ipcMain.handle('cloud:probe', () => cloud.probe());
   // Force a push of every dirty row right now. Returns the per-table
   // result so the renderer can paint immediately rather than waiting
   // for the 1.5s push tick.

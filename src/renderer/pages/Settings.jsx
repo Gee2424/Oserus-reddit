@@ -887,6 +887,18 @@ function TableSyncDiagnostic() {
       else setMsg(r?.error || 'Pull failed.');
     } finally { setBusy(false); }
   }
+  const [probeOut, setProbeOut] = React.useState(null);
+  async function onProbe() {
+    setBusy(true); setMsg(null);
+    try {
+      const r = await window.api.cloud.probe();
+      setProbeOut(r?.text || JSON.stringify(r, null, 2));
+    } finally { setBusy(false); }
+  }
+  function copyProbe() {
+    if (probeOut) navigator.clipboard.writeText(probeOut).catch(() => {});
+  }
+
   async function onForceResync() {
     if (!confirm('Force re-sync? This bumps every local row\'s timestamp and re-pushes everything to Supabase. Use when local data exists but never made it to the cloud. Idempotent — safe to run multiple times.')) return;
     setBusy(true); setMsg(null);
@@ -916,7 +928,20 @@ function TableSyncDiagnostic() {
         <button className="ghost"   type="button" disabled={busy} onClick={onPull}>{busy ? '…' : 'Pull all'}</button>
         <button className="ghost"   type="button" disabled={busy} onClick={onForceResync} title="Re-push every local row regardless of whether sync thinks it was sent.">{busy ? '…' : '⟳ Force re-sync everything'}</button>
         <button className="ghost"   type="button" disabled={busy} onClick={refresh}>↻ Refresh</button>
+        <button className="ghost"   type="button" disabled={busy} onClick={onProbe} title="Run a full self-diagnosis: config, runtime state, live round-trip against Supabase. Output is copy-pasteable for support.">{busy ? '…' : '🔬 Diagnose'}</button>
       </div>
+      {probeOut && (
+        <div style={{ marginBottom: 14, padding: 12, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6, gap: 8 }}>
+            <strong style={{ fontSize: 12 }}>Diagnostic report</strong>
+            <span className="muted" style={{ fontSize: 11 }}>Copy this and paste in the chat — every line is a checkpoint, "FAIL" or "THROW" lines point at the broken step.</span>
+            <div style={{ flex: 1 }} />
+            <button type="button" className="ghost" onClick={copyProbe} style={{ fontSize: 11, padding: '3px 10px' }}>Copy</button>
+            <button type="button" className="ghost" onClick={() => setProbeOut(null)} style={{ fontSize: 11, padding: '3px 10px' }}>Close</button>
+          </div>
+          <pre style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 11, lineHeight: 1.4, whiteSpace: 'pre-wrap', color: 'var(--text-1)' }}>{probeOut}</pre>
+        </div>
+      )}
       {msg && <div className="muted" style={{ fontSize: 11, marginBottom: 8 }}>{msg}</div>}
       <div style={{
         display: 'grid', gridTemplateColumns: '14px 1fr 80px 80px 1fr',

@@ -609,4 +609,92 @@ function registerSyncIpc() {}
 
 function isRunning() { return !!state.client; }
 
-module.exports = { start, stop, getStatus, getConfig, setCredentials, testConnection, registerSyncIpc, markDirty, pushNow, pullAll, forceResync, tableDiagnostics, isRunning };
+// Self-diagnosis. Hits every checkpoint that could be silently
+// blocking sync, returns a copy-pasteable multi-line text block, and
+// runs a live round-trip against Supabase using a probe row. The
+// output is exhaustive on purpose — if any line says "FAIL" we know
+// exactly which step to fix instead of guessing through screenshots.
+async function probe() {
+  const lines = [];
+  const tag = (k, v) => lines.push(`${k.padEnd(28)} : ${v}`);
+
+  // --- version + build info ----------------------------------------
+  let appVer = state.appVersion;
+  try {
+    if (!appVer) appVer = require('electron').app.getVersion();
+  } catch {}
+  tag('app version', appVer || '(unknown)');
+  tag('node version', process.versions.node);
+  let sbVer = '(unknown)';
+  try { sbVer = require('@supabase/supabase-js/package.json').version; } catch {}
+  tag('supabase-js version', sbVer);
+
+  // --- config ------------------------------------------------------
+  const cfg = readConfig();
+  tag('config source', cfg.source);
+  tag('config enabled', cfg.enabled);
+  tag('config url', cfg.url || '(empty)');
+  tag('config anon key', cfg.anonKey ? `${cfg.anonKey.slice(0, 18)}…(${cfg.anonKey.length} chars)` : '(empty)');
+  tag('device name', cfg.deviceName);
+
+  // --- runtime state ----------------------------------------------
+  tag('client created', !!state.client);
+  tag('starting', state.starting);
+  tag('push timer', !!state.pushTimer);
+  tag('presence channel', !!state.channel);
+  tag('peers online', Array.isArray(state.status.peers) ? state.status.peers.length : 0);
+  tag('last global error', state.status.lastError || '(none)');
+
+  // --- live round-trip --------------------------------------------
+  if (!state.client) {
+    tag('round-trip', 'SKIP — client is not initialized');
+    return { ok: true, text: lines.join('\n') };
+  }
+  // 1. Select 1 row from model_profiles to see if the table even
+  //    exists remotely.
+  try {
+    const r = await state.client.from('model_profiles').select('id', { count: 'exact', head: true });
+    if (r.error) tag('remote model_profiles', `FAIL — ${r.error.message}`);
+    else tag('remote model_profiles', `OK (${r.count ?? '?'} rows on the server)`);
+  } catch (e) {
+    tag('remote model_profiles', `THROW — ${e?.message}`);
+  }
+  // 2. Same for users.
+  try {
+    const r = await state.client.from('users').select('id', { count: 'exact', head: true });
+    if (r.error) tag('remote users', `FAIL — ${r.error.message}`);
+    else tag('remote users', `OK (${r.count ?? '?'} rows on the server)`);
+  } catch (e) {
+    tag('remote users', `THROW — ${e?.message}`);
+  }
+  // 3. Probe push — write a heartbeat row to settings (which is the
+  //    simplest schema: key/value/updated_at) so we can confirm
+  //    auth + RLS allow writes.
+  try {
+    const key = `cloud.probe.${state.userId || 'anon'}`;
+    const r = await state.client.from('settings').upsert(
+      [{ key, value: new Date().toISOString(), updated_at: Date.now() }],
+      { onConflict: 'key' }
+    );
+    if (r.error) tag('probe write', `FAIL — ${r.error.message}`);
+    else tag('probe write', 'OK — write to settings succeeded');
+  } catch (e) {
+    tag('probe write', `THROW — ${e?.message}`);
+  }
+  // 4. Local row counts on the highest-priority tables. Tells us if
+  //    we actually have data to send.
+  try {
+    const db = getDb();
+    for (const tbl of ['users','model_profiles','reddit_accounts','roles']) {
+      try {
+        const c = db.prepare(`SELECT COUNT(*) AS c FROM ${tbl}`).get();
+        tag(`local ${tbl} rows`, c.c);
+      } catch { tag(`local ${tbl} rows`, 'TABLE MISSING'); }
+    }
+  } catch (e) {
+    tag('local counts', `THROW — ${e?.message}`);
+  }
+  return { ok: true, text: lines.join('\n') };
+}
+
+module.exports = { start, stop, getStatus, getConfig, setCredentials, testConnection, registerSyncIpc, markDirty, pushNow, pullAll, forceResync, tableDiagnostics, isRunning, probe };
