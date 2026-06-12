@@ -511,12 +511,66 @@ async function start() {
     }, HEARTBEAT_MS);
     state.status.lastError = null;
     elog.info('[cloud] started');
+
+    // Automatic first-launch behaviour. Two things have to happen
+    // exactly once per install, and neither should require the operator
+    // to click anything:
+    //
+    //   1. First time the local install ever connected to Supabase
+    //      (cloud.first_sync_done unset) → pullAll() so a freshly-
+    //      installed machine inherits whatever the team has already
+    //      pushed. Without this the operator on a new PC sees an empty
+    //      Models page and has to know to click "Pull all" to fix it.
+    //
+    //   2. The app version changed since the last successful sync
+    //      (cloud.last_synced_version != current). Forces every local
+    //      row's updated_at forward so the next push tick covers
+    //      everything, even rows whose updated_at was set by an older
+    //      build before sync was wired up. Without this, an upgrader
+    //      with pre-existing data has the data sit locally forever
+    //      because its updated_at is older than the current watermark.
+    //
+    // Both run in the background so start() returns immediately. Errors
+    // surface in the per-table diagnostic — they don't block startup.
+    setTimeout(() => { autoBootstrap().catch(() => {}); }, 1000);
+
     return { ok: true };
   } catch (e) {
     setError(`start: ${e?.message}`);
     return { ok: false, error: e?.message };
   } finally {
     state.starting = false;
+  }
+}
+
+async function autoBootstrap() {
+  const currentVer = state.appVersion || 'unknown';
+  const lastSyncedVer = getKv('cloud.last_synced_version');
+  const firstSyncDone = getKv('cloud.first_sync_done') === '1';
+
+  // (1) First sync ever — pull everything from Supabase. Run before
+  // push so we don't immediately race the watermark forward and miss
+  // remote rows whose updated_at is older than our backfill timestamp.
+  if (!firstSyncDone) {
+    try {
+      elog.info('[cloud] autoBootstrap: first sync — running pullAll()');
+      await pullAll();
+      setKv('cloud.first_sync_done', '1');
+    } catch (e) {
+      elog.warn('[cloud] autoBootstrap pullAll failed:', e?.message);
+    }
+  }
+
+  // (2) Version changed — force-bump every row so a fresh push covers
+  // any data that older builds left at a stale watermark.
+  if (lastSyncedVer !== currentVer) {
+    try {
+      elog.info('[cloud] autoBootstrap: version', lastSyncedVer || '(none)', '→', currentVer, '— running forceResync()');
+      await forceResync();
+      setKv('cloud.last_synced_version', currentVer);
+    } catch (e) {
+      elog.warn('[cloud] autoBootstrap forceResync failed:', e?.message);
+    }
   }
 }
 
