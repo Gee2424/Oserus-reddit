@@ -88,10 +88,31 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow) {
   /**
    * Check if CloakManager backend is available
    */
-  ipcMain.handle('cloakmanager:checkAvailable', async (event) => {
+  ipcMain.handle('cloakmanager:checkAvailable', async (event, { token }) => {
     try {
       console.log('[IPC] CloakManager availability check requested');
+
+      // Get user from token
+      const user = userFromToken(token);
+      if (!user) {
+        return { ok: false, available: false, error: 'Invalid token' };
+      }
+
+      // Load user's CloakManager URL setting and update client
+      const settings = getDb().prepare(`
+        SELECT cloakmanager_url
+        FROM user_browser_settings
+        WHERE user_id = ?
+      `).get(user.id);
+
       const client = getCloakManagerClient();
+
+      // Update client URL if user has custom setting
+      if (settings && settings.cloakmanager_url) {
+        client.updateBaseUrl(settings.cloakmanager_url);
+        console.log('[IPC] Loaded user CloakManager URL:', settings.cloakmanager_url);
+      }
+
       const available = await client.isAvailable();
       console.log('[IPC] CloakManager availability result:', available);
       return { ok: true, available };
@@ -170,6 +191,13 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow) {
           INSERT INTO user_browser_settings (user_id, default_browser_mode, cloakmanager_url)
           VALUES (?, ?, ?)
         `).run(user.id, defaultMode, cloakmanagerUrl || 'http://127.0.0.1:7331');
+      }
+
+      // CRITICAL: Update the CloakManager client's base URL
+      if (cloakmanagerUrl) {
+        const client = getCloakManagerClient();
+        client.updateBaseUrl(cloakmanagerUrl);
+        console.log('[IPC] Updated CloakManager client URL to:', cloakmanagerUrl);
       }
 
       return { ok: true, message: 'Settings updated successfully' };

@@ -29,6 +29,24 @@ class CloakManagerClient {
   }
 
   /**
+   * Update the CloakManager API base URL
+   * Called when user settings are updated
+   * @param {string} newUrl - New CloakManager URL
+   */
+  updateBaseUrl(newUrl) {
+    console.log('[CloakManager] Updating base URL from', this.baseUrl, 'to', newUrl);
+    this.baseUrl = newUrl;
+    this.available = null; // Reset availability cache
+
+    // Reconnect WebSocket with new URL
+    if (this.wsConnected) {
+      console.log('[CloakManager] Reconnecting WebSocket with new URL...');
+      this.disconnectWebSocket();
+      setTimeout(() => this.connectWebSocket(), 1000);
+    }
+  }
+
+  /**
    * Check if CloakManager backend is available
    * @returns {Promise<boolean>} true if CloakManager is responding
    */
@@ -395,7 +413,9 @@ class CloakManagerClient {
   connectWebSocket() {
     if (this.wsConnected) return;
 
-    const wsUrl = `ws://127.0.0.1:7331/ws/${this.clientId}`;
+    // Extract host and port from baseUrl for WebSocket connection
+    // baseUrl is like "http://127.0.0.1:41091" -> wsUrl should be "ws://127.0.0.1:41091/ws/..."
+    const wsUrl = this.baseUrl.replace('http://', 'ws://').replace('https://', 'wss://') + `/ws/${this.clientId}`;
     console.log('[CloakManager WS] Connecting to:', wsUrl);
 
     try {
