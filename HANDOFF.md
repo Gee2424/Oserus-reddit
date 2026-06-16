@@ -1,151 +1,151 @@
 # Oserus Management — handoff to Claude Code
 
-You're picking up an in-progress Electron desktop app built collaboratively with another Claude instance over many sessions. This document gets you up to speed.
+You're picking up an in-progress Electron desktop app built collaboratively with a previous Claude Code session over many turns. This document gets you up to speed.
+
+Current version: **0.85.5**. See [`UPDATES_v0.85.md`](UPDATES_v0.85.md) for the user-facing recap of what's landed since v0.8.
 
 ---
 
 ## What this app is
 
-A multi-platform account management tool for an OnlyFans agency. Supported platforms: Reddit, RedGifs, X (Twitter), Instagram, TikTok. The owner runs several models; each model has multiple platform accounts (some warming up, some "ready" for NSFW promo). Team members (operators, chatters, managers) log in and operate the accounts assigned to them.
+A multi-platform account management tool for an OnlyFans agency. Supported platforms: Reddit, RedGifs, X (Twitter), Instagram, TikTok. The owner runs several models; each model has multiple platform accounts (some warming up, some "ready" for NSFW promo). Team members (operators, managers) log in and operate the accounts assigned to them.
 
-The product name is **Oserus Management**. The logo lives at `src/renderer/assets/logo.png`. Theme is green/black/gold.
+The product name is **Oserus Management**. The logo lives at `src/renderer/assets/logo.png`. Theme is green / black / gold (palette in `src/renderer/styles/global.css` `:root` and mirrored in `src/renderer/browser/BrowserShell.jsx` `BRAND` constant).
 
 ---
 
 ## Architecture
 
-**Stack:** Electron 32 + React 18 (renderer via Vite) + SQLite (better-sqlite3) + Node.js IPC.
+**Stack:** Electron 32 + React 18 (renderer via Vite) + SQLite (better-sqlite3) + Supabase (`@supabase/supabase-js` + `ws`).
 
-**Why Electron, specifically:** the core value of the app is per-account browser session isolation. Each linked Reddit/RedGifs account has its own `persist:reddit-...` Electron session partition with its own cookies, its own optional proxy, and its own user agent. This lets a VA log into 10 different Reddit accounts simultaneously without cross-contamination. No web app can replicate this; it's the reason this is a desktop app.
+**Why Electron, specifically:** the core value of the app is per-account browser session isolation. Each linked platform account has its own Electron session partition (`persist:<partition_key>`) with its own cookies, optional proxy, antidetect preload, and spoofed UA. This lets one VA run 10 different Reddit / X / IG accounts simultaneously without cross-contamination. No web app can replicate this.
 
 **Layout:**
 ```
 src/
-├── main/
-│   ├── index.js              Electron entry, window creation, session prep, proxy setup
-│   ├── db.js                 SQLite init, schema, migrations, encryption helpers (safeStorage)
-│   └── ipc/
-│       ├── auth.js           Login, users, roles, password mgmt
-│       ├── profiles.js       Model profiles CRUD
-│       ├── accounts.js       Reddit + RedGifs accounts CRUD (one table, platform column)
-│       ├── proxies.js        Proxy CRUD; HTTP/HTTPS/SOCKS5
-│       ├── subs.js           Warm-up subreddits (global) + promo subreddits (per-model)
-│       ├── ai.js             Anthropic API calls for post suggestions (SFW/NSFW modes)
-│       ├── webviews.js       Custom Web Pages + locked shared tabs + per-tab credentials
-│       ├── posts.js          Post drafts CRUD
-│       └── bundle.js         Model profile export/import as .zip
-├── preload/index.js          contextBridge surface for the renderer
-└── renderer/                 React UI (Vite)
-    ├── App.jsx               Top-level route switcher
-    ├── components/           Shell, AccountSwitcher, ComposerPanel, IdeasPanel, RedGifsPanel
-    ├── lib/                  auth context, activeAccount context (Reddit + RedGifs tracked separately)
-    ├── pages/                Dashboard, Login, Profiles, ModelDetail, Accounts, RedditBrowser,
-    │                         RedGifsBrowser, Webviews, Proxies, Subreddits, Users, Settings
-    ├── styles/global.css     Theme tokens (green/black/gold) + selector-card pattern
-    └── assets/logo.png
+├── main/                        Electron main process
+│   ├── index.js                 entry, window creation, app.commandLine switches
+│   ├── browser.js               Oserus Browser host (one frameless BrowserWindow per account,
+│   │                            WebContentsView per tab — NOT <webview> tags, so session
+│   │                            partition / proxy / preload actually apply)
+│   ├── antidetectPreload.js     per-account preload generator; written to userData/antidetect
+│   ├── fingerprint.js           per-PROFILE fingerprint generator + applyGeoOverlay
+│   ├── db.js                    SQLite init, schema, migrations, encryption helpers
+│   ├── tray.js                  system tray icon
+│   ├── updater.js               electron-updater wiring (GitHub releases provider)
+│   ├── platforms/               adapter contract — reddit / x / instagram / tiktok
+│   ├── services/
+│   │   ├── coordinator.js       background job loop (autopilot, scheduler, engagement,
+│   │   │                        karma, boosts, proxy-test, topic)
+│   │   ├── sessionPrep.js       per-account session bind: proxy + UA + accept-language +
+│   │   │                        antidetect preload + live geo probe through proxy
+│   │   ├── ipv4Bridge.js        universal local proxy that handles HTTP/HTTPS/SOCKS4/4a/5/5h
+│   │   ├── engagement.js        hidden-browser scroll / like / follow / comment loop
+│   │   ├── platformGen.js       AI content generation (Claude / OpenAI / Grok with cascade)
+│   │   ├── postgen.js           Reddit-specific post generator
+│   │   ├── autopilotProtocol.js per-(profile, platform) protocol CRUD
+│   │   ├── protocols.js         eligibility checks (quiet hours, daily caps, hours-between)
+│   │   ├── redditAutoComment.js Reddit API-based commenting after engagement
+│   │   ├── coordination.js      pluggable coordination backend (local SQLite or Supabase)
+│   │   ├── discover.js          browser-based scraper for X / IG / TikTok
+│   │   ├── contentSources.js    warm-up / promo content lists
+│   │   ├── topicDiscovery.js    Reddit topic candidate cache
+│   │   ├── deviceBridge.js      Android / iOS device emulation params
+│   │   └── settings.js          KV settings table
+│   ├── sync/
+│   │   ├── defaultBackend.js    baked Supabase URL + publishable key
+│   │   ├── supabase.js          start / stop / push / pull / realtime / autoBootstrap /
+│   │   │                        per-table diagnostic / probe
+│   │   ├── syncSchema.js        TEAM_SHARED table list + ensureUpdatedAtColumns migration
+│   │   └── supabase-schema.sql  remote schema; operator runs it once in Supabase SQL Editor
+│   └── ipc/                     ~30 IPC handler modules (one per feature surface)
+├── preload/
+│   ├── index.js                 main app contextBridge (every IPC channel surfaced)
+│   ├── browser.js               Oserus Browser contextBridge
+│   └── engagement.js            engagement-loop helpers
+├── renderer/
+│   ├── App.jsx                  top-level route switcher; installs cloud reload bridge
+│   ├── components/              Shell, AccountSelector, PlatformExplainer, ProxiesPanel,
+│   │                            HomepageTilesPanel, ExtensionsPanel, AutopilotAIPanel,
+│   │                            ErrorBoundary, PopOutButton, ui.jsx (shared primitives)
+│   ├── lib/                     auth context, activeAccount context, permissions hook,
+│   │                            cloudReload bridge, inboxLive provider, platforms enum
+│   ├── pages/                   Dashboard, Profiles, ModelDetail, AddAccounts, Autopilot,
+│   │                            Automation, SchedulerPro, Intelligence, Inbox, Analytics,
+│   │                            Settings, Users, Roles, Docs, RedGifsDashboard, RedditApi,
+│   │                            Login
+│   ├── browser/BrowserShell.jsx Oserus Browser chrome UI (frameless tabstrip + bookmarks bar
+│   │                            + omnibox + content sidebar + proxy pill)
+│   ├── browser-main.jsx         browser window React entry
+│   ├── browser.html             browser window HTML host
+│   └── styles/global.css        theme tokens
+└── shared/
+    └── permissions.js           PERMISSION_KEYS (28) + BUILTIN_ROLES (admin + operator)
 ```
 
-**Roles:** admin, manager, reddit_va, chatter. Permissions enforced both in the renderer (sidebar filters, page guards) AND in every IPC handler in the main process. The renderer can't bypass.
+**Roles:** built-in **admin** (every permission) and **operator** (day-to-day surfaces: dashboard, models, autopilot, scheduler, intelligence, posting, accounts CRUD, proxy view, upvote orders — explicitly NOT users/roles/settings/ai.admin). Custom roles created via the Roles page. Permissions enforced both in the renderer (sidebar filters, page guards) AND in every IPC handler. Renderer can't bypass.
 
-**Encryption:** all sensitive secrets (account passwords, proxy passwords, locked tab credentials, Anthropic API key) are encrypted at rest via Electron's `safeStorage` (OS keychain on Mac/Win/Linux). Migrations handled gracefully on launch.
+**Encryption:** account passwords, proxy passwords, locked tab credentials, and API keys encrypted at rest via Electron's `safeStorage` (OS keychain on Mac/Win/Linux). Migrations are non-destructive and idempotent.
 
 ---
 
-## Notable features that already work
+## What works and what doesn't
 
-- **Per-account session isolation** via Electron session partitions, including proxy routing per account
-- **Reddit browser** with multi-tab support, URL bar, credentials helper
-- **Floating buttons on Reddit submit pages** (bottom-LEFT corner, away from Reddit's own Post button) — Compose, Ideas, RedGifs — that open side panels sliding in from the right
-- **RedGifs browser** — separate page AND accessible from the floating button on Reddit submit
-- **AI composer** with SFW (warm-up) and NSFW (promo) modes, pulling from the right subreddit lists; uses Anthropic API; key configured in Settings
-- **Model profile detail page** with separate Reddit and RedGifs account sections, "Start" buttons (▶) that set account active + navigate to the browser
-- **Profile export/import** as plain-text zip bundles (so admin can hand a profile to a new device)
-- **Locked tabs** in Custom Web Pages — admin-shared, with optional pre-login credentials (global or per-model-profile)
-- **Status filters** everywhere: warming / ready / paused / banned
+### Working reliably
+- Oserus Browser (frameless Chromium chrome, per-account isolation, antidetect, proxy bridge)
+- Models / accounts / proxies CRUD with role-gated permissions
+- Per-profile fingerprint generation + live geo overlay
+- Team dashboard with presence + time-on-task
+- Dashboard activity feed
+- Login, sessions, role assignment
+- Analytics (karma snapshots, per-platform rollups)
+- Auto-updater
+- Cloud Sync wiring (the sync infrastructure works; see "fragile" below)
 
-## What's stubbed / not yet built
+### Wired up but not yet reliable
+- **Autopilot** — UI saves, dry run reports correctly, but the end-to-end engagement + posting loop is inconsistent across installs.
+- **Scheduler** — composer + kanban work; the coordinator tick fires due posts via real adapters BUT in practice posts sometimes sit in the queue past their scheduled time.
+- **Inbox (Account Manager Pro)** — polls every 60s, drops messages, unread counts go stale, template auto-replies are inconsistent.
+- **Cloud Sync real-world performance** — push / pull / realtime / diagnostic all work, autoBootstrap pulls and force-resyncs as designed, but multi-machine convergence has dropped data in practice. The 🔬 Diagnose button in Settings → Cloud Sync surfaces the exact failing table when this happens.
 
-- **Reddit API publishing.** The composer saves drafts and schedule times locally but does NOT push posts to Reddit. Implementation plan: per-account Reddit OAuth (script-type app), in-app scheduler that fires when the app is running.
-- **Subreddit rule pre-check.** Should hit `/r/{sub}/about.json` and `about/rules.json` before publishing to flag NSFW-required, flair-required, min-karma, etc.
-- **Shadowban detection.**
-- **Server sync.** Everything is local SQLite right now. If multi-device sync is needed later, the swap point is `src/main/ipc/*` — replace DB queries with HTTP calls to a backend.
-- **Auto-update.** Not yet configured. This is one of the immediate next steps (see below).
-- **Windows installer (.exe).** Not yet built. Also a next step.
+### Platform-specific
+- **Intelligence works on Reddit** (Discover / Requirements / Compatibility tabs). **X / IG / TikTok Discover** is brittle — relies on DOM selectors that break when platforms ship updates.
+
+### Not built
+- Image generation (deliberately out of scope; AI is text-only).
+- Login-form automation (deliberately not built — too detectable).
+
+---
 
 ## Critical product decisions to preserve
 
-1. **NO auto-fill of login forms.** Both Reddit and RedGifs detect form automation and ban accounts. Credentials live in a "copy buttons" bar above the embedded browser — the VA copy-pastes manually. The user explicitly asked for auto-fill at one point; we explained the risk and they agreed to the copy-button approach.
-2. **NO posting via browser automation.** Same reason. When Reddit publishing is added, it must use Reddit's official API with proper rate limiting.
-3. **No vote manipulation, no spray-to-many-subs tools, no karma farming bots.** Explicit choice. The app is positioned as "helps VAs do their work cleanly," not "automates rule-breaking."
-4. **NSFW image generation is off the table.** Image generation APIs (including Anthropic's) refuse it, and the user agreed. AI generates text only; VA provides images themselves.
-5. **The user wants this to "feel like a real Redditor's tool"** — natural-sounding post titles, varied phrasing, no AI-flavored copy. Important when prompting Claude in the AI handler.
+1. **No login-form typing automation.** Both Reddit and platform anti-bot systems detect form automation and ban accounts. Operators sign in manually in the Oserus Browser; cookies persist in the per-account session partition.
+2. **No automated voting / spray-posting / karma farming bots.** Explicit choice. The app is positioned as "helps the team do their work cleanly," not "automates rule-breaking."
+3. **No NSFW image generation.** Text only; operators provide their own media.
+4. **Operator-friendly UX over feature density.** The owner is non-technical; their team is even less technical. Big buttons, plain language, no terminal.
 
 ---
 
-## Immediate next steps the user wants you to do
+## Cloud Sync mental model
 
-In this order:
+- One Supabase project. URL + publishable key are baked into `src/main/sync/defaultBackend.js` so every install auto-connects on first launch.
+- 24 tables sync (full list in `src/main/sync/syncSchema.js` `TEAM_SHARED`). Each gets an `updated_at INTEGER` epoch-millis watermark column added at runtime via `ensureUpdatedAtColumns()` and maintained by SQLite triggers.
+- Push tick every 1.5s + `markDirty()` for early prods after writes.
+- Realtime subscribe per table; peer updates land in ~1-2s.
+- `autoBootstrap()` runs 1s after `start()` succeeds and does (a) a one-time `pullAll()` for new installs and (b) `forceResync()` when the app version changed since the last successful sync.
+- Settings → Cloud Sync has Push now / Pull all / Force re-sync / 🔬 Diagnose buttons as escape hatches.
 
-### 1. Set up a private GitHub repo for the project
-- Walk the user through making a GitHub account if they don't have one (they said they have one but I'm not 100% sure)
-- Create a private repo named `oserus-management`
-- They are on Windows. Recommend GitHub Desktop unless they want CLI
-- Push the current code
+The setup SQL has to run on the Supabase project once (Settings → Cloud Sync → Copy setup SQL → Supabase SQL Editor → Run). The publishable key cannot run DDL, so this is a one-time human action.
 
-### 2. Write the electron-builder config for a Windows installer
-- Update `package.json` `build` config: NSIS installer, Start Menu shortcut, desktop icon, proper app name and icon, uninstaller
-- Convert `src/renderer/assets/logo.png` into a Windows `.ico` for the app icon
-- Test build with `npm run build` — should produce `Oserus Management Setup.exe` in `dist/`
+---
 
-### 3. Add auto-update via GitHub Releases
-- Add `electron-updater` package
-- Wire up update checks: on launch + every 3 hours while running
-- When update found: download silently, then notify VA with a non-intrusive prompt ("Update ready, restart to apply")
-- Apply on next close or on user click
-- User specifically said: **check every 3 hours, run in background**
+## Build & release
 
-### 4. Publishing workflow
-- Document how the user pushes updates: bump version in package.json → commit → push → `npm run publish` → done
-- Every VA's installed copy updates within 3 hours
+GitHub Actions workflow `Release Windows installer` on `workflow_dispatch`. **Do not push git tags** — they're blocked in this environment. See [`PUBLISHING.md`](PUBLISHING.md).
 
-## Things to be careful about
+All in-progress work happens on `claude/pensive-bell-VtMGj`. Main is updated by merging that branch (Claude can do this when the user asks).
 
-- **The logo file.** `src/renderer/assets/logo.png` is a properly transparent RGBA PNG that I processed from a JPEG the user originally provided. The user's source exports (from whatever design tool they use) come through as JPEGs with a `.png` extension and a baked-in black background — not actual transparent PNGs. If the user sends a "new logo" and it appears boxed in black on the sidebar, run `file path/to/logo.png` to check — if it says "JPEG image data" it needs the background removal treatment. The script I used:
-  ```python
-  from PIL import Image
-  import numpy as np
-  im = Image.open('input.png').convert('RGBA')
-  arr = np.array(im)
-  max_chan = np.maximum(np.maximum(arr[...,0], arr[...,1]), arr[...,2])
-  # Soft alpha ramp from 25 to 70 brightness gives clean anti-aliased edges
-  alpha = np.clip((max_chan.astype(np.int32) - 25) * (255 // 45), 0, 255).astype(np.uint8)
-  arr[..., 3] = alpha
-  Image.fromarray(arr, 'RGBA').save('output.png', 'PNG', optimize=True)
-  ```
-  Then downscale to ~800px wide to keep the bundle small (the source files are typically 6000+ px).
-- **Don't break existing data.** Users may have `%APPDATA%\reddit-manager\` (the data folder is still under that name even after the rebrand). Migration logic in `db.js` is non-destructive and idempotent — keep it that way. There's a `users` table `creator` → `reddit_va` migration that already ran on most installs; don't undo it.
-- **Don't change product decisions in the "critical" list above without checking with the user first.** Several of those were debated and settled.
-- **The user is non-technical.** Walk them through commands. Don't assume they know what `git` or `npm` is. They've been very patient with the workflow so far — keep it patient.
-- **They want the .exe to feel like installing Spotify** — no terminal, no `npm` for them, double-click installer, Start Menu shortcut, that's it.
-
-## Things the user has asked for but I deferred or scoped down
-
-- "Mobile app" — explained why it can't work (app store policies for adult content, no embedded webview + session isolation on iOS, etc.). Settled on desktop-only.
-- "Auto-login to Reddit/RedGifs with stored password" — explained ban risk, switched to copy-button credential helper. Don't bring back form automation.
-- "Make Claude have GitHub access in chat" — clarified this isn't possible in the chat product, which is why they're moving to Claude Code now.
-
-## Versioning so far
-
-- v0.1 → scaffold
-- v0.2 → credentials vault, per-account proxies, RedGifs locked tab, account statuses, profile export/import
-- v0.3 → 4-role system (admin/manager/reddit_va/chatter), auto-migration from old "creator" role
-- v0.4 → RedGifs accounts linked to models, Start buttons, separate Reddit/RedGifs browsers
-- v0.5 → AI composer with SFW/NSFW modes, Anthropic API integration, warm-up + promo subreddit lists
-- v0.6 → Section restructure (Reddit/RedGifs/Work/Manage), platform-aware switcher
-- v0.7 → Floating buttons on Reddit submit pages, side panels, shared locked tabs with pre-login credentials
-- v0.8 → **Oserus Management rebrand**, green/black/gold theme, logo integration, dashboard landing page, selector card pattern
-
-Read UPDATES_v0.*.md for fuller per-version notes.
+---
 
 ## Default admin login (seeded on first run)
 
@@ -154,8 +154,15 @@ username: admin
 password: changeme
 ```
 
-Settings → Change password on first launch.
+Settings → Users → Change password on first launch.
 
 ---
 
-Good luck. The user is friendly and patient but easily gets ahead of themselves wanting to add new features before testing existing ones. If they start asking for big new features, gently nudge them to confirm what's already working first.
+## Tone of the user
+
+The owner is non-technical and gets frustrated when things require manual steps. Two patterns to remember:
+
+- They want things to **just work** after install — buttons in the UI when they're necessary, but the default path should require zero clicks.
+- They're often running on a real production agency. When they say "X isn't working" it's a real bug report, not a hypothetical. Triage with the per-table diagnostic, electron-log, and screenshots they send.
+
+When something silent-fails, surface a loud diagnostic, not another silent fallback.
