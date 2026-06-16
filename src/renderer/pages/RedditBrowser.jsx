@@ -6,6 +6,7 @@ import ComposerPanel from '../components/ComposerPanel.jsx';
 import IdeasPanel from '../components/IdeasPanel.jsx';
 import VotesOrderPanel from '../components/VotesOrderPanel.jsx';
 import RedGifsPanel from '../components/RedGifsPanel.jsx';
+import CloakManagerLauncher from '../components/CloakManagerLauncher.jsx';
 
 let tabIdSeq = 1;
 function makeTab(url) {
@@ -49,11 +50,37 @@ export default function RedditBrowser() {
     }
   }, [active, redditAccounts]);
 
+  // Check browser mode for the active account
+  useEffect(() => {
+    if (!active) {
+      setBrowserMode(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await window.api.session.prepareForAccount({ accountId: active.id });
+        if (!cancelled && result.ok) {
+          setBrowserMode(result.mode);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Failed to check browser mode:', err);
+          setBrowserMode('electron'); // Default to electron on error
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [active?.id]);
+
   const [tabs, setTabs] = useState([]);
   const [activeTabId, setActiveTabId] = useState(null);
   const [inputUrl, setInputUrl] = useState('');
   const [creds, setCreds] = useState(null);
   const [showCredsHelper, setShowCredsHelper] = useState(false);
+  const [browserMode, setBrowserMode] = useState(null);
   const webviewRefs = useRef({});
   const lastAccountRef = useRef(null);
 
@@ -211,20 +238,30 @@ export default function RedditBrowser() {
           )}
 
           <div style={styles.viewportContainer}>
-            {tabs.map(t => (
-              <webview
-                key={`${active.partition_key}-${t.id}`}
-                ref={el => { if (el) webviewRefs.current[t.id] = el; }}
-                src={t.url}
-                partition={`persist:${active.partition_key}`}
-                style={{ ...styles.webview, display: t.id === activeTabId ? 'flex' : 'none' }}
-                allowpopups="true"
+            {/* Conditional rendering based on browser mode */}
+            {browserMode === 'cloakmanager' ? (
+              <CloakManagerLauncher
+                account={active}
+                initialUrl={tabs.find(t => t.id === activeTabId)?.url || 'https://www.reddit.com/'}
               />
-            ))}
+            ) : (
+              <>
+                {tabs.map(t => (
+                  <webview
+                    key={`${active.partition_key}-${t.id}`}
+                    ref={el => { if (el) webviewRefs.current[t.id] = el; }}
+                    src={t.url}
+                    partition={`persist:${active.partition_key}`}
+                    style={{ ...styles.webview, display: t.id === activeTabId ? 'flex' : 'none' }}
+                    allowpopups="true"
+                  />
+                ))}
+              </>
+            )}
 
-            {/* Floating action buttons - only on submit pages.
+            {/* Floating action buttons - only on submit pages and Electron mode.
                 Positioned bottom-LEFT so they don't overlap Reddit's own Post button. */}
-            {onSubmitPage && !openPanel && (
+            {browserMode !== 'cloakmanager' && onSubmitPage && !openPanel && (
               <div style={styles.fabStack}>
                 <button onClick={() => setOpenPanel('compose')} style={styles.fab} title="Open Composer">
                   <span style={styles.fabIcon}>✍️</span>
@@ -241,8 +278,8 @@ export default function RedditBrowser() {
               </div>
             )}
 
-            {/* Votes FAB — shows on every reddit.com page (admins/managers only) */}
-            {canPlaceOrders && onRedditPage && !onSubmitPage && !openPanel && (
+            {/* Votes FAB — shows on every reddit.com page (admins/managers only, Electron mode only) */}
+            {browserMode !== 'cloakmanager' && canPlaceOrders && onRedditPage && !onSubmitPage && !openPanel && (
               <div style={styles.votesFabWrap}>
                 <button onClick={() => setOpenPanel('votes')} style={styles.votesFab} title="Order upvotes for the current post">
                   <span style={styles.fabIcon}>▲</span>

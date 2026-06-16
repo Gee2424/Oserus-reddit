@@ -7,3 +7,5 @@ release/
 .env.local
 *.sqlite
 *.db
+CLAUDE.md
+package-lock.json

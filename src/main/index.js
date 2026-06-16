@@ -19,6 +19,7 @@ const registerScheduledHandlers = require('./ipc/scheduled');
 const registerAnalyticsHandlers = require('./ipc/analytics');
 const registerActivityHandlers = require('./ipc/activity');
 const registerRedditHandlers = require('./ipc/reddit');
+const registerCloakmanagerHandlers = require('./ipc/cloakmanager');
 
 const isDev = !app.isPackaged;
 let mainWindow;
@@ -73,33 +74,61 @@ async function prepareSessionForAccount(accountId) {
   ).get(accountId);
   if (!account) return { ok: false, error: 'Account not found' };
 
-  const partition = `persist:${account.partition_key}`;
-  const sess = session.fromPartition(partition);
-  sess.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
-  );
+  // Check browser mode for this account
+  const modeSettings = db.prepare(`
+    SELECT browser_mode, cloak_profile_name
+    FROM account_browser_settings
+    WHERE account_id = ?
+  `).get(accountId);
 
-  // Apply proxy. Electron uses Chromium-style proxy rules.
-  if (account.proxy_host && account.proxy_port) {
-    const scheme = account.proxy_kind === 'socks5' ? 'socks5' : (account.proxy_kind === 'https' ? 'https' : 'http');
-    const rules = `${scheme}://${account.proxy_host}:${account.proxy_port}`;
-    await sess.setProxy({ proxyRules: rules, proxyBypassRules: '<-loopback>' });
-
-    // Auth-via-proxy: capture the 'login' event to pass username/password
-    if (account.proxy_username) {
-      const password = decryptSecret(account.proxy_pw_enc) || '';
-      sess.removeAllListeners('login');
-      sess.on('login', (_event, _details, _authInfo, callback) => {
-        callback(account.proxy_username, password);
-      });
-    }
-  } else {
-    // No proxy assigned — clear any prior proxy on this partition
-    await sess.setProxy({ proxyRules: '' });
+  let finalMode = 'electron';
+  if (modeSettings?.browser_mode === 'cloakmanager') {
+    finalMode = 'cloakmanager';
+  } else if (modeSettings?.browser_mode === 'inherit') {
+    // Check user default from session context (we'll need userId passed in future)
+    // For now, default to electron if inherit
+    finalMode = 'electron';
   }
 
-  configuredPartitions.add(partition);
-  return { ok: true, partition, partitionKey: account.partition_key };
+  // Only prepare Electron session if mode is electron
+  if (finalMode === 'electron') {
+    const partition = `persist:${account.partition_key}`;
+    const sess = session.fromPartition(partition);
+    sess.setUserAgent(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+    );
+
+    // Apply proxy. Electron uses Chromium-style proxy rules.
+    if (account.proxy_host && account.proxy_port) {
+      const scheme = account.proxy_kind === 'socks5' ? 'socks5' : (account.proxy_kind === 'https' ? 'https' : 'http');
+      const rules = `${scheme}://${account.proxy_host}:${account.proxy_port}`;
+      await sess.setProxy({ proxyRules: rules, proxyBypassRules: '<-loopback>' });
+
+      // Auth-via-proxy: capture the 'login' event to pass username/password
+      if (account.proxy_username) {
+        const password = decryptSecret(account.proxy_pw_enc) || '';
+        sess.removeAllListeners('login');
+        sess.on('login', (_event, _details, _authInfo, callback) => {
+          callback(account.proxy_username, password);
+        });
+      }
+    } else {
+      // No proxy assigned — clear any prior proxy on this partition
+      await sess.setProxy({ proxyRules: '' });
+    }
+
+    configuredPartitions.add(partition);
+    return { ok: true, mode: 'electron', partition, partitionKey: account.partition_key };
+  }
+
+  // CloakManager mode - return mode info without Electron session
+  return {
+    ok: true,
+    mode: 'cloakmanager',
+    accountId: account.id,
+    partitionKey: account.partition_key,
+    profileName: modeSettings?.cloak_profile_name || `reddit-${account.username}`
+  };
 }
 
 ipcMain.handle('session:prepareForAccount', async (_e, { accountId }) => {
@@ -142,10 +171,16 @@ app.whenReady().then(() => {
   registerAnalyticsHandlers(ipcMain);
   registerActivityHandlers(ipcMain);
   registerRedditHandlers(ipcMain);
+  registerCloakmanagerHandlers(ipcMain, mainWindow);  // Pass mainWindow for event broadcasting
 
   createWindow();
   initAutoUpdater(mainWindow);
   createTray(mainWindow, checkNow);
+
+  // Initialize CloakManager WebSocket connection
+  const { getCloakManagerClient } = require('./cloakmanager');
+  const cloakManager = getCloakManagerClient();
+  cloakManager.connectWebSocket();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -164,6 +199,11 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  // Cleanup CloakManager WebSocket connection
+  const { getCloakManagerClient } = require('./cloakmanager');
+  const cloakManager = getCloakManagerClient();
+  cloakManager.disconnectWebSocket();
+
   markQuitting();
   stopAutoUpdater();
   destroyTray();

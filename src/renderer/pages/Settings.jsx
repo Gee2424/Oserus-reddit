@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
+import BrowserModeSettings from '../components/BrowserModeSettings.jsx';
 
 export default function SettingsPage() {
   const { token, user } = useAuth();
@@ -136,6 +137,8 @@ export default function SettingsPage() {
           </form>
         </div>
       )}
+
+      <BrowserModeSettings />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 22 }}>
         <form onSubmit={changePassword} className="card">

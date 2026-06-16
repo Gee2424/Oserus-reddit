@@ -111,6 +111,66 @@ const api = {
     karmaHistory: (data) => ipcRenderer.invoke('analytics:karmaHistory', data),
     recordKarma: (data) => ipcRenderer.invoke('analytics:recordKarma', data),
   },
+  cloakmanager: {
+    checkAvailable: (data) => ipcRenderer.invoke('cloakmanager:checkAvailable', data),
+    getSettings: (data) => ipcRenderer.invoke('cloakmanager:getSettings', data),
+    updateSettings: (data) => ipcRenderer.invoke('cloakmanager:updateSettings', data),
+    getAccountMode: (data) => ipcRenderer.invoke('cloakmanager:getAccountMode', data),
+    setAccountMode: (data) => ipcRenderer.invoke('cloakmanager:setAccountMode', data),
+    createProfile: (data) => ipcRenderer.invoke('cloakmanager:createProfile', data),
+    launchProfile: (data) => ipcRenderer.invoke('cloakmanager:launchProfile', data),
+    stopProfile: (data) => ipcRenderer.invoke('cloakmanager:stopProfile', data),
+    getProfileInfo: (data) => ipcRenderer.invoke('cloakmanager:getProfileInfo', data),
+    deleteProfile: (data) => ipcRenderer.invoke('cloakmanager:deleteProfile', data),
+    getRunningProfiles: (data) => ipcRenderer.invoke('cloakmanager:getRunningProfiles', data),
+    getCDPInfo: (data) => ipcRenderer.invoke('cloakmanager:getCDPInfo', data),
+    // WebSocket event listeners
+    onProfileLaunched: (callback) => {
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('cloakmanager:profile_launched', listener);
+      return () => ipcRenderer.removeListener('cloakmanager:profile_launched', listener);
+    },
+    onProfileStopped: (callback) => {
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('cloakmanager:profile_stopped', listener);
+      return () => ipcRenderer.removeListener('cloakmanager:profile_stopped', listener);
+    },
+    onWindowClosed: (callback) => {
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('cloakmanager:window_closed', listener);
+      return () => ipcRenderer.removeListener('cloakmanager:window_closed', listener);
+    },
+    onBrowserCrashed: (callback) => {
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('cloakmanager:browser_crashed', listener);
+      return () => ipcRenderer.removeListener('cloakmanager:browser_crashed', listener);
+    },
+    onLaunchProgress: (callback) => {
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('cloakmanager:launch_progress', listener);
+      return () => ipcRenderer.removeListener('cloakmanager:launch_progress', listener);
+    },
+    onCDPReady: (callback) => {
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('cloakmanager:cdp_ready', listener);
+      return () => ipcRenderer.removeListener('cloakmanager:cdp_ready', listener);
+    },
+    onWSConnected: (callback) => {
+      const listener = () => callback();
+      ipcRenderer.on('cloakmanager:ws_connected', listener);
+      return () => ipcRenderer.removeListener('cloakmanager:ws_connected', listener);
+    },
+    onWSDisconnected: (callback) => {
+      const listener = () => callback();
+      ipcRenderer.on('cloakmanager:ws_disconnected', listener);
+      return () => ipcRenderer.removeListener('cloakmanager:ws_disconnected', listener);
+    },
+    onWSFallback: (callback) => {
+      const listener = () => callback();
+      ipcRenderer.on('cloakmanager:ws_fallback', listener);
+      return () => ipcRenderer.removeListener('cloakmanager:ws_fallback', listener);
+    }
+  },
   session: {
     prepareForAccount: (data) => ipcRenderer.invoke('session:prepareForAccount', data),
     clear: (partitionKey) => ipcRenderer.invoke('session:clear', partitionKey),
