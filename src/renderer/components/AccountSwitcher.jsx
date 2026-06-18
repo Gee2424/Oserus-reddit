@@ -8,6 +8,25 @@ const STATUS_META = {
   banned: { color: '#b3473a', label: 'banned' },
 };
 
+// Browser mode configuration
+const BROWSER_MODES = {
+  electron: { label: 'Electron', color: '#4a90e2', icon: '⚡' },
+  cloakmanager: { label: 'CloakManager', color: '#9b59b6', icon: '👻' },
+  inherit: { label: 'Inherit', color: '#95a5a6', icon: '🔄' },
+};
+
+// Helper to get browser mode for an account
+function getBrowserMode(account) {
+  if (!account) return 'electron';
+
+  const accountMode = account.browser_mode;
+  if (accountMode === 'cloakmanager') return 'cloakmanager';
+  if (accountMode === 'electron') return 'electron';
+
+  // For 'inherit' or missing, default to electron
+  return 'electron';
+}
+
 function platformLabel(p) {
   return ({ reddit: 'Reddit', redgifs: 'RedGifs', x: 'X', instagram: 'Instagram', tiktok: 'TikTok' })[p] || p || 'platform';
 }
@@ -63,6 +82,23 @@ export default function AccountSwitcher({ platform }) {
               <span>{active.username}</span>
               <span style={{ color: 'var(--text-3)', marginLeft: 6 }}>·</span>
               <span style={{ color: 'var(--text-2)', marginLeft: 6 }}>{active.profile_name}</span>
+              {(() => {
+                const browserMode = getBrowserMode(active);
+                const modeConfig = BROWSER_MODES[browserMode] || BROWSER_MODES.electron;
+                return (
+                  <span style={{
+                    color: modeConfig.color,
+                    marginLeft: 8,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}>
+                    {modeConfig.icon} {modeConfig.label}
+                  </span>
+                );
+              })()}
               {active.proxy_label && (
                 <span className="mono" style={{ color: 'var(--text-3)', marginLeft: 8, fontSize: 11 }}>
                   via {active.proxy_label}
@@ -113,23 +149,37 @@ export default function AccountSwitcher({ platform }) {
             Object.entries(groups).map(([profile, items]) => (
               <div key={profile}>
                 <div style={styles.menuGroupLabel}>{profile}</div>
-                {items.map((a) => (
-                  <button
-                    key={a.id}
-                    onClick={() => { setActive(a.id); setOpen(false); }}
-                    style={{
-                      ...styles.menuItem,
-                      ...(active?.id === a.id ? styles.menuItemActive : {}),
-                    }}
-                  >
-                    <span style={styles.dot(STATUS_META[a.status]?.color || '#968b78')} />
-                    <span className="mono" style={{ color: 'var(--text-3)' }}>{PLATFORM_PREFIX[a.platform] || 'u/'}</span>
-                    <span style={{ flex: 1 }}>{a.username}</span>
-                    {a.proxy_label && (
-                      <span className="mono" style={{ color: 'var(--text-3)', fontSize: 10 }}>{a.proxy_kind}</span>
-                    )}
-                  </button>
-                ))}
+                {items.map((a) => {
+                  const browserMode = getBrowserMode(a);
+                  const modeConfig = BROWSER_MODES[browserMode] || BROWSER_MODES.electron;
+                  return (
+                    <button
+                      key={a.id}
+                      onClick={() => { setActive(a.id); setOpen(false); }}
+                      style={{
+                        ...styles.menuItem,
+                        ...(active?.id === a.id ? styles.menuItemActive : {}),
+                      }}
+                    >
+                      <span style={styles.dot(STATUS_META[a.status]?.color || '#968b78')} />
+                      <span className="mono" style={{ color: 'var(--text-3)' }}>{PLATFORM_PREFIX[a.platform] || 'u/'}</span>
+                      <span style={{ flex: 1 }}>{a.username}</span>
+                      <span style={{
+                        color: modeConfig.color,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 2,
+                      }}>
+                        {modeConfig.icon}
+                      </span>
+                      {a.proxy_label && (
+                        <span className="mono" style={{ color: 'var(--text-3)', fontSize: 10 }}>{a.proxy_kind}</span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             ))
           )}
