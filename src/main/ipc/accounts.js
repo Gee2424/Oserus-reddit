@@ -167,10 +167,14 @@ function register(ipcMain) {
       .prepare(
         `SELECT a.*, p.name AS profile_name, p.main_email AS profile_main_email,
                 px.label AS proxy_label, px.kind AS proxy_kind,
-                px.last_test_ok AS proxy_test_ok, px.last_test_error AS proxy_test_error
+                px.last_test_ok AS proxy_test_ok, px.last_test_error AS proxy_test_error,
+                bs.browser_mode, bs.cloak_profile_name,
+                cp.profile_name AS cloak_actual_name, cp.cdp_port, cp.status AS cloak_status
          FROM reddit_accounts a
          JOIN model_profiles p ON p.id = a.profile_id
          LEFT JOIN proxies px ON px.id = COALESCE(a.proxy_id, p.proxy_id)
+         LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
+         LEFT JOIN cloakmanager_profiles cp ON cp.account_id = a.id
          ${whereClause}
          ORDER BY p.name, a.platform, a.status, a.username`
       )

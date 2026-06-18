@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 
 // Shared account picker used by Autopilot + Scheduler.
@@ -24,6 +24,13 @@ const PLATFORMS = [
   { v: 'redgifs',   l: 'RedGifs',   c: '#d63d3d' },
 ];
 
+// Browser mode configuration
+const BROWSER_MODES = {
+  electron: { label: 'Electron', color: '#4a90e2', icon: '⚡' },
+  cloakmanager: { label: 'CloakManager', color: '#9b59b6', icon: '👻' },
+  inherit: { label: 'Inherit', color: '#95a5a6', icon: '🔄' },
+};
+
 export default function AccountSelector({
   accounts,
   profiles,
@@ -35,13 +42,146 @@ export default function AccountSelector({
   const { profileId, platform, accountId } = value || {};
   const { token } = useAuth();
 
+  // CloakManager state
+  const [cloakStatus, setCloakStatus] = useState({}); // { accountId: status }
+  const [launchProgress, setLaunchProgress] = useState({}); // { accountId: progress }
+  const [runningProfiles, setRunningProfiles] = useState(new Set());
+
+  // Get browser mode for an account
+  const getBrowserMode = useCallback((account) => {
+    if (!account) return 'electron';
+
+    const accountMode = account.browser_mode;
+    if (accountMode === 'cloakmanager') return 'cloakmanager';
+    if (accountMode === 'electron') return 'electron';
+
+    // For 'inherit' or missing, default to electron
+    return 'electron';
+  }, []);
+
+  // Check if an account is running in CloakManager
+  const isAccountRunning = useCallback((accountId) => {
+    return runningProfiles.has(accountId) && cloakStatus[accountId] === 'running';
+  }, [runningProfiles, cloakStatus]);
+
+  // Enhanced launch function that checks browser mode
   async function launchInBrowser() {
     if (!accountId) return;
+
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) return;
+
+    const browserMode = getBrowserMode(account);
+
+    // CloakManager mode launch
+    if (browserMode === 'cloakmanager') {
+      const profileName = account.cloak_profile_name || account.cloak_actual_name;
+      if (!profileName) {
+        alert('No CloakManager profile configured for this account');
+        return;
+      }
+
+      setLaunchProgress(prev => ({ ...prev, [accountId]: { status: 'launching', progress: 0 } }));
+
+      try {
+        const result = await window.api.cloakmanager.launchProfile({
+          token,
+          accountId,
+          profileName
+        });
+
+        setLaunchProgress(prev => ({ ...prev, [accountId]: null }));
+
+        if (result && result.ok === false) {
+          alert(result.error || 'Failed to launch CloakManager profile');
+        } else if (result && result.ok) {
+          setRunningProfiles(prev => new Set([...prev, accountId]));
+          setCloakStatus(prev => ({ ...prev, [accountId]: 'running' }));
+        }
+      } catch (e) {
+        setLaunchProgress(prev => ({ ...prev, [accountId]: null }));
+        alert(e.message || 'CloakManager launch failed');
+      }
+      return;
+    }
+
+    // Electron mode launch (original behavior)
     try {
       const r = await window.api.oserusBrowser.openAccount({ token, accountId });
       if (r && r.ok === false) alert(r.error || 'Could not open Oserus Browser');
     } catch (e) { alert(e.message || 'Launch failed'); }
   }
+
+  // WebSocket event listeners for real-time status updates
+  useEffect(() => {
+    const unsubscribers = [];
+
+    // Profile launched event
+    unsubscribers.push(
+      window.api.cloakmanager.onProfileLaunched((data) => {
+        if (data && data.accountId) {
+          setRunningProfiles(prev => new Set([...prev, data.accountId]));
+          setCloakStatus(prev => ({ ...prev, [data.accountId]: 'running' }));
+          setLaunchProgress(prev => ({ ...prev, [data.accountId]: null }));
+        }
+      })
+    );
+
+    // Profile stopped event
+    unsubscribers.push(
+      window.api.cloakmanager.onProfileStopped((data) => {
+        if (data && data.accountId) {
+          setRunningProfiles(prev => {
+            const next = new Set(prev);
+            next.delete(data.accountId);
+            return next;
+          });
+          setCloakStatus(prev => ({ ...prev, [data.accountId]: 'stopped' }));
+        }
+      })
+    );
+
+    // Window closed event
+    unsubscribers.push(
+      window.api.cloakmanager.onWindowClosed((data) => {
+        if (data && data.accountId) {
+          setRunningProfiles(prev => {
+            const next = new Set(prev);
+            next.delete(data.accountId);
+            return next;
+          });
+          setCloakStatus(prev => ({ ...prev, [data.accountId]: 'stopped' }));
+        }
+      })
+    );
+
+    // Launch progress event
+    unsubscribers.push(
+      window.api.cloakmanager.onLaunchProgress((data) => {
+        if (data && data.accountId) {
+          setLaunchProgress(prev => ({
+            ...prev,
+            [data.accountId]: { status: 'launching', progress: data.progress || 0 }
+          }));
+        }
+      })
+    );
+
+    // Browser crashed event
+    unsubscribers.push(
+      window.api.cloakmanager.onBrowserCrashed((data) => {
+        if (data && data.accountId) {
+          setLaunchProgress(prev => ({ ...prev, [data.accountId]: null }));
+          setCloakStatus(prev => ({ ...prev, [data.accountId]: 'error' }));
+          alert(`CloakManager browser crashed for account ${data.accountId}`);
+        }
+      })
+    );
+
+    return () => {
+      unsubscribers.forEach(unsub => unsub());
+    };
+  }, []);
 
   // Default selection: first profile, first platform that has at least
   // one account on that profile (or 'reddit' as a stable fallback).
@@ -141,36 +281,79 @@ export default function AccountSelector({
             </span>
           ) : accountsOnSelection.map((a) => {
             const active = accountId === a.id;
+            const browserMode = getBrowserMode(a);
+            const modeConfig = BROWSER_MODES[browserMode] || BROWSER_MODES.electron;
+            const running = isAccountRunning(a.id);
+            const progress = launchProgress[a.id];
+
             return (
               <button
                 key={a.id}
                 onClick={() => onChange({ profileId, platform, accountId: a.id })}
                 style={{
                   background: active ? 'rgba(212,166,74,0.18)' : 'var(--bg-1)',
-                  border: `1px solid ${active ? 'var(--gold)' : 'var(--border)'}`,
+                  border: `1px solid ${active ? 'var(--gold)' : modeConfig.color}`,
                   borderRadius: 999, padding: '4px 10px',
                   color: active ? 'var(--gold)' : 'var(--text-1)',
                   fontSize: 11, fontFamily: 'var(--font-mono)', cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  position: 'relative',
                 }}
-                title={`Status: ${a.status || 'unknown'}`}
+                title={`Status: ${a.status || 'unknown'} | Browser: ${modeConfig.label}${running ? ' | Running' : ''}`}
               >
+                <span style={{ fontSize: 10 }}>{modeConfig.icon}</span>
                 {a.username}
+                {running && (
+                  <span style={{
+                    width: 6, height: 6, borderRadius: '50%',
+                    background: '#2ecc71', boxShadow: '0 0 4px #2ecc71'
+                  }} />
+                )}
+                {progress && progress.status === 'launching' && (
+                  <span style={{
+                    position: 'absolute', top: -2, right: -2,
+                    background: modeConfig.color, color: '#fff',
+                    fontSize: 8, padding: '1px 3px', borderRadius: 999,
+                    animation: 'pulse 1s infinite'
+                  }}>
+                    {Math.round(progress.progress * 100)}%
+                  </span>
+                )}
               </button>
             );
           })}
-          {accountId && (
-            <button
-              onClick={launchInBrowser}
-              title="Open the selected account in Oserus Browser"
-              style={{
-                background: 'var(--gold)', color: '#0d0c0a',
-                border: 'none', borderRadius: 999,
-                padding: '4px 12px', fontSize: 11, fontWeight: 700,
-                cursor: 'pointer', marginLeft: 4,
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-              }}
-            >▶ Browser</button>
-          )}
+          {accountId && (() => {
+            const account = accounts.find(a => a.id === accountId);
+            const browserMode = account ? getBrowserMode(account) : 'electron';
+            const modeConfig = BROWSER_MODES[browserMode] || BROWSER_MODES.electron;
+            const progress = launchProgress[accountId];
+            const running = isAccountRunning(accountId);
+
+            return (
+              <button
+                onClick={launchInBrowser}
+                disabled={progress && progress.status === 'launching'}
+                title={`Open in ${modeConfig.label}${running ? ' (already running)' : ''}`}
+                style={{
+                  background: running ? 'var(--green)' : modeConfig.color,
+                  color: '#fff',
+                  border: 'none', borderRadius: 999,
+                  padding: '4px 12px', fontSize: 11, fontWeight: 700,
+                  cursor: progress && progress.status === 'launching' ? 'wait' : 'pointer',
+                  marginLeft: 4, opacity: progress && progress.status === 'launching' ? 0.7 : 1,
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                }}
+              >
+                {progress && progress.status === 'launching' ? (
+                  <>⟳ Launching...</>
+                ) : running ? (
+                  <>● Running</>
+                ) : (
+                  <>{modeConfig.icon} ▶ {modeConfig.label}</>
+                )}
+              </button>
+            );
+          })()}
         </div>
       )}
     </div>
@@ -183,3 +366,16 @@ const shell = {
   background: 'var(--bg-1)', border: '1px solid var(--border)',
   borderRadius: 10, marginBottom: 16,
 };
+
+// Add pulse animation for launch progress
+if (typeof document !== 'undefined' && !document.getElementById('account-selector-styles')) {
+  const style = document.createElement('style');
+  style.id = 'account-selector-styles';
+  style.textContent = `
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+  `;
+  document.head.appendChild(style);
+}
