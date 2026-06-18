@@ -6,6 +6,7 @@ import ProxiesPanel from '../components/ProxiesPanel.jsx';
 import ExtensionsPanel from '../components/ExtensionsPanel.jsx';
 import HomepageTilesPanel from '../components/HomepageTilesPanel.jsx';
 import AutopilotAIPanel from '../components/AutopilotAIPanel.jsx';
+import BrowserModeSettings from '../components/BrowserModeSettings.jsx';
 
 // Configuration page.
 //
@@ -230,6 +231,8 @@ export default function SettingsPage() {
             description="Unpacked extensions loaded into every account's session partition. Each profile gets its own extension storage / cookies / badges, so uBlock, MetaMask, etc. behave correctly per-account.">
             <ExtensionsPanel />
           </Subcard>
+
+          <BrowserModeSettings />
         </Section>
       )}
 

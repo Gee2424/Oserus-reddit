@@ -375,6 +375,33 @@ function initDatabase() {
       value TEXT,
       updated_at TEXT DEFAULT (datetime('now'))
     );
+
+    -- User-level browser mode preferences
+    CREATE TABLE IF NOT EXISTS user_browser_settings (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      default_browser_mode TEXT NOT NULL CHECK(default_browser_mode IN ('electron', 'cloakmanager')) DEFAULT 'electron',
+      cloakmanager_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:7331',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Account-level browser mode overrides
+    CREATE TABLE IF NOT EXISTS account_browser_settings (
+      account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+      browser_mode TEXT NOT NULL CHECK(browser_mode IN ('electron', 'cloakmanager', 'inherit')) DEFAULT 'inherit',
+      cloak_profile_name TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- CloakManager profile tracking
+    CREATE TABLE IF NOT EXISTS cloakmanager_profiles (
+      account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+      profile_name TEXT NOT NULL UNIQUE,
+      cdp_port INTEGER,
+      cdp_url TEXT,
+      fp_seed TEXT,
+      status TEXT NOT NULL CHECK(status IN ('created', 'running', 'stopped', 'error')) DEFAULT 'created',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Migration: if users.role constraint is the old ('admin','creator') one, rebuild the table.
@@ -863,7 +890,72 @@ function initDatabase() {
       if (wRows.length || pRows.length) {
         console.log(`[db] Backfilled content_sources: ${wRows.length} warmup, ${pRows.length} promo`);
       }
+  } catch (e) {
+    console.warn('[db] content_sources backfill skipped:', e?.message);
+  }
+
+  // Migration: add CloakManager integration tables if missing
+  try {
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+    const tableNames = tables.map(t => t.name);
+
+    // Create user_browser_settings if missing
+    if (!tableNames.includes('user_browser_settings')) {
+      console.log('[db] Creating user_browser_settings table...');
+      db.exec(`
+        CREATE TABLE user_browser_settings (
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          default_browser_mode TEXT NOT NULL CHECK(default_browser_mode IN ('electron', 'cloakmanager')) DEFAULT 'electron',
+          cloakmanager_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:7331',
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      console.log('[db] user_browser_settings table created.');
     }
+
+    // Create account_browser_settings if missing
+    if (!tableNames.includes('account_browser_settings')) {
+      console.log('[db] Creating account_browser_settings table...');
+      db.exec(`
+        CREATE TABLE account_browser_settings (
+          account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+          browser_mode TEXT NOT NULL CHECK(browser_mode IN ('electron', 'cloakmanager', 'inherit')) DEFAULT 'inherit',
+          cloak_profile_name TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      console.log('[db] account_browser_settings table created.');
+    }
+
+    // Create cloakmanager_profiles if missing
+    if (!tableNames.includes('cloakmanager_profiles')) {
+      console.log('[db] Creating cloakmanager_profiles table...');
+      db.exec(`
+        CREATE TABLE cloakmanager_profiles (
+          account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+          profile_name TEXT NOT NULL UNIQUE,
+          cdp_port INTEGER,
+          cdp_url TEXT,
+          fp_seed TEXT,
+          status TEXT NOT NULL CHECK(status IN ('created', 'running', 'stopped', 'error')) DEFAULT 'created',
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      console.log('[db] cloakmanager_profiles table created.');
+    }
+
+    // Create indexes for better performance
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_user_browser_settings_user_id ON user_browser_settings(user_id);
+      CREATE INDEX IF NOT EXISTS idx_account_browser_settings_account_id ON account_browser_settings(account_id);
+      CREATE INDEX IF NOT EXISTS idx_cloakmanager_profiles_account_id ON cloakmanager_profiles(account_id);
+      CREATE INDEX IF NOT EXISTS idx_cloakmanager_profiles_profile_name ON cloakmanager_profiles(profile_name);
+    `);
+    console.log('[db] CloakManager integration migration complete.');
+
+  } catch (e) {
+    console.error('[db] CloakManager migration failed:', e.message);
+  }
   } catch (e) {
     console.warn('[db] content_sources backfill skipped:', e?.message);
   }

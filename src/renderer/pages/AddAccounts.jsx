@@ -36,7 +36,7 @@ export default function AddAccountsPage({ navigate, initialTab }) {
   const [proxies, setProxies] = useState([]);
   const [form, setForm] = useState({
     profileId: '', platform: 'reddit', proxyId: '', status: 'warming',
-    userAgent: '',
+    userAgent: '', browserMode: 'inherit', cloakProfileName: '',
     lines: '', username: '', password: '', email: '', emailPw: '',
   });
   const [busy, setBusy] = useState(false);
@@ -96,6 +96,35 @@ export default function AddAccountsPage({ navigate, initialTab }) {
     });
     setBusy(false);
     if (res.ok) {
+      // Set browser mode if CloakManager selected (Reddit only)
+      if (form.platform === 'reddit' && form.browserMode) {
+        try {
+          await window.api.cloakmanager.setAccountMode({
+            token,
+            accountId: res.id,
+            mode: form.browserMode,
+            profileName: form.cloakProfileName || null,
+          });
+          // Create CloakManager profile if mode is cloakmanager
+          if (form.browserMode === 'cloakmanager') {
+            const profileRes = await window.api.cloakmanager.createProfile({
+              token,
+              accountId: res.id,
+              accountConfig: {
+                os: 'windows',
+                timezone: 'America/New_York',
+                locale: 'en-US',
+                resolution: '1920x1080',
+              },
+            });
+            if (!profileRes.ok) {
+              console.error('CloakManager profile creation failed:', profileRes.error);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to set browser mode:', err);
+        }
+      }
       setMsg(`Added u/${form.username}.`);
       setForm((f) => ({ ...f, username: '', password: '', email: '', emailPw: '' }));
     } else setErr(res.error);
@@ -167,6 +196,40 @@ export default function AddAccountsPage({ navigate, initialTab }) {
               Stored on the account for now; future builds will set it on the per-account browser session.
             </div>
           </div>
+
+          {/* Browser Mode Selection (for Reddit accounts) */}
+          {form.platform === 'reddit' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
+              <div>
+                <label>Browser Mode</label>
+                <select value={form.browserMode} onChange={(e) => set('browserMode', e.target.value)}>
+                  <option value="inherit">Inherit (use system default)</option>
+                  <option value="electron">Electron (standard)</option>
+                  <option value="cloakmanager">CloakManager (advanced)</option>
+                </select>
+                <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                  {form.browserMode === 'inherit' && 'Uses the default browser mode set in Settings.'}
+                  {form.browserMode === 'electron' && 'Standard Electron webview with shared fingerprint.'}
+                  {form.browserMode === 'cloakmanager' && 'Unique fingerprint per account. Requires CloakManager service.'}
+                </div>
+              </div>
+              <div>
+                <label>CloakManager Profile Name (optional)</label>
+                <input
+                  value={form.cloakProfileName}
+                  onChange={(e) => set('cloakProfileName', e.target.value)}
+                  placeholder="Auto-generated if blank"
+                  disabled={form.browserMode !== 'cloakmanager'}
+                  style={{ fontFamily: 'monospace' }}
+                />
+                {form.browserMode === 'cloakmanager' && (
+                  <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                    {form.cloakProfileName ? `Using: ${form.cloakProfileName}` : `Auto: reddit-${form.username || 'username'}`}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {tab === 'bulk' && (
             <>

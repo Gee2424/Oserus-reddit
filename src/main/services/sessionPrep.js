@@ -168,7 +168,42 @@ function probeGeoThroughSession(sess, cacheKey) {
 async function prepareSessionForAccount(accountId) {
   if (!accountId) return { ok: false, error: 'No accountId' };
   const db = getDb();
-  // Account proxy wins; fall back to the model's proxy so a single
+
+  // Check browser mode for this account
+  const modeSettings = db.prepare(`
+    SELECT browser_mode, cloak_profile_name
+    FROM account_browser_settings
+    WHERE account_id = ?
+  `).get(accountId);
+
+  let finalMode = 'electron';
+  let profileName = null;
+
+  if (modeSettings?.browser_mode === 'cloakmanager') {
+    finalMode = 'cloakmanager';
+    profileName = modeSettings.cloak_profile_name || null;
+  } else if (modeSettings?.browser_mode === 'inherit') {
+    // Check user default - we'll need userId passed in future or check session
+    // For now, default to electron
+    finalMode = 'electron';
+  }
+
+  // If CloakManager mode, return mode info without creating Electron session
+  if (finalMode === 'cloakmanager') {
+    // Get account info for profile name generation
+    const account = db.prepare('SELECT username, partition_key FROM reddit_accounts WHERE id = ?').get(accountId);
+    if (!account) return { ok: false, error: 'Account not found' };
+
+    return {
+      ok: true,
+      mode: 'cloakmanager',
+      accountId: account.id,
+      partitionKey: account.partition_key,
+      profileName: profileName || `reddit-${account.username}`
+    };
+  }
+
+  // Proceed with Electron mode - Account proxy wins; fall back to the model's proxy so a single
   // proxy set at the model level routes every account under it.
   const account = db.prepare(
     `SELECT a.*,
@@ -369,7 +404,7 @@ async function prepareSessionForAccount(accountId) {
   await loadEnabledExtensions(sess, partition);
 
   configuredPartitions.add(partition);
-  return { ok: true, partition, partitionKey: account.partition_key };
+  return { ok: true, mode: 'electron', partition, partitionKey: account.partition_key };
 }
 
 async function loadEnabledExtensions(sess, partition) {

@@ -52,6 +52,7 @@ const registerSubsHandlers = require('./ipc/subs');
 const registerVotesHandlers = require('./ipc/votes');
 const registerDocsHandlers = require('./ipc/docs');
 const registerScheduledHandlers = require('./ipc/scheduled');
+const registerCloakmanagerHandlers = require('./ipc/cloakmanager');
 const registerAnalyticsHandlers = require('./ipc/analytics');
 const registerActivityHandlers = require('./ipc/activity');
 const registerTeamHandlers = require('./ipc/team');
@@ -305,6 +306,62 @@ function registerOserusBrowserHandlers() {
   ipcMain.handle('oserus-browser:openAccount', async (_e, { token, accountId } = {}) => {
     if (!userFromToken(token)) return { ok: false, error: 'Not authenticated' };
     oserusBrowser.setOperatorToken(token);
+
+    // Check browser mode for this account
+    const db = getDb();
+    const account = db.prepare('SELECT username FROM reddit_accounts WHERE id = ?').get(accountId);
+    if (!account) return { ok: false, error: 'Account not found' };
+
+    const modeSettings = db.prepare(`
+      SELECT browser_mode, cloak_profile_name
+      FROM account_browser_settings
+      WHERE account_id = ?
+    `).get(accountId);
+
+    let finalMode = 'electron';
+    let profileName = null;
+
+    if (modeSettings?.browser_mode === 'cloakmanager') {
+      finalMode = 'cloakmanager';
+      profileName = modeSettings.cloak_profile_name || `reddit-${account.username}`;
+    } else if (modeSettings?.browser_mode === 'inherit') {
+      // Check user default
+      const user = userFromToken(token);
+      const userSettings = db.prepare(`
+        SELECT default_browser_mode FROM user_browser_settings WHERE user_id = ?
+      `).get(user.id);
+      finalMode = userSettings?.default_browser_mode || 'electron';
+    }
+
+    // If CloakManager mode, launch CloakManager profile instead of Electron browser
+    if (finalMode === 'cloakmanager') {
+      try {
+        const { getCloakManagerClient } = require('./cloakmanager');
+        const cloakManager = getCloakManagerClient();
+
+        // Ensure we have the latest CloakManager URL from user settings
+        const user = userFromToken(token);
+        const userSettings = db.prepare(`
+          SELECT cloakmanager_url FROM user_browser_settings WHERE user_id = ?
+        `).get(user.id);
+
+        if (userSettings?.cloakmanager_url) {
+          cloakManager.updateBaseUrl(userSettings.cloakmanager_url);
+        }
+
+        const result = await cloakManager.launchProfile(profileName);
+
+        if (result.ok) {
+          return { ok: true, mode: 'cloakmanager', profileName, cdpPort: result.cdpPort, cdpUrl: result.cdpUrl };
+        } else {
+          return { ok: false, error: result.error || 'Failed to launch CloakManager profile' };
+        }
+      } catch (err) {
+        return { ok: false, error: err.message || 'CloakManager launch failed' };
+      }
+    }
+
+    // Proceed with normal Electron browser
     return oserusBrowser.openForAccount(accountId);
   });
 
@@ -391,6 +448,7 @@ app.whenReady().then(() => {
   registerAnalyticsHandlers(ipcMain);
   registerActivityHandlers(ipcMain);
   registerTeamHandlers(ipcMain);
+  registerCloakmanagerHandlers(ipcMain, mainWindow);
   registerRedditHandlers(ipcMain);
   registerRolesHandlers(ipcMain);
   registerInboxHandlers(ipcMain);
@@ -414,6 +472,15 @@ app.whenReady().then(() => {
   registerOserusBrowserHandlers();
 
   createWindow();
+
+  // Initialize CloakManager WebSocket connection
+  try {
+    const { getCloakManagerClient } = require('./cloakmanager');
+    const cloakManager = getCloakManagerClient();
+    cloakManager.connectWebSocket();
+  } catch (e) {
+    elog.warn('[CloakManager] init skipped:', e?.message);
+  }
 
   // Autopilot coordinator — only acts when an admin has enabled it AND a
   // protocol is enabled. Starting the timer here is harmless when disabled.
@@ -466,5 +533,11 @@ app.on('before-quit', () => {
   try {
     const { shutdownAll } = require('./services/ipv4Bridge');
     shutdownAll().catch(() => {});
+  } catch {}
+  // Cleanup CloakManager WebSocket connection
+  try {
+    const { getCloakManagerClient } = require('./cloakmanager');
+    const cloakManager = getCloakManagerClient();
+    cloakManager.disconnectWebSocket();
   } catch {}
 });
