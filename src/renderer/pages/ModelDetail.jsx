@@ -13,6 +13,25 @@ const STATUS_OPTIONS = [
 
 const STATUS_COLORS = { warming: '#d4a55a', ready: '#7a9a5a', paused: '#968b78', banned: '#b3473a' };
 
+// Browser mode configuration
+const BROWSER_MODES = {
+  electron: { label: 'Electron', color: '#4a90e2', icon: '⚡' },
+  cloakmanager: { label: 'CloakManager', color: '#9b59b6', icon: '👻' },
+  inherit: { label: 'Inherit', color: '#95a5a6', icon: '🔄' },
+};
+
+// Helper to get browser mode for an account
+function getBrowserMode(account) {
+  if (!account) return 'electron';
+
+  const accountMode = account.browser_mode;
+  if (accountMode === 'cloakmanager') return 'cloakmanager';
+  if (accountMode === 'electron') return 'electron';
+
+  // For 'inherit' or missing, default to electron
+  return 'electron';
+}
+
 // Add an emoji icon on top of the shared platform metadata for the section
 // headers — everything else (color, label, login URL) comes from the single
 // source of truth in lib/platforms.js.
@@ -522,19 +541,33 @@ export default function ModelDetailPage({ modelId, navigate }) {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {platAccounts.map(a => (
+                {platAccounts.map(a => {
+                  const browserMode = getBrowserMode(a);
+                  const modeConfig = BROWSER_MODES[browserMode] || BROWSER_MODES.electron;
+                  return (
                   <div key={a.id} style={styles.accountRow}>
                     <button
                       className="primary"
                       onClick={() => start(a.id)}
                       style={styles.startBtn}
-                      title={`Open ${plat.label} as ${a.username}`}
+                      title={`Open ${plat.label} as ${a.username} (${modeConfig.label})`}
                     >▶</button>
                     <span style={{ ...styles.dot, background: STATUS_COLORS[a.status] }} title={a.status} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 500 }}>
                         <span className="mono dim">{plat.usernamePrefix}</span>{a.username}
                         {a.has_password && <span className="mono dim" style={{ fontSize: 11, marginLeft: 8 }}>🔑</span>}
+                        <span style={{
+                          color: modeConfig.color,
+                          fontSize: 10,
+                          fontWeight: 600,
+                          marginLeft: 8,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 2,
+                        }} title={`Browser: ${modeConfig.label}`}>
+                          {modeConfig.icon}
+                        </span>
                       </div>
                       {a.notes && <div className="muted" style={{ fontSize: 12 }}>{a.notes}</div>}
                     </div>
@@ -557,7 +590,8 @@ export default function ModelDetailPage({ modelId, navigate }) {
                       </>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
