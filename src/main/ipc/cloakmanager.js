@@ -347,12 +347,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow) {
         return { ok: false, error: 'Account not found' };
       }
 
-      if (account.platform !== 'reddit') {
-        console.error('[IPC] Invalid platform for CloakManager:', account.platform);
-        return { ok: false, error: 'CloakManager profiles only supported for Reddit accounts' };
-      }
-
-      console.log('[IPC] Creating CloakManager profile for account:', account.username);
+      console.log('[IPC] Creating CloakManager profile for account:', account.username, 'platform:', account.platform);
 
       // Get proxy configuration if available (match actual schema)
       const proxy = getDb().prepare(`
@@ -379,7 +374,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow) {
         console.log('[IPC] No proxy configured for account');
       }
 
-      const result = await client.createProfile(account.username, accountConfig, proxyConfig);
+      const result = await client.createProfile(account.username, { ...accountConfig, platform: account.platform }, proxyConfig);
 
       if (result.ok) {
         console.log('[IPC] ✅ Profile created successfully:', result);

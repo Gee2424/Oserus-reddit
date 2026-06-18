@@ -869,30 +869,32 @@ function initDatabase() {
       "SELECT 1 FROM content_sources WHERE platform = 'reddit' LIMIT 1"
     ).get();
     if (!hasContent) {
-      const insWarm = db.prepare(
-        `INSERT OR IGNORE INTO content_sources
-         (platform, scope, scope_id, kind, name, description, metadata_json)
-         VALUES ('reddit', 'global', NULL, 'warmup', ?, ?, ?)`
-      );
-      const wRows = db.prepare('SELECT name, description, vibe FROM warmup_subreddits').all();
-      for (const w of wRows) {
-        insWarm.run(w.name, w.description || null, w.vibe ? JSON.stringify({ vibe: w.vibe }) : null);
+      try {
+        const insWarm = db.prepare(
+          `INSERT OR IGNORE INTO content_sources
+           (platform, scope, scope_id, kind, name, description, metadata_json)
+           VALUES ('reddit', 'global', NULL, 'warmup', ?, ?, ?)`
+        );
+        const wRows = db.prepare('SELECT name, description, vibe FROM warmup_subreddits').all();
+        for (const w of wRows) {
+          insWarm.run(w.name, w.description || null, w.vibe ? JSON.stringify({ vibe: w.vibe }) : null);
+        }
+        const insPromo = db.prepare(
+          `INSERT OR IGNORE INTO content_sources
+           (platform, scope, scope_id, kind, name, description)
+           VALUES ('reddit', 'model', ?, 'promo', ?, ?)`
+        );
+        const pRows = db.prepare('SELECT profile_id, name, description FROM promo_subreddits').all();
+        for (const p of pRows) {
+          insPromo.run(p.profile_id, p.name, p.description || null);
+        }
+        if (wRows.length || pRows.length) {
+          console.log(`[db] Backfilled content_sources: ${wRows.length} warmup, ${pRows.length} promo`);
+        }
+      } catch (e) {
+        console.warn('[db] content_sources backfill skipped:', e?.message);
       }
-      const insPromo = db.prepare(
-        `INSERT OR IGNORE INTO content_sources
-         (platform, scope, scope_id, kind, name, description)
-         VALUES ('reddit', 'model', ?, 'promo', ?, ?)`
-      );
-      const pRows = db.prepare('SELECT profile_id, name, description FROM promo_subreddits').all();
-      for (const p of pRows) {
-        insPromo.run(p.profile_id, p.name, p.description || null);
-      }
-      if (wRows.length || pRows.length) {
-        console.log(`[db] Backfilled content_sources: ${wRows.length} warmup, ${pRows.length} promo`);
-      }
-  } catch (e) {
-    console.warn('[db] content_sources backfill skipped:', e?.message);
-  }
+    }
 
   // Migration: add CloakManager integration tables if missing
   try {

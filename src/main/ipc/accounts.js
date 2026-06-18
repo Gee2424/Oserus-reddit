@@ -238,9 +238,55 @@ function register(ipcMain) {
         sets.push('email_password_encrypted = ?');
         params.push(updates.emailPassword ? encryptSecret(updates.emailPassword) : null);
       }
-      if (sets.length === 0) return { ok: true };
+      if (sets.length === 0 && !updates.browserMode && !updates.cloakProfileName) return { ok: true };
       params.push(accountId);
-      getDb().prepare(`UPDATE reddit_accounts SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+
+      if (sets.length > 0) {
+        getDb().prepare(`UPDATE reddit_accounts SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+      }
+
+      // Handle browser_mode and cloak_profile_name separately in account_browser_settings table
+      const browserSettings = {};
+      if (updates.browserMode !== undefined) {
+        browserSettings.browser_mode = updates.browserMode;
+      }
+      if (updates.cloakProfileName !== undefined) {
+        browserSettings.cloak_profile_name = updates.cloakProfileName;
+      }
+
+      if (Object.keys(browserSettings).length > 0) {
+        const existing = getDb().prepare(`
+          SELECT account_id FROM account_browser_settings WHERE account_id = ?
+        `).get(accountId);
+
+        const setClauses = [];
+        const setParams = [];
+
+        if (browserSettings.browser_mode !== undefined) {
+          setClauses.push('browser_mode = ?');
+          setParams.push(browserSettings.browser_mode);
+        }
+        if (browserSettings.cloak_profile_name !== undefined) {
+          setClauses.push('cloak_profile_name = ?');
+          setParams.push(browserSettings.cloak_profile_name);
+        }
+
+        setParams.push(accountId);
+
+        if (existing) {
+          getDb().prepare(`
+            UPDATE account_browser_settings
+            SET ${setClauses.join(', ')}
+            WHERE account_id = ?
+          `).run(...setParams);
+        } else {
+          getDb().prepare(`
+            INSERT INTO account_browser_settings (account_id, browser_mode, cloak_profile_name)
+            VALUES (?, ?, ?)
+          `).run(accountId, browserSettings.browser_mode || 'inherit', browserSettings.cloak_profile_name || null);
+        }
+      }
+
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };

@@ -75,7 +75,7 @@ class CloakManagerClient {
   }
 
   /**
-   * Create a CloakManager profile for a Reddit account (MINIMAL VERSION)
+   * Create a CloakManager profile for an account
    * Backend auto-generates everything from profile name
    * @param {string} accountUsername - Reddit account username
    * @param {Object} accountConfig - Optional config (mostly ignored, backend auto-generates)
@@ -90,8 +90,9 @@ class CloakManagerClient {
       throw new Error('CloakManager is not available');
     }
 
-    const profileName = `reddit-${accountUsername}`;
-    console.log('[CloakManager] Profile name:', profileName);
+    const platformPrefix = accountConfig.platform || 'reddit';
+    const profileName = `${platformPrefix}-${accountUsername}`;
+    console.log('[CloakManager] Profile name:', profileName, 'platform:', platformPrefix);
 
     try {
       // MINIMAL PROFILE CREATION - backend auto-generates everything

@@ -75,6 +75,8 @@ export default function ModelDetailPage({ modelId, navigate }) {
       username: '', password: '', email: '', emailPassword: '',
       status: 'warming', proxy_id: '', notes: '',
       os_profile: 'desktop',
+      browserMode: 'inherit',
+      cloakProfileName: '',
     };
   }
 
@@ -141,6 +143,8 @@ export default function ModelDetailPage({ modelId, navigate }) {
       proxy_id: account.proxy_id || '',
       notes: account.notes || '',
       os_profile: account.os_profile || 'desktop',
+      browserMode: account.browser_mode || 'inherit',
+      cloakProfileName: account.cloak_profile_name || '',
     });
     setShowAddPlatform(account.platform);
   }
@@ -164,6 +168,8 @@ export default function ModelDetailPage({ modelId, navigate }) {
         notes: form.notes,
         email: form.email || null,
         os_profile: form.os_profile || 'desktop',
+        browserMode: form.browserMode || 'inherit',
+        cloakProfileName: form.cloakProfileName || null,
       };
       if (form.password) updates.password = form.password;
       if (form.emailPassword) updates.emailPassword = form.emailPassword;
@@ -182,6 +188,37 @@ export default function ModelDetailPage({ modelId, navigate }) {
         notes: form.notes,
         osProfile: form.os_profile || 'desktop',
       });
+
+      // Handle browser mode for new accounts
+      if (res.ok && form.browserMode) {
+        try {
+          await window.api.cloakmanager.setAccountMode({
+            token,
+            accountId: res.id,
+            mode: form.browserMode,
+            profileName: form.cloakProfileName || null,
+          });
+
+          // Create CloakManager profile if mode is cloakmanager
+          if (form.browserMode === 'cloakmanager') {
+            const profileRes = await window.api.cloakmanager.createProfile({
+              token,
+              accountId: res.id,
+              accountConfig: {
+                os: 'windows',
+                timezone: 'America/New_York',
+                locale: 'en-US',
+                resolution: '1920x1080',
+              },
+            });
+            if (!profileRes.ok) {
+              console.error('CloakManager profile creation failed:', profileRes.error);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to set browser mode:', err);
+        }
+      }
     }
     if (!res.ok) { setError(res.error); return; }
     cancel();
@@ -522,6 +559,49 @@ export default function ModelDetailPage({ modelId, navigate }) {
                       ))}
                     </div>
                   </div>
+
+                  {/* Browser Mode Selection - Universal for all platforms */}
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label>Browser Mode <span className="dim" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>
+                      (CloakManager provides unique fingerprints per account; Electron uses shared fingerprint)
+                    </span></label>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      {[
+                        { v: 'inherit', label: '🔄 Inherit', hint: 'Use system default from Settings' },
+                        { v: 'electron', label: '⚡ Electron', hint: 'Standard browser with shared fingerprint' },
+                        { v: 'cloakmanager', label: '👻 CloakManager', hint: 'Advanced: unique fingerprint per account' },
+                      ].map((mode) => (
+                        <button
+                          key={mode.v}
+                          type="button"
+                          onClick={() => setForm({ ...form, browserMode: mode.v })}
+                          title={mode.hint}
+                          style={{
+                            flex: 1, padding: '8px 12px',
+                            background: form.browserMode === mode.v ? 'var(--gold)' : 'transparent',
+                            color: form.browserMode === mode.v ? '#0d0c0a' : 'var(--text-1)',
+                            border: `1px solid ${form.browserMode === mode.v ? 'var(--gold)' : 'var(--border)'}`,
+                            borderRadius: 6, cursor: 'pointer', fontWeight: 600,
+                          }}
+                        >{mode.label}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* CloakManager Profile Name - Show when CloakManager mode selected */}
+                  {form.browserMode === 'cloakmanager' && (
+                    <div style={{ gridColumn: '1 / -1', marginTop: 8 }}>
+                      <label>CloakManager Profile Name <span className="dim" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>
+                        (Auto-generated if blank: {showAddPlatform}-{form.username || 'username'})
+                      </span></label>
+                      <input
+                        value={form.cloakProfileName}
+                        onChange={(e) => setForm({ ...form, cloakProfileName: e.target.value })}
+                        placeholder={`Auto: ${showAddPlatform}-${form.username || 'username'}`}
+                        style={{ fontFamily: 'monospace' }}
+                      />
+                    </div>
+                  )}
                   <div style={{ gridColumn: '1 / -1' }}>
                     <label>Notes</label>
                     <input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
