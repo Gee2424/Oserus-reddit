@@ -94,8 +94,8 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "valkine",
-      "repo": "oserus-reddit",
+      "owner": "Gee2424",
+      "repo": "Oserus-reddit",
       "releaseType": "release"
     }
   }
