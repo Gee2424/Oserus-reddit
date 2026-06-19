@@ -3,6 +3,8 @@ import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
 import { PLATFORMS as SHARED_PLATFORMS } from '../lib/platforms.js';
+import { useCloakManagerLaunch } from '../hooks/useCloakManagerLaunch';
+import { Banner } from '../components/ui.jsx';
 
 const STATUS_OPTIONS = [
   { v: 'warming', label: 'Warming up' },
@@ -68,6 +70,9 @@ export default function ModelDetailPage({ modelId, navigate }) {
 
   const can = useCan();
   const canManage = can('profiles.manage');
+  const { isAvailable, checkAvailability, launchProgress, cloakStatus, isAccountRunning } = useCloakManagerLaunch();
+  const [accountOperation, setAccountOperation] = useState(null); // { type: 'creating' | 'launching', accountId: null }
+  const [operationMessage, setOperationMessage] = useState(null);
   const canViewActivity = can('activity.view');
 
   function blankForm() {
@@ -123,7 +128,10 @@ export default function ModelDetailPage({ modelId, navigate }) {
     load();
   }
 
-  useEffect(() => { load(); }, [modelId]);
+  useEffect(() => {
+    load();
+    if (token) checkAvailability(token);
+  }, [modelId, token, checkAvailability]);
 
   function startAddFor(platform) {
     setEditing(null);
@@ -191,6 +199,9 @@ export default function ModelDetailPage({ modelId, navigate }) {
 
       // Handle browser mode for new accounts
       if (res.ok && form.browserMode) {
+        setAccountOperation({ type: 'creating', accountId: res.id });
+        setOperationMessage('Setting browser mode...');
+
         try {
           await window.api.cloakmanager.setAccountMode({
             token,
@@ -198,9 +209,11 @@ export default function ModelDetailPage({ modelId, navigate }) {
             mode: form.browserMode,
             profileName: form.cloakProfileName || null,
           });
+          setOperationMessage('Browser mode set');
 
           // Create CloakManager profile if mode is cloakmanager
           if (form.browserMode === 'cloakmanager') {
+            setOperationMessage('Creating CloakManager profile...');
             const profileRes = await window.api.cloakmanager.createProfile({
               token,
               accountId: res.id,
@@ -211,12 +224,20 @@ export default function ModelDetailPage({ modelId, navigate }) {
                 resolution: '1920x1080',
               },
             });
-            if (!profileRes.ok) {
-              console.error('CloakManager profile creation failed:', profileRes.error);
+
+            if (profileRes.ok) {
+              setOperationMessage(`Profile "${profileRes.profileName}" created successfully!`);
+              setTimeout(() => setOperationMessage(null), 3000);
+            } else {
+              setOperationMessage(`Failed to create profile: ${profileRes.error}`);
+              setTimeout(() => setOperationMessage(null), 5000);
             }
           }
         } catch (err) {
-          console.error('Failed to set browser mode:', err);
+          setOperationMessage(`Error: ${err.message}`);
+          setTimeout(() => setOperationMessage(null), 5000);
+        } finally {
+          setAccountOperation(null);
         }
       }
     }
@@ -337,6 +358,27 @@ export default function ModelDetailPage({ modelId, navigate }) {
           )}
         </div>
       </div>
+
+      {/* CloakManager Status */}
+      {isAvailable !== null && (
+        <div style={{
+          padding: '8px 12px',
+          background: isAvailable ? 'rgba(122,154,90,0.12)' : 'rgba(180,90,90,0.12)',
+          border: `1px solid ${isAvailable ? 'var(--ok)' : 'var(--danger)'}`,
+          borderRadius: 6,
+          fontSize: 12,
+          marginBottom: 14,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8
+        }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: isAvailable ? '#7fd99a' : '#e2a3a3'
+          }} />
+          CloakManager: {isAvailable ? 'Available' : 'Unavailable'}
+        </div>
+      )}
 
       {(model.brand_voice || model.notes) && (
         <div className="card" style={{ marginBottom: 22 }}>
@@ -498,6 +540,11 @@ export default function ModelDetailPage({ modelId, navigate }) {
                   <button type="button" className="ghost" onClick={cancel} style={{ fontSize: 12, padding: '4px 10px' }}>✕</button>
                 </div>
                 {error && <div className="error-banner">{error}</div>}
+                {operationMessage && (
+                  <Banner kind={operationMessage.startsWith('Failed') || operationMessage.startsWith('Error') ? 'err' : 'ok'}>
+                    {operationMessage}
+                  </Banner>
+                )}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
                   <div>
                     <label>{plat.label} username</label>
@@ -648,6 +695,37 @@ export default function ModelDetailPage({ modelId, navigate }) {
                         }} title={`Browser: ${modeConfig.label}`}>
                           {modeConfig.icon}
                         </span>
+                        {/* Account running status badge */}
+                        {a.cloak_actual_name && cloakStatus[a.cloak_actual_name] === 'running' && (
+                          <span style={{
+                            position: 'relative',
+                            marginLeft: 8,
+                            background: 'var(--ok)',
+                            color: '#0d0c0a',
+                            fontSize: 8,
+                            padding: '1px 4px',
+                            borderRadius: 999,
+                            fontWeight: 700
+                          }}>
+                            RUNNING
+                          </span>
+                        )}
+                        {/* Account launch progress badge */}
+                        {a.cloak_actual_name && launchProgress[a.cloak_actual_name] && launchProgress[a.cloak_actual_name].progress < 1 && (
+                          <span style={{
+                            position: 'relative',
+                            marginLeft: 8,
+                            background: 'var(--blue)',
+                            color: '#fff',
+                            fontSize: 8,
+                            padding: '1px 4px',
+                            borderRadius: 999,
+                            fontWeight: 700,
+                            animation: 'pulse 1s infinite'
+                          }}>
+                            {Math.round(launchProgress[a.cloak_actual_name].progress * 100)}%
+                          </span>
+                        )}
                       </div>
                       {a.notes && <div className="muted" style={{ fontSize: 12 }}>{a.notes}</div>}
                     </div>

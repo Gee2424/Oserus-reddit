@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 import { useInboxLive } from '../lib/inboxLive.jsx';
 import { PLATFORMS, platformColor } from '../lib/platforms.js';
+import { useCloakManagerLaunch } from '../hooks/useCloakManagerLaunch';
 
 const FOLDERS = [
   { key: 'all', label: 'Inbox', icon: '✉' },
@@ -57,6 +58,8 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   const [sending, setSending] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [showTemplates, setShowTemplates] = useState(false);
+  const { isAccountRunning } = useCloakManagerLaunch();
+  const [launchingSignIn, setLaunchingSignIn] = useState(false);
 
   useEffect(() => {
     window.api.messaging.templatesList({ token, profileId: active?.profile_id }).then((r) => {
@@ -302,8 +305,13 @@ export default function InboxPage({ embedded, standalone, navigate }) {
               <div style={{ background: '#0f0f10', border: '1px solid #2a2a2c', borderRadius: 10, padding: 10, marginBottom: 10 }}>
                 <div style={{ fontSize: 12, color: '#818384', marginBottom: 6 }}>Account: <span style={{ color: '#d7dadc', fontWeight: 600 }}>{active ? active.username : '—'}</span></div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: loading ? 'var(--gold)' : '#818384' }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: loading ? 'var(--gold)' : '#7fd99a' }} />
-                  {loading ? 'Refreshing…' : 'Connected'}
+                  <span style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: (active?.cloak_actual_name && isAccountRunning(active?.cloak_actual_name)) ? 'var(--ok)' :
+                               loading ? 'var(--gold)' : '#7fd99a'
+                  }} />
+                  {(active?.cloak_actual_name && isAccountRunning(active?.cloak_actual_name)) ? 'Browser running' :
+                   loading ? 'Refreshing…' : 'Connected'}
                 </div>
               </div>
 
@@ -350,7 +358,27 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                 notLoggedIn ? (
                   <div style={{ padding: 18, textAlign: 'center' }}>
                     <div style={{ color: '#818384', fontSize: 13, lineHeight: 1.6 }}>{active.username} isn't logged into {platform} yet.</div>
-                    {active && <button onClick={() => window.api.oserusBrowser.openAccount({ token, accountId: active.id })} style={{ ...primaryBtn, marginTop: 12 }}>Sign in via Browser ↗</button>}
+                    {active && (
+                      <button
+                        onClick={async () => {
+                          setLaunchingSignIn(true);
+                          try {
+                            await window.api.oserusBrowser.openAccount({ token, accountId: active.id });
+                          } finally {
+                            setTimeout(() => setLaunchingSignIn(false), 2000);
+                          }
+                        }}
+                        disabled={launchingSignIn}
+                        style={{
+                          ...primaryBtn,
+                          marginTop: 12,
+                          opacity: launchingSignIn ? 0.6 : 1,
+                          cursor: launchingSignIn ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        {launchingSignIn ? 'Opening browser…' : 'Sign in via Browser ↗'}
+                      </button>
+                    )}
                   </div>
                 ) :
                 loading && messages.length === 0 ? <Empty text="Loading…" /> :

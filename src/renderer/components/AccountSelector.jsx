@@ -119,10 +119,10 @@ export default function AccountSelector({
     // Profile launched event
     unsubscribers.push(
       window.api.cloakmanager.onProfileLaunched((data) => {
-        if (data && data.accountId) {
-          setRunningProfiles(prev => new Set([...prev, data.accountId]));
-          setCloakStatus(prev => ({ ...prev, [data.accountId]: 'running' }));
-          setLaunchProgress(prev => ({ ...prev, [data.accountId]: null }));
+        if (data && data.profile) {
+          setRunningProfiles(prev => new Set([...prev, data.profile]));
+          setCloakStatus(prev => ({ ...prev, [data.profile]: 'running' }));
+          setLaunchProgress(prev => ({ ...prev, [data.profile]: null }));
         }
       })
     );
@@ -130,13 +130,13 @@ export default function AccountSelector({
     // Profile stopped event
     unsubscribers.push(
       window.api.cloakmanager.onProfileStopped((data) => {
-        if (data && data.accountId) {
+        if (data && data.profile) {
           setRunningProfiles(prev => {
             const next = new Set(prev);
-            next.delete(data.accountId);
+            next.delete(data.profile);
             return next;
           });
-          setCloakStatus(prev => ({ ...prev, [data.accountId]: 'stopped' }));
+          setCloakStatus(prev => ({ ...prev, [data.profile]: 'stopped' }));
         }
       })
     );
@@ -144,13 +144,13 @@ export default function AccountSelector({
     // Window closed event
     unsubscribers.push(
       window.api.cloakmanager.onWindowClosed((data) => {
-        if (data && data.accountId) {
+        if (data && data.profile) {
           setRunningProfiles(prev => {
             const next = new Set(prev);
-            next.delete(data.accountId);
+            next.delete(data.profile);
             return next;
           });
-          setCloakStatus(prev => ({ ...prev, [data.accountId]: 'stopped' }));
+          setCloakStatus(prev => ({ ...prev, [data.profile]: 'stopped' }));
         }
       })
     );
@@ -158,10 +158,10 @@ export default function AccountSelector({
     // Launch progress event
     unsubscribers.push(
       window.api.cloakmanager.onLaunchProgress((data) => {
-        if (data && data.accountId) {
+        if (data && data.profile) {
           setLaunchProgress(prev => ({
             ...prev,
-            [data.accountId]: { status: 'launching', progress: data.progress || 0 }
+            [data.profile]: { status: 'launching', progress: data.progress || 0 }
           }));
         }
       })
@@ -170,10 +170,10 @@ export default function AccountSelector({
     // Browser crashed event
     unsubscribers.push(
       window.api.cloakmanager.onBrowserCrashed((data) => {
-        if (data && data.accountId) {
-          setLaunchProgress(prev => ({ ...prev, [data.accountId]: null }));
-          setCloakStatus(prev => ({ ...prev, [data.accountId]: 'error' }));
-          alert(`CloakManager browser crashed for account ${data.accountId}`);
+        if (data && data.profile) {
+          setLaunchProgress(prev => ({ ...prev, [data.profile]: null }));
+          setCloakStatus(prev => ({ ...prev, [data.profile]: 'error' }));
+          alert(`CloakManager browser crashed for account ${data.profile}`);
         }
       })
     );

@@ -3,20 +3,88 @@ import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
 import { useCloudReload } from '../lib/cloudReload.jsx';
+import { useCloakManagerLaunch } from '../hooks/useCloakManagerLaunch';
+import { Banner } from '../components/ui.jsx';
 
 const COLORS = ['#c8553d', '#d4a55a', '#7a9a5a', '#5a7a9a', '#9a5a8e', '#8e6a4a'];
 
 export default function ProfilesPage({ navigate }) {
   const { token, user } = useAuth();
   const { startAccount } = useActiveAccount();
+  const { isAvailable, checkAvailability, launchProgress, cloakStatus } = useCloakManagerLaunch();
   const [profiles, setProfiles] = useState([]);
+  const [launchingProfile, setLaunchingProfile] = useState(null); // profileId
+  const [launchResults, setLaunchResults] = useState(null); // { success: 0, failed: 0, total: 0 }
 
   async function playModel(profileId) {
-    // Opens one Oserus Browser window per linked account in parallel.
-    // Each window is bound to that account's persist partition with
-    // proxy + antidetect + UA already wired by prepareSessionForAccount.
-    const r = await window.api.oserusBrowser.openAllForProfile({ token, profileId });
-    if (!r?.ok) alert(r?.error || 'Could not launch this model.');
+    setLaunchingProfile(profileId);
+    setLaunchResults(null);
+
+    try {
+      // Get accounts for this profile
+      const accounts = await window.api.accounts.listForProfile({ token, profileId });
+      if (!accounts.ok) {
+        alert(accounts.error || 'Could not load accounts');
+        setLaunchingProfile(null);
+        return;
+      }
+
+      const accountList = accounts.accounts || [];
+      if (accountList.length === 0) {
+        alert('No accounts on this model yet.');
+        setLaunchingProfile(null);
+        return;
+      }
+
+      setLaunchResults({ total: accountList.length, success: 0, failed: 0 });
+
+      // Launch accounts in parallel
+      const launchPromises = accountList.map(async (account) => {
+        try {
+          // Check if account uses CloakManager
+          const modeRes = await window.api.cloakmanager.getAccountMode({
+            token,
+            accountId: account.id
+          });
+
+          if (modeRes.ok && modeRes.mode === 'cloakmanager' && modeRes.profileName) {
+            // CloakManager launch
+            const launchRes = await window.api.cloakmanager.launchProfile({
+              token,
+              accountId: account.id,
+              profileName: modeRes.profileName
+            });
+
+            if (launchRes.ok) {
+              setLaunchResults(prev => ({ ...prev, success: prev.success + 1 }));
+            } else {
+              setLaunchResults(prev => ({ ...prev, failed: prev.failed + 1 }));
+            }
+          } else {
+            // Electron launch
+            const launchRes = await window.api.oserusBrowser.openAccount({
+              token,
+              accountId: account.id
+            });
+
+            if (launchRes.ok) {
+              setLaunchResults(prev => ({ ...prev, success: prev.success + 1 }));
+            } else {
+              setLaunchResults(prev => ({ ...prev, failed: prev.failed + 1 }));
+            }
+          }
+        } catch (err) {
+          console.error('Launch failed for account', account.id, err);
+          setLaunchResults(prev => ({ ...prev, failed: prev.failed + 1 }));
+        }
+      });
+
+      await Promise.all(launchPromises);
+    } catch (err) {
+      alert('Launch failed: ' + err.message);
+    } finally {
+      setLaunchingProfile(null);
+    }
   }
 
   const [users, setUsers] = useState([]);
@@ -51,7 +119,10 @@ export default function ProfilesPage({ navigate }) {
     await window.api.profiles.update({ token, profileId, updates: { proxy_id: proxyId ? Number(proxyId) : null } });
     load();
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    checkAvailability(token);
+  }, []);
   useCloudReload(['model_profiles', 'proxies', 'roles', 'role_permissions'], () => { load(); });
 
   async function addProfile(e) {
@@ -118,6 +189,38 @@ export default function ProfilesPage({ navigate }) {
         </div>
       )}
 
+      {/* Launch Results Banner */}
+      {launchResults && (
+        <Banner
+          kind={launchResults.failed > 0 ? 'warn' : 'ok'}
+          style={{ marginBottom: 14 }}
+        >
+          Launched {launchResults.success} of {launchResults.total} accounts
+          {launchResults.failed > 0 && ` (${launchResults.failed} failed)`}
+        </Banner>
+      )}
+
+      {/* CloakManager Availability Status */}
+      {isAvailable !== null && (
+        <div style={{
+          padding: '8px 12px',
+          background: isAvailable ? 'rgba(122,154,90,0.12)' : 'rgba(180,90,90,0.12)',
+          border: `1px solid ${isAvailable ? 'var(--ok)' : 'var(--danger)'}`,
+          borderRadius: 6,
+          fontSize: 12,
+          marginBottom: 14,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8
+        }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: isAvailable ? '#7fd99a' : '#e2a3a3'
+          }} />
+          CloakManager: {isAvailable ? 'Available' : 'Unavailable'}
+        </div>
+      )}
+
       {showAdd && canManage && (
         <form onSubmit={addProfile} className="card" style={{ marginBottom: 22 }}>
           <h3 style={{ marginBottom: 14 }}>New model profile</h3>
@@ -179,18 +282,23 @@ export default function ProfilesPage({ navigate }) {
               <div style={{ padding: 18, position: 'relative' }}>
                 <button
                   onClick={(e) => { e.stopPropagation(); playModel(p.id); }}
-                  disabled={p.account_count === 0}
-                  title={p.account_count === 0 ? 'No accounts on this model yet' : `Launch all ${p.account_count} account window(s) in Oserus Browser`}
+                  disabled={p.account_count === 0 || launchingProfile === p.id}
+                  title={p.account_count === 0 ? 'No accounts on this model yet' :
+                         launchingProfile === p.id ? 'Launching accounts...' :
+                         `Launch all ${p.account_count} account window(s) in Oserus Browser`}
                   style={{
                     position: 'absolute', top: 14, right: 14, zIndex: 2,
                     width: 36, height: 36, borderRadius: '50%',
-                    background: p.account_count === 0 ? 'var(--bg-2)' : 'var(--gold)',
-                    color: p.account_count === 0 ? 'var(--text-3)' : '#0d0c0a',
-                    border: 'none', fontSize: 16, cursor: p.account_count === 0 ? 'not-allowed' : 'pointer',
+                    background: launchingProfile === p.id ? 'var(--bg-2)' :
+                               p.account_count === 0 ? 'var(--bg-2)' : 'var(--gold)',
+                    color: launchingProfile === p.id ? 'var(--text-3)' :
+                           p.account_count === 0 ? 'var(--text-3)' : '#0d0c0a',
+                    border: 'none', fontSize: launchingProfile === p.id ? 12 : 16,
+                    cursor: p.account_count === 0 || launchingProfile === p.id ? 'not-allowed' : 'pointer',
                     display: 'grid', placeItems: 'center',
-                    boxShadow: p.account_count === 0 ? 'none' : '0 2px 8px rgba(212,166,74,0.3)',
+                    boxShadow: p.account_count === 0 || launchingProfile === p.id ? 'none' : '0 2px 8px rgba(212,166,74,0.3)',
                   }}
-                >▶</button>
+                >{launchingProfile === p.id ? '⋯' : '▶'}</button>
                 <div
                   onClick={() => navigate && navigate('model', { modelId: p.id })}
                   style={{ cursor: 'pointer' }}
