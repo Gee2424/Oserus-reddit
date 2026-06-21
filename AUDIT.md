@@ -1,141 +1,119 @@
-# Oserus — Architecture Audit (v0.52.0)
+# Oserus — Architecture Audit (v0.85.5)
 
-Honest map of what's in the repo right now, what's duplicated, what's
-abandoned, and what the next rebuild pass should consolidate. Updated as
-phases land.
+Honest map of what's actually in the repo, what's reliable, what's
+flaky, and what the next debloat pass should cut. Updated as releases
+land. Last refreshed at v0.85.5.
 
 ---
 
 ## Pages (src/renderer/pages/)
 
-| File | Status | Routes that mount it | Verdict |
-|---|---|---|---|
-| Dashboard.jsx | live | `dashboard` | keep · command center |
-| Profiles.jsx | live | `profiles` | keep · model list |
-| ModelDetail.jsx | live | `model` | keep · per-model management |
-| ModelHub.jsx | live (legacy) | `model-hub` | **DUPLICATE of ModelDetail** — fold into ModelDetail or drop |
-| UnifiedBrowser.jsx | live | `browser`, `reddit`, `redgifs-browse` | keep |
-| SchedulerPro.jsx | live | `scheduler-pro`, `scheduler`, `votes`, embedded in RedditApi posting tab | keep · the only scheduler |
-| RedditApi.jsx | live (Account Manager Pro) | `inbox`, `reddit-api`, `accounts`, `scheduler` | keep · its Posting tab embeds SchedulerPro (redundant with sidebar Scheduler) |
-| Inbox.jsx | live (embedded) | (always via RedditApi) | keep |
-| Intelligence.jsx | live | `intel`, `scraper` | keep |
-| Analytics.jsx | live | `analytics` | keep |
-| Activity.jsx | live | `activity` | keep |
-| Autopilot.jsx | live | `autopilot` | keep |
-| Settings.jsx | live | `settings` | keep |
-| Team.jsx | live | `users` | keep |
-| Docs.jsx | live | `docs` | keep |
-| AddAccounts.jsx | dead-ish | `add-accounts` only | **REVIEW** — sidebar entry removed, only reachable via deep link |
-| Subreddits.jsx | dead-ish | `subreddits` only | **REVIEW** — no sidebar entry, content absorbed into Intelligence |
-| Webviews.jsx | dead-ish | `webviews` only | **REVIEW** — no sidebar entry |
-| RedGifsDashboard.jsx | live | `redgifs`, `redgifs-dashboard` | **REVIEW** — content reachable via UnifiedBrowser too |
-| **Accounts.jsx** | DELETED in 0.53.0 | none | gone |
-| **Operations.jsx** | DELETED in 0.53.0 | none | gone |
-| Users.jsx | live (Team subtab) | imported by Team.jsx | keep — Team's `members` tab |
-| Roles.jsx | live (Team subtab) | imported by Team.jsx | keep — Team's `roles` tab |
+| File | Status | Verdict |
+|---|---|---|
+| Dashboard.jsx | live | keep — command center + Team Live |
+| Login.jsx | live | keep |
+| Profiles.jsx | live | keep — model list |
+| ModelDetail.jsx | live | keep — per-model management (UX cohesion pass landed in 0.83.0) |
+| AddAccounts.jsx | live | keep — bulk paste / direct input / in-app login |
+| Autopilot.jsx | live ⚠ | end-to-end loop not yet reliable; UI was redesigned in 0.82.0–0.83.0 |
+| Automation.jsx | live | thin wrapper — consider folding into Autopilot |
+| SchedulerPro.jsx | live ⚠ | composer + kanban work; coordinator tick fires posts but reliability is inconsistent |
+| Intelligence.jsx | live | Reddit Discover/Requirements/Compatibility solid; X/IG/TikTok Discover is brittle |
+| Inbox.jsx | live ⚠ | polling drops messages, counts go stale — barely reliable |
+| Analytics.jsx | live | keep |
+| Settings.jsx | live | keep — hosts Cloud Sync diagnostic + AI keys + roles preview |
+| Users.jsx | live | keep — Team subtab |
+| Roles.jsx | live | keep — Team subtab |
+| Docs.jsx | live | keep — per-model notes + AI plan parking |
+| RedditApi.jsx | live | keep — Account Manager Pro outer shell |
+| RedGifsDashboard.jsx | live | keep — minimal |
 
-## Routes (App.jsx switch)
+The big consolidation moves from the v0.52 audit (drop Accounts.jsx,
+Operations.jsx, ModelHub.jsx, Subreddits.jsx, Webviews.jsx) all
+shipped. The page list is now clean.
 
-Live routes that should consolidate:
-- `inbox` + `reddit-api` + `accounts` + `scheduler` all render RedditApiPage
-  with different initial tabs → keep RedditApi but drop legacy aliases
-- `infra` + `proxies` + `votes` all alias to Settings/Scheduler now → drop
-  from public surface
-- `model` + `model-hub` → pick one
+## IPC handlers (~30 modules across src/main/ipc/)
 
-## IPC handlers (127 total across src/main/ipc/)
+Active, reliable:
+- `auth`, `profiles`, `accounts`, `proxies`, `roles`, `team`, `activity`
+- `protocols`, `autopilotProtocol`, `autoComment`, `engagement`
+- `scheduled`, `posts`, `cloud`, `subs`, `homepage`
+- `analytics`, `examples`, `intelligence`, `inbox`
+- `ai`, `docs`, `messaging`, `templates`
+- `bundle` (export/import), `devices`, `extensions`
+- `webviews` (now thin — bookmarks only), `reddit`, `redgifs`
+- `votes` (upvote.biz orders)
 
-Duplicate / overlap candidates:
-- `votes:*` — upvote.biz handlers; will become `boost:*` when generalized
-- `subs:listWarmup`/`subs:listPromo` — warmup_subreddits + promo_subreddits
-  tables, only consumed by the orphan Subreddits.jsx page
-- `webviews:*` — only consumed by the orphan Webviews.jsx page
-- `posts:*` (post_drafts) vs `scheduled:*` (scheduled_posts) — two
-  parallel post stores; only `scheduled:*` is reachable today
+Debloat candidates (each is small, each is rarely used):
+- `votes.js` — paid upvote orders. Niche feature; if your team isn't using upvote.biz, drop it.
+- `extensions.js` — browser extension installer for Oserus Browser. Niche.
+- `bundle.js` — export profile bundle as .zip. Useful for handoff but not used in normal flow.
+- `templates.js` — schedule templates table is in sync but the UI / coordinator wiring is incomplete.
+- `messaging.js` — messaging templates + rules; tied to the unreliable Inbox.
+- `examples.js` — per-account voice library; large surface, only consumed by the unreliable Autopilot AI persona.
 
-## Tables (sqlite, src/main/db.js + migrations)
+## Tables (SQLite, src/main/db.js + ipc/*)
 
-Active:
-- `users`, `roles`, `role_permissions`, `auth_sessions` — auth (keep)
-- `model_profiles`, `profile_assignments` — models (keep)
-- `reddit_accounts` — every-platform accounts (rename later, schema is fine)
-- `proxies` — proxy pool (keep)
-- `scheduled_posts` — the unified scheduler (keep)
-- `post_events`, `post_locks`, `posting_protocols` — coordinator (keep)
-- `schedule_templates` — pro schedules (keep)
-- `messaging_templates` — canned inbox replies (keep)
-- `karma_snapshots` — manual karma history (keep, automate next)
-- `redgifs_profiles` — RedGIFs profile cache (keep)
-- `subreddit_intel` — Intelligence cache (keep)
-- `settings` — kv store (keep)
-- `activity_log` — audit (keep)
-- `locked_tab_credentials` — old webview tab creds (dead with Webviews.jsx)
-- `webview_tabs` — same
-- `warmup_subreddits` / `promo_subreddits` — only fed by Subreddits.jsx
-- `docs` — Documentation page (keep)
-- `post_drafts` (`posts` IPC) — parallel to scheduled_posts, unused
-- `upvote_orders` — boost log; barely written, candidate for unification
-  into `scheduled_posts.boost_*`
+24 CREATE TABLE statements. Active and used:
+- `users`, `roles`, `role_permissions`, `auth_sessions` — auth
+- `model_profiles` (now holds the canonical fingerprint + os_profile + geo cache per the 0.84 refactor)
+- `reddit_accounts` (still carries duplicate fingerprint_json / os_profile / geo_* columns — candidate to drop after a migration)
+- `proxies`
+- `autopilot_protocols` (the canonical autopilot config; per profile × platform)
+- `scheduled_posts`
+- `karma_snapshots`
+- `subreddit_intel`
+- `content_sources`
+- `warmup_subreddits`, `promo_subreddits`
+- `homepage_tiles`
+- `docs`
+- `settings` (kv)
+- `activity_log`, `post_events`, `auto_comment_runs`, `engagement_sessions` — event logs
 
-## Phased plan (proposed)
+Legacy / superseded but still present (deletion candidates):
+- `engagement_protocols`, `auto_comment_protocols` — superseded by `autopilot_protocols`
+- `posting_protocols` — superseded by `autopilot_protocols`
+- `autopilot_prompts` — composite PK with nullable; can't currently sync
+- `post_drafts` — no UI exposes it
+- `webview_tabs`, `locked_tab_credentials` — old custom-tabs feature
+- `messaging_templates`, `messaging_rules`, `messaging_rule_fires`, `schedule_templates` — wired but tied to unreliable surfaces
+- `account_example_posts`, `account_example_images`, `account_example_comments` — voice library (tied to Autopilot)
+- `reddit_topic_candidates`, `redgifs_profiles` — caches
+- `upvote_orders` — boost log (tied to votes.js)
 
-Each phase = one PR-sized commit, fully verified before the next.
+## Cloud sync surface (src/main/sync/)
 
-1. **Dead code purge** (this commit)
-   - Delete Accounts.jsx, Operations.jsx, Users.jsx, Roles.jsx (no imports)
-   - Drop the legacy `accounts` and `scheduler` route aliases that point
-     at RedditApi — `inbox` already covers it
-   - Audit this file (AUDIT.md) committed as the canonical reference
+- **24 tables in `TEAM_SHARED`** including the 4 event-log tables (`activity_log`, `post_events`, `auto_comment_runs`, `engagement_sessions`). Those four generate hundreds-to-thousands of rows/day and probably shouldn't sync — they're only consumed by the Dashboard activity feed, which can read local.
+- **`users` syncs heartbeat data** (`last_seen_at`, `today_seconds`, `today_date`) every 20s per logged-in operator. Probably should split into a non-synced `user_presence` table.
+- **`settings` syncs API keys** (Anthropic, OpenAI, Grok). Pulls admin's keys to every operator's machine. Probably should split into `settings.local` and `settings.synced`.
+- **`fingerprint_json` is duplicated** on `model_profiles` AND `reddit_accounts` after the 0.84 per-profile refactor. Per-account column is dead but still synced.
+- **Push tick is 1.5s** — aggressive for a desktop app; 5s would be more than fast enough.
+- **Three heartbeats** (renderer auth 20s, browser process 20s, cloud presence 15s) overlap. Consolidate to one.
 
-2. **Model consolidation**
-   - Merge ModelHub into ModelDetail (single per-model page)
-   - Drop `model-hub` route (alias → `model`)
-   - Verify every "Open hub"/"Open profile" link points at `model`
+The diagnostic + autoBootstrap + per-table push reporting all work
+correctly. The pipeline is sound; the table list and tick rates are
+what need trimming.
 
-3. **Account Manager Pro vs Scheduler de-dup**
-   - Decide: sidebar Scheduler OR Account Manager Pro Posting tab — not both
-   - Recommendation: keep sidebar Scheduler, drop Posting tab from AMP
-     (AMP becomes Inbox-only)
+## Phased debloat plan (proposed)
 
-4. **Boost generalization** (`votes` → `boost`)
-   - Rename IPC namespace, generalize provider list, drop `upvote_orders`
-     table in favor of `scheduled_posts.boost_*` (already there)
+Each phase is one PR-sized commit, verified before the next.
 
-5. **Subreddits/Webviews removal**
-   - Both pages are orphan. Decision: drop the pages, keep the data
-     tables for now (they back Intelligence)
+1. **Drop the 4 event-log tables from sync** — cuts an estimated 70% of bandwidth.
+2. **Split `users` into `users` + `user_presence`** — stop syncing heartbeat churn.
+3. **Drop API keys from synced settings** — security + bandwidth.
+4. **Drop the three legacy protocol tables from sync** (`engagement_protocols`, `auto_comment_protocols`, `posting_protocols`).
+5. **Drop redundant fingerprint columns from `reddit_accounts`** schema + sync.
+6. **Push tick 1.5s → 5s**, consolidate the three heartbeats.
+7. **Walk IPC files** — delete `votes.js`, `extensions.js`, `bundle.js` if unused (with the page they back).
+8. **Walk SQLite tables** — drop the legacy ones the codebase no longer touches.
+9. **Audit the 28 permission keys** — drop ones no IPC actually checks.
 
-6. **Scheduler eligibility pre-check** ✅ shipped v0.54.0
-   - `checkEligibility(db, post)` in coordinator hooks `subreddit_intel` +
-     latest karma_snapshots + account age. Posts that fail the gate land
-     in `status='failed'` with a clear reason and an audit event
-
-7. **Auto karma + Star User scrape** ✅ shipped v0.54.0
-   - `refreshKarmaSnapshots()` runs every 6h (first run 3 min after boot)
-     against `/api/me.json` per account. Writes karma_snapshots and flips
-     `starred` via heuristic (employee, or verified email + 10k karma, or
-     50k karma)
-
-8. **Cupid AI messaging automation** ✅ shipped v0.54.0 (IPC + matcher)
-   - `messaging_rules` + `messaging_rule_fires` tables, full CRUD IPC,
-     and a matcher in `inbox:fetch` that fires on new unread DMs against
-     enabled rules with regex + daily limits + dedup. UI for rules
-     management is the next batch (data layer is wired, no admin page yet)
-
-9. **Multi-platform Intelligence** ✅ scaffold shipped v0.54.0
-   - Scraper tab has a platform pill row (Reddit live, TikTok / IG / X
-     disabled with honest "adapter ships next batch" placeholder). Network
-     adapters for the other platforms are the next batch
-
-10. **Content Planning workflow** ✅ shipped v0.54.0
-    - New `Plan` inner tab in Reddit Intelligence. Pick a sub, pull top
-      week, tick the findings to include, optionally choose a model.
-      Calls `intel:synthesizePlan` → Grok produces themes / title
-      formulas / posting windows / captions. Saves to `docs` when a model
-      is chosen. User-in-the-loop, no auto-gen
+See the more user-facing debloat narrative in the post-handoff
+discussion in `claude/pensive-bell-VtMGj` history (search for
+"debloats").
 
 ---
 
-This file is the contract. Anything done that isn't on this list goes back
-to "Verify feature exists / reachable / works / not duplicated" before it's
-called done.
+This file is the contract. Anything done that isn't on this list goes
+back through "Verify feature exists / reachable / works / not
+duplicated" before it's called done.
