@@ -2,6 +2,7 @@ const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
 const { log } = require('./activity');
 const { hasPermission } = require('../permissions');
+const { markDirty } = require('../sync/supabase');
 
 function canAccessProfile(user, profileId) {
   if (hasPermission(user, 'profiles.manage')) return true;
@@ -205,6 +206,7 @@ function register(ipcMain) {
           status || 'warming', proxyId || null, notes || null, userAgent || null, os,
         );
       log(user, 'account.create', 'account', info.lastInsertRowid, `${plat} u/${username}`);
+      markDirty();
       return { ok: true, id: info.lastInsertRowid, partitionKey };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -287,6 +289,7 @@ function register(ipcMain) {
         }
       }
 
+      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -321,6 +324,7 @@ function register(ipcMain) {
       if (!canAccessProfile(user, acct.profile_id)) throw new Error('Not authorized');
       getDb().prepare('DELETE FROM reddit_accounts WHERE id = ?').run(accountId);
       log(user, 'account.delete', 'account', accountId, `${acct.platform} u/${acct.username}`);
+      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -373,6 +377,7 @@ function register(ipcMain) {
       });
       txn();
       log(user, 'account.bulkImport', 'profile', profileId, `imported ${created.length} ${plat} (${errors.length} errors)`);
+      markDirty();
       return { ok: true, created, errors };
     } catch (err) {
       return { ok: false, error: err.message };

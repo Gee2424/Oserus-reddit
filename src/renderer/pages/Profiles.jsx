@@ -116,7 +116,11 @@ export default function ProfilesPage({ navigate }) {
   }
 
   async function setModelProxy(profileId, proxyId) {
-    await window.api.profiles.update({ token, profileId, updates: { proxy_id: proxyId ? Number(proxyId) : null } });
+    const res = await window.api.profiles.update({ token, profileId, updates: { proxy_id: proxyId ? Number(proxyId) : null } });
+    if (!res.ok) {
+      alert(`Failed to update proxy: ${res.error || 'Unknown error'}`);
+      return;
+    }
     load();
   }
   useEffect(() => {
@@ -140,13 +144,21 @@ export default function ProfilesPage({ navigate }) {
   }
 
   async function reassign(profileId, userId) {
-    await window.api.profiles.assign({ token, profileId, assignedUserId: userId || null });
+    const res = await window.api.profiles.assign({ token, profileId, assignedUserId: userId || null });
+    if (!res.ok) {
+      alert(`Failed to reassign profile: ${res.error || 'Unknown error'}`);
+      return;
+    }
     load();
   }
 
   async function del(id) {
     if (!confirm('Delete this model profile? All its linked platform accounts will be removed too.')) return;
-    await window.api.profiles.delete({ token, profileId: id });
+    const res = await window.api.profiles.delete({ token, profileId: id });
+    if (!res.ok) {
+      alert(`Failed to delete profile: ${res.error || 'Unknown error'}`);
+      return;
+    }
     load();
   }
 

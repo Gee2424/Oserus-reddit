@@ -4,6 +4,7 @@ const ipv4Bridge = require('../services/ipv4Bridge');
 const { getDb, encryptSecret, decryptSecret } = require('../db');
 const { userFromToken } = require('./auth');
 const { requirePermission } = require('../permissions');
+const { markDirty } = require('../sync/supabase');
 
 function ensureProxyMigrations() {
   const db = getDb();
@@ -181,6 +182,7 @@ function register(ipcMain) {
           session_user_template || null,
           rotation_url || null,
         );
+      markDirty();
       return { ok: true, id: info.lastInsertRowid };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -207,6 +209,7 @@ function register(ipcMain) {
       if (!sets.length) return { ok: true };
       params.push(proxyId);
       getDb().prepare(`UPDATE proxies SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -253,6 +256,7 @@ function register(ipcMain) {
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'infra.proxies.manage');
       getDb().prepare('DELETE FROM proxies WHERE id = ?').run(proxyId);
+      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };

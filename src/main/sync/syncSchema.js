@@ -48,7 +48,7 @@ const TEAM_SHARED = [
   { local: 'users',                  remote: 'users',                  pk: 'id',         watermark: 'updated_at' },
   // Model + account + proxy CRUD.
   { local: 'model_profiles',         remote: 'model_profiles',         pk: 'id',         watermark: 'updated_at' },
-  { local: 'reddit_accounts',        remote: 'reddit_accounts',        pk: 'id',         watermark: 'updated_at' },
+  { local: 'reddit_accounts',        remote: 'reddit_accounts',        pk: 'id',         watermark: 'updated_at', required: ['profile_id', 'platform', 'username', 'partition_key', 'status'] },
   { local: 'proxies',                remote: 'proxies',                pk: 'id',         watermark: 'updated_at' },
   // Autopilot config per (model, platform).
   { local: 'autopilot_protocols',    remote: 'autopilot_protocols',    pk: 'id',         watermark: 'updated_at' },

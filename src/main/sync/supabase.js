@@ -345,11 +345,41 @@ function broadcastDataChanged(table, eventType, row) {
 
 function applyRemoteRow(t, row) {
   if (!row) return;
+  const db = getDb();
   try {
+    // Begin transaction for atomicity
+    db.exec('BEGIN TRANSACTION');
+
     const cols = colsFor(t.local);
-    if (!cols.length) return;
+    if (!cols.length) {
+      db.exec('ROLLBACK');
+      return;
+    }
+
     const present = cols.filter((c) => Object.prototype.hasOwnProperty.call(row, c));
-    if (!present.length) return;
+    if (!present.length) {
+      db.exec('ROLLBACK');
+      return;
+    }
+
+    // Validate that primary key columns are present
+    const pkCols = t.pk.split(',').map((s) => s.trim());
+    const missingPk = pkCols.filter((c) => !present.includes(c));
+    if (missingPk.length > 0) {
+      elog.warn(`[cloud] Missing primary key columns for ${t.local}: ${missingPk.join(', ')}`);
+      db.exec('ROLLBACK');
+      return;
+    }
+
+    // Validate that required columns are present (if specified)
+    const required = t.required || [];
+    const missing = required.filter((c) => !present.includes(c));
+    if (missing.length > 0) {
+      elog.warn(`[cloud] Missing required columns for ${t.local}: ${missing.join(', ')}`);
+      db.exec('ROLLBACK');
+      return;
+    }
+
     const placeholders = present.map(() => '?').join(', ');
     const values = present.map((c) => {
       const v = row[c];
@@ -357,9 +387,20 @@ function applyRemoteRow(t, row) {
       if (typeof v === 'object') return JSON.stringify(v);
       return v;
     });
-    getDb().prepare(
-      `INSERT OR REPLACE INTO ${t.local} (${present.join(', ')}) VALUES (${placeholders})`
-    ).run(...values);
+
+    // Build safe upsert using ON CONFLICT DO UPDATE
+    // This preserves existing data instead of replacing the entire row
+    const updateCols = present.filter((c) => !pkCols.includes(c));
+    const updateClause = updateCols.map((c) => `${c}=excluded.${c}`).join(', ');
+
+    const sql = `INSERT INTO ${t.local} (${present.join(', ')})
+                 VALUES (${placeholders})
+                 ON CONFLICT(${t.pk}) DO UPDATE SET
+                   ${updateClause}`;
+
+    db.prepare(sql).run(...values);
+    db.exec('COMMIT');
+
     state.status.pulled += 1;
     state.status.lastSyncAt = new Date().toISOString();
     const ts = getOrCreateTableStatus(t.local);
@@ -377,6 +418,7 @@ function applyRemoteRow(t, row) {
     }
     broadcastStatus();
   } catch (e) {
+    try { db.exec('ROLLBACK'); } catch {}
     setError(`apply ${t.local}: ${e?.message}`);
   }
 }

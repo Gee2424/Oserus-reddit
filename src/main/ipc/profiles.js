@@ -1,6 +1,7 @@
 const { getDb } = require('../db');
 const { userFromToken, requireManagerOrAdmin } = require('./auth');
 const { hasPermission } = require('../permissions');
+const { markDirty } = require('../sync/supabase');
 
 // Add proxy_id to model_profiles so a single proxy can be inherited by every
 // account under a model. Account-level proxy_id still wins when set.
@@ -122,6 +123,7 @@ function register(ipcMain) {
           'INSERT INTO model_profiles (name, assigned_user_id, niche, brand_voice, notes, avatar_color) VALUES (?,?,?,?,?,?)'
         )
         .run(name, assignedUserId || null, niche || null, brandVoice || null, notes || null, avatarColor || null);
+      markDirty();
       return { ok: true, id: info.lastInsertRowid };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -142,6 +144,7 @@ function register(ipcMain) {
       if (!sets.length) return { ok: true };
       params.push(profileId);
       getDb().prepare(`UPDATE model_profiles SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -154,6 +157,7 @@ function register(ipcMain) {
       getDb()
         .prepare('UPDATE model_profiles SET assigned_user_id = ? WHERE id = ?')
         .run(assignedUserId || null, profileId);
+      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -164,6 +168,7 @@ function register(ipcMain) {
     try {
       requireManagerOrAdmin(token);
       getDb().prepare('DELETE FROM model_profiles WHERE id = ?').run(profileId);
+      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
