@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const { BrowserWindow } = require('electron');
 const { getDb, getKv, setKv } = require('../db');
 const defaultBackend = require('./defaultBackend');
-const { ALL_TABLES, ensureUpdatedAtColumns } = require('./syncSchema');
+const { ALL_TABLES, ensureUpdatedAtColumns, TEAM_SHARED, APPEND_ONLY } = require('./syncSchema');
 
 // `ws` shim for Supabase Realtime. Electron 32 ships Node 20, which
 // (until 22) has no global WebSocket — supabase-realtime crashes with
@@ -140,6 +140,22 @@ function colsFor(table) {
   }
 }
 
+// Get columns that should be synced (excludes local-only columns)
+function colsForSync(table) {
+  const allCols = colsFor(table);
+  const tableConfig = TEAM_SHARED.find(t => t.local === table) ||
+                      APPEND_ONLY.find(t => t.local === table);
+  if (!tableConfig) return allCols; // No config = no filtering
+
+  const excluded = tableConfig.excludedColumns || [];
+  if (excluded.length > 0) {
+    const filtered = allCols.filter(c => !excluded.includes(c));
+    elog.debug(`[sync] ${table}: filtering ${excluded.length} local-only columns: ${excluded.join(', ')}`);
+    return filtered;
+  }
+  return allCols;
+}
+
 function rowToPayload(row, cols) {
   const out = {};
   for (const c of cols) {
@@ -185,7 +201,9 @@ function recordTableError(table, message) {
 async function pushTable(t) {
   const db = getDb();
   const ts = getOrCreateTableStatus(t.local);
-  const cols = colsFor(t.local);
+
+  // Use filtered columns for sync (excludes local-only columns)
+  const cols = colsForSync(t.local);
   if (!cols.length) {
     recordTableError(t.local, 'local table missing');
     return 0;
@@ -519,6 +537,21 @@ async function start() {
   state.deviceName = cfg.deviceName;
   try { ensureUpdatedAtColumns(getDb()); elog.info('[cloud] ensureUpdatedAtColumns OK'); }
   catch (e) { elog.warn('[cloud] ensureUpdatedAtColumns failed:', e?.message); }
+
+  // Validate excludedColumns configuration
+  try {
+    for (const t of TEAM_SHARED) {
+      if (t.excludedColumns && t.excludedColumns.length > 0) {
+        const localCols = colsFor(t.local);
+        const missing = t.excludedColumns.filter(c => !localCols.includes(c));
+        if (missing.length > 0) {
+          elog.warn(`[cloud] ${t.local}: excludedColumns not found locally: ${missing.join(', ')}`);
+        }
+      }
+    }
+  } catch (e) {
+    elog.warn('[cloud] excludedColumns validation failed:', e?.message);
+  }
   try {
     const { app } = require('electron');
     state.appVersion = app.getVersion();

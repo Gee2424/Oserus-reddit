@@ -46,7 +46,7 @@ function register(ipcMain) {
           'SELECT post_karma, comment_karma, taken_at FROM karma_snapshots WHERE account_id = ? ORDER BY taken_at DESC LIMIT 1'
         ).get(a.id);
         const postsDraftCount = getDb().prepare(
-          "SELECT COUNT(*) AS c FROM posts WHERE account_id = ?"
+          "SELECT COUNT(*) AS c FROM post_drafts WHERE account_id = ?"
         ).get(a.id)?.c || 0;
         let scheduledCount = 0;
         try {

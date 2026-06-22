@@ -45,11 +45,11 @@ const APPEND_ONLY = [
 // real column list — no more `(id, data)` placeholders.
 const TEAM_SHARED = [
   // The team itself.
-  { local: 'users',                  remote: 'users',                  pk: 'id',         watermark: 'updated_at' },
+  { local: 'users',                  remote: 'users',                  pk: 'id',         watermark: 'updated_at', excludedColumns: ['last_seen_at', 'last_action_at', 'today_seconds', 'today_date'] },
   // Model + account + proxy CRUD.
   { local: 'model_profiles',         remote: 'model_profiles',         pk: 'id',         watermark: 'updated_at' },
-  { local: 'reddit_accounts',        remote: 'reddit_accounts',        pk: 'id',         watermark: 'updated_at', required: ['profile_id', 'platform', 'username', 'partition_key', 'status'] },
-  { local: 'proxies',                remote: 'proxies',                pk: 'id',         watermark: 'updated_at' },
+  { local: 'reddit_accounts',        remote: 'reddit_accounts',        pk: 'id',         watermark: 'updated_at', required: ['profile_id', 'platform', 'username', 'partition_key', 'status'], excludedColumns: ['starred'] },
+  { local: 'proxies',                remote: 'proxies',                pk: 'id',         watermark: 'updated_at', excludedColumns: ['last_test_ok', 'last_test_at', 'last_test_error'] },
   // Autopilot config per (model, platform).
   { local: 'autopilot_protocols',    remote: 'autopilot_protocols',    pk: 'id',         watermark: 'updated_at' },
   // Engagement / auto-comment protocols are per-account legacy rows
@@ -78,7 +78,7 @@ const TEAM_SHARED = [
   { local: 'roles',                  remote: 'roles',                  pk: 'key',                  watermark: 'updated_at' },
   { local: 'role_permissions',       remote: 'role_permissions',       pk: 'role_key,perm_key',    watermark: 'updated_at' },
   // App-wide settings.
-  { local: 'settings',               remote: 'settings',               pk: 'key',        watermark: 'updated_at' },
+  { local: 'settings',               remote: 'settings',               pk: 'key',        watermark: 'updated_at', excludedColumns: ['updated_at_text'] },
 ];
 
 // Not synced (yet):

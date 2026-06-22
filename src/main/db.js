@@ -402,6 +402,47 @@ function initDatabase() {
       status TEXT NOT NULL CHECK(status IN ('created', 'running', 'stopped', 'error')) DEFAULT 'created',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    -- Posting events log
+    CREATE TABLE IF NOT EXISTS post_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL,
+      account_id INTEGER NOT NULL,
+      profile_id INTEGER,
+      subreddit TEXT,
+      title TEXT,
+      remote_id TEXT,
+      status TEXT NOT NULL DEFAULT 'posted',
+      source TEXT NOT NULL DEFAULT 'manual',
+      error TEXT,
+      created_by_user_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Posting protocols (config hierarchy)
+    CREATE TABLE IF NOT EXISTS posting_protocols (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope TEXT NOT NULL CHECK(scope IN ('global','platform','model','account')),
+      scope_id TEXT,
+      config_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(scope, scope_id)
+    );
+
+    -- Schedule templates
+    CREATE TABLE IF NOT EXISTS schedule_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'idle' CHECK(status IN ('idle','running','paused')),
+      accounts_json TEXT NOT NULL DEFAULT '[]',
+      subreddits_json TEXT NOT NULL DEFAULT '[]',
+      cadence_min_h REAL NOT NULL DEFAULT 4,
+      cadence_max_h REAL NOT NULL DEFAULT 8,
+      posts_per_account INTEGER NOT NULL DEFAULT 3,
+      created_by_user_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_started_at TEXT
+    );
   `);
 
   // Migration: if users.role constraint is the old ('admin','creator') one, rebuild the table.
