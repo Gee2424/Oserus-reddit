@@ -1,6 +1,6 @@
 {
   "name": "oserus-management",
-  "version": "0.85.7",
+  "version": "0.85.8",
   "description": "Oserus Management — multi-platform account management for OnlyFans agencies (Reddit, RedGifs, X, Instagram, TikTok)",
   "main": "src/main/index.js",
   "scripts": {
