@@ -11,6 +11,10 @@
 const { getCloakManagerClient } = require('../cloakmanager');
 const { userFromToken } = require('./auth');
 const { getDb, decryptSecret } = require('../db');
+const cdpOrchestrator = require('../cdp/orchestrator');
+
+// Phase 2: Configurable CDP launch delay for development
+const CDP_LAUNCH_DELAY = process.env.CDP_LAUNCH_DELAY || 95000; // Default 95s, configurable via env
 
 /**
  * Register all CloakManager IPC handlers
@@ -20,11 +24,41 @@ const { getDb, decryptSecret } = require('../db');
 function registerCloakmanagerHandlers(ipcMain, mainWindow) {
   const client = getCloakManagerClient();
 
+  // Initialize CDP orchestrator with CloakManager client
+  cdpOrchestrator.initialize(mainWindow, client);
+  console.log('[IPC] CDP orchestrator initialized');
+
   // Set up WebSocket event forwarding to renderer
-  client.on('profile_launched', (data) => {
+  client.on('profile_launched', async (data) => {
     console.log('[IPC] Broadcasting profile_launched:', data.profile);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('cloakmanager:profile_launched', data);
+    }
+
+    // Trigger CDP launch script sequence with delay for browser startup
+    try {
+      console.log('[IPC] Scheduling CDP launch scripts for profile:', data.profile, `(with ${CDP_LAUNCH_DELAY/1000}s delay for browser startup)`);
+      console.log('[IPC] Current time:', new Date().toISOString(), 'Expected execution:', new Date(Date.now() + CDP_LAUNCH_DELAY).toISOString());
+
+      // CRITICAL: CloakManager launch takes 90+ seconds due to Google navigation timeout
+      // Delay CDP script execution to allow browser to fully launch and CDP to be ready
+      setTimeout(async () => {
+        console.log('[IPC] 🔔 setTimeout callback FIRED for profile:', data.profile);
+        console.log('[IPC] 🔔 Timestamp:', new Date().toISOString());
+        console.log('[IPC] 🔔 cdpOrchestrator type:', typeof cdpOrchestrator);
+        console.log('[IPC] 🔔 cdpOrchestrator methods:', Object.keys(cdpOrchestrator));
+
+        try {
+          console.log('[IPC] 🔔 Calling cdpOrchestrator.handleProfileLaunched');
+          await cdpOrchestrator.handleProfileLaunched(data);
+          console.log('[IPC] 🔔 cdpOrchestrator.handleProfileLaunched COMPLETED');
+        } catch (error) {
+          console.error('[IPC] ❌ Failed to trigger CDP launch scripts:', error);
+          console.error('[IPC] ❌ Error stack:', error.stack);
+        }
+      }, CDP_LAUNCH_DELAY); // Configurable delay for browser to fully launch and CDP to be ready
+    } catch (error) {
+      console.error('[IPC] Failed to schedule CDP launch scripts:', error);
     }
   });
 
@@ -32,6 +66,14 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow) {
     console.log('[IPC] Broadcasting profile_stopped:', data.profile);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('cloakmanager:profile_stopped', data);
+    }
+
+    // Cleanup CDP connections for stopped profile
+    try {
+      console.log('[IPC] Cleaning up CDP connections for profile:', data.profile);
+      cdpOrchestrator.handleProfileStopped(data);
+    } catch (error) {
+      console.error('[IPC] Failed to cleanup CDP connections:', error);
     }
   });
 
@@ -60,6 +102,25 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow) {
     console.log('[IPC] Broadcasting cdp_ready:', data.profile);
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('cloakmanager:cdp_ready', data);
+    }
+
+    // Mark profile as ready for CDP task scripts
+    try {
+      console.log('[IPC] Marking profile as CDP ready:', data.profile);
+      cdpOrchestrator.handleCDPReady(data);
+    } catch (error) {
+      console.error('[IPC] Failed to mark profile as CDP ready:', error);
+    }
+
+    // Phase 3: Use cdp_ready event as immediate trigger for launch scripts
+    // This bypasses the 95-second delay and triggers scripts as soon as CDP is ready
+    try {
+      console.log('[IPC] 🚀 cdp_ready event received, launching scripts immediately');
+      console.log('[IPC] 🚀 Calling cdpOrchestrator.handleProfileLaunched from cdp_ready');
+      cdpOrchestrator.handleProfileLaunched(data);
+      console.log('[IPC] 🚀 CDP launch scripts completed from cdp_ready trigger');
+    } catch (error) {
+      console.error('[IPC] Failed to trigger CDP launch scripts from cdp_ready:', error);
     }
   });
 
@@ -397,11 +458,11 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow) {
           `).run(accountId, result.profileName);
         }
 
-        // CRITICAL FIX: Update account_browser_settings with the profile name
-        // This ensures getAccountMode returns the profile name so we don't try to create duplicates
+        // CRITICAL FIX: Update account_browser_settings with the profile name AND browser mode
+        // This ensures getAccountMode returns the profile name and CDP orchestrator can find the account
         getDb().prepare(`
           UPDATE account_browser_settings
-          SET cloak_profile_name = ?
+          SET cloak_profile_name = ?, browser_mode = 'cloakmanager'
           WHERE account_id = ?
         `).run(result.profileName, accountId);
 
@@ -443,9 +504,9 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow) {
         // getDb() is imported at top of file
         getDb().prepare(`
           UPDATE cloakmanager_profiles
-          SET cdp_port = ?, cdp_url = ?, fp_seed = ?, status = 'running'
+          SET cdp_port = ?, cdp_url = ?, cdp_ws_url = ?, fp_seed = ?, status = 'running'
           WHERE profile_name = ?
-        `).run(result.cdpPort, result.cdpUrl, result.fpSeed, profileName);
+        `).run(result.cdpPort, result.cdpUrl, result.cdpWsUrl, result.fpSeed, profileName);
 
         return {
           ok: true,
@@ -597,6 +658,101 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow) {
       return { ok: false, error: error.message };
     }
   });
+
+  /**
+   * Test CDP connection for an account (for debugging)
+   */
+  ipcMain.handle('cloakmanager:testCDPConnection', async (event, { token, accountId }) => {
+    try {
+      // userFromToken is imported at top of file
+      const user = userFromToken(token);
+
+      if (!user) {
+        return { ok: false, error: 'Invalid token' };
+      }
+
+      console.log('[IPC] Testing CDP connection for account:', accountId);
+
+      const result = await cdpOrchestrator.testConnection(accountId);
+
+      return {
+        ok: result.success,
+        result,
+        message: result.message
+      };
+    } catch (error) {
+      console.error('Failed to test CDP connection:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  /**
+   * Run specific CDP test script (for debugging)
+   */
+  ipcMain.handle('cloakmanager:runCDPTest', async (event, { token, accountId, testScript }) => {
+    try {
+      // userFromToken is imported at top of file
+      const user = userFromToken(token);
+
+      if (!user) {
+        return { ok: false, error: 'Invalid token' };
+      }
+
+      console.log('[IPC] Running CDP test script:', testScript, 'for account:', accountId);
+
+      const connectionManager = require('../cdp/connection-manager');
+      const connection = await connectionManager.getConnectionForAccount(accountId);
+
+      if (!connection) {
+        return { ok: false, error: 'Failed to establish CDP connection' };
+      }
+
+      const testModule = require(`../cdp-scripts/test/${testScript}`);
+      const profileName = await cdpOrchestrator.getProfileNameForAccount(accountId);
+
+      const result = await testModule.execute(connection, {
+        accountId,
+        profileName: profileName || 'unknown'
+      });
+
+      return {
+        ok: result.success,
+        result,
+        message: result.message
+      };
+    } catch (error) {
+      console.error('Failed to run CDP test:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  /**
+   * Manual trigger for CDP launch scripts (for testing/debugging)
+   */
+  ipcMain.handle('cloakmanager:triggerLaunchScripts', async (event, { token, profileName }) => {
+    try {
+      console.log('[IPC] Manual trigger requested for profile:', profileName);
+
+      const user = userFromToken(token);
+      if (!user || user.role !== 'admin') {
+        return { ok: false, error: 'Unauthorized - admin only' };
+      }
+
+      console.log('[IPC] ✅ Manual trigger approved for admin:', user.username);
+      await cdpOrchestrator.handleProfileLaunched({ profile: profileName });
+
+      return {
+        ok: true,
+        message: 'Launch scripts triggered successfully',
+        profile: profileName
+      };
+    } catch (error) {
+      console.error('[IPC] Manual trigger failed:', error);
+      return { ok: false, error: error.message };
+    }
+  });
 }
 
+// Export CDP availability checker for use in coordinator and other services
 module.exports = registerCloakmanagerHandlers;
+module.exports.hasCDPAvailable = cdpOrchestrator.hasCDPAvailable;

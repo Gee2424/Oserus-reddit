@@ -157,9 +157,13 @@ class CloakManagerClient {
     try {
       console.log('[CloakManager] 🚀 Launching profile:', profileName);
       console.log('[CloakManager] POST URL:', `${this.baseUrl}/api/profiles/${profileName}/launch`);
+
+      // CRITICAL: Profile launch can take 90+ seconds due to Google navigation timeout
+      // Use extended timeout for launch operations
       const response = await axios.post(
         `${this.baseUrl}/api/profiles/${profileName}/launch`,
-        {}  // Empty body - launch doesn't need parameters
+        {},  // Empty body - launch doesn't need parameters
+        { timeout: 120000 }  // 2 minute timeout for launch (can take 90+ seconds)
       );
       console.log('[CloakManager] POST response:', response.status, response.data);
 
@@ -173,6 +177,45 @@ class CloakManagerClient {
 
         // Get full profile details to get cdp_ws_url
         const profileDetails = await this.getProfileInfo(profileName);
+
+        // Phase 0.1: CDP URL verification
+        console.log('[CloakManager] 🔍 CDP URL verification:', {
+          has_cdp_port: !!response.data.cdp_port,
+          has_cdp_url: !!response.data.cdp_url,
+          has_cdp_ws_url: !!profileDetails.cdp_ws_url,
+          cdp_ws_url: profileDetails.cdp_ws_url || 'MISSING - CDP WILL FAIL',
+          profile_status: profileDetails.status
+        });
+
+        if (!profileDetails.cdp_ws_url) {
+          console.error('[CloakManager] ❌ CDP WebSocket URL missing - cannot establish CDP connection');
+          throw new Error('CDP WebSocket URL not available from CloakManager API');
+        }
+
+        console.log('[CloakManager] ✅ CDP WebSocket URL verified:', profileDetails.cdp_ws_url);
+
+        // Phase 0.3: Test CDP connection before proceeding
+        const connectionManager = require('./cdp/connection-manager');
+        const connectionTest = await connectionManager.testCDPConnection(profileDetails.cdp_ws_url);
+
+        if (!connectionTest.success) {
+          console.error('[CloakManager] ❌ CDP connection test failed - aborting launch scripts');
+          return {
+            ok: true,  // Profile launched, but CDP not ready
+            profileName: profileName,
+            pid: response.data.pid,
+            proxyVerified: response.data.proxy_verified,
+            proxyIp: response.data.proxy_ip,
+            fpSeed: response.data.fp_seed,
+            cdpPort: response.data.cdp_port,
+            cdpUrl: response.data.cdp_url,
+            cdpWsUrl: profileDetails.cdp_ws_url,
+            cdpReady: false,  // Flag indicating CDP not actually ready
+            connectionError: connectionTest.error
+          };
+        }
+
+        console.log('[CloakManager] ✅ CDP connection verified and working');
 
         return {
           ok: true,

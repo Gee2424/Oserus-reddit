@@ -979,12 +979,49 @@ function initDatabase() {
           profile_name TEXT NOT NULL UNIQUE,
           cdp_port INTEGER,
           cdp_url TEXT,
+          cdp_ws_url TEXT,
           fp_seed TEXT,
           status TEXT NOT NULL CHECK(status IN ('created', 'running', 'stopped', 'error')) DEFAULT 'created',
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
       `);
       console.log('[db] cloakmanager_profiles table created.');
+    } else {
+      // Add cdp_ws_url column if it doesn't exist (for existing installations)
+      try {
+        const columnExists = db.prepare(`
+          SELECT COUNT(*) as count FROM pragma_table_info('cloakmanager_profiles')
+          WHERE name = 'cdp_ws_url'
+        `).get();
+
+        if (columnExists.count === 0) {
+          console.log('[db] Adding cdp_ws_url column to cloakmanager_profiles...');
+          db.exec(`ALTER TABLE cloakmanager_profiles ADD COLUMN cdp_ws_url TEXT`);
+          console.log('[db] cdp_ws_url column added successfully.');
+        }
+      } catch (e) {
+        console.warn('[db] Failed to add cdp_ws_url column:', e?.message);
+      }
+    }
+
+    // Create cdp_script_executions table for tracking CDP script execution
+    if (!tableNames.includes('cdp_script_executions')) {
+      console.log('[db] Creating cdp_script_executions table...');
+      db.exec(`
+        CREATE TABLE cdp_script_executions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          profile_name TEXT NOT NULL,
+          script_id TEXT NOT NULL,
+          category TEXT NOT NULL,
+          started_at TEXT NOT NULL,
+          completed_at TEXT,
+          status TEXT NOT NULL,
+          result_json TEXT,
+          error TEXT,
+          retry_count INTEGER DEFAULT 0
+        )
+      `);
+      console.log('[db] cdp_script_executions table created.');
     }
 
     // Create indexes for better performance
