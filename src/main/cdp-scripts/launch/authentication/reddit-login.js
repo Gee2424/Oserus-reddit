@@ -1,9 +1,9 @@
 /**
- * Reddit Auto-Login Script
+ * Reddit Auto-Login Script (Native Playwright)
  *
  * Automatically logs into Reddit using stored credentials.
  * Handles both the old and new Reddit login interfaces.
- * Supports proxy-based geo detection and device emulation.
+ * Uses native Playwright for better locators, auto-waiting, and reliability.
  *
  * @category launch.authentication
  * @platform reddit
@@ -18,22 +18,23 @@ const metadata = {
   category: 'launch.authentication',
   timeout: 30000,
   requires: ['cdpConnection', 'credentials'],
-  version: '1.0.0',
-  description: 'Automatically logs into Reddit using stored credentials from the database'
+  nativeMode: true,  // NEW: Use native Playwright API
+  version: '2.0.0',
+  description: 'Reddit login with native Playwright API (better locators, auto-waiting, humanization)'
 };
 
 /**
  * Execute Reddit auto-login
  *
- * @param {Object} connection - CDP connection object with domains
+ * @param {Object} page - Native Playwright page object (from native mode)
  * @param {Object} context - Execution context with { accountId, credentials, platform }
  * @returns {Promise<Object>} Login result
  */
-async function execute(connection, context) {
-  const { Page, Runtime } = connection;
+async function execute(page, context) {
   const { credentials, accountId, platform } = context;
 
   console.log('[Reddit Login] Starting auto-login for account:', accountId);
+  console.log('[Reddit Login] Using native Playwright API');
 
   try {
     if (!credentials || !credentials.username || !credentials.password) {
@@ -42,107 +43,66 @@ async function execute(connection, context) {
 
     console.log('[Reddit Login] Proceeding with login for user:', credentials.username);
 
-    // Navigate to Reddit first
-    await Page.navigate({ url: 'https://www.reddit.com/login/' });
-    await Page.loadEventFired();
+    // Navigate to Reddit login page
+    await page.goto('https://www.reddit.com/login/', {
+      waitUntil: 'domcontentloaded'
+    });
 
-    // Wait for page to settle (Reddit SPA hydration)
-    await sleep(2000);
+    // Check if already logged in using resilient locator
+    // Native Playwright: getByTestId() is more reliable than querySelector
+    const logoutButton = page.getByTestId('logout-button');
+    const logoutCount = await logoutButton.count();
 
-    // Now check if already logged in
-    const loginCheck = `
-      (() => {
-        // Check for logout button which indicates logged-in state
-        const logoutBtn = document.querySelector('[data-testid="logout-button"]') ||
-                         document.querySelector('button[aria-label="Log out"]');
-        return { alreadyLoggedIn: !!logoutBtn, canProceed: !logoutBtn };
-      })()
-    `;
-
-    const checkResult = await Runtime.evaluate({ expression: loginCheck, timeout: 5000 });
-    const checkData = checkResult.result.value;
-
-    if (checkData.alreadyLoggedIn) {
+    if (logoutCount > 0) {
       console.log('[Reddit Login] Already logged in');
-      return { success: true, alreadyLoggedIn: true, skipped: true };
+      return {
+        success: true,
+        alreadyLoggedIn: true,
+        skipped: true,
+        username: credentials.username
+      };
     }
 
-    // Wait for page to settle (Reddit SPA hydration)
-    await sleep(2000);
+    console.log('[Reddit Login] Not logged in, proceeding with login flow...');
 
-    // Wait for login form elements
-    const waitForForm = `
-      (() => {
-        const userField = document.querySelector('input#login-username, input[name="username"]');
-        const passField = document.querySelector('input#login-password, input[name="password"]');
-        const submitBtn = document.querySelector('button[type="submit"]');
-
-        return {
-          found: !!(userField && passField),
-          userField: !!userField,
-          passField: !!passField,
-          submitBtn: !!submitBtn
-        };
-      })()
-    `;
-
-    const formResult = await Runtime.evaluate({ expression: waitForForm, timeout: 15000 });
-
-    if (!formResult.result.value.found) {
-      throw new Error('Login form not found or page not loaded properly');
-    }
+    // Wait for login form with auto-waiting
+    // Native Playwright: locator.waitFor() handles the polling
+    const usernameField = page.locator('input#login-username').first();
+    await usernameField.waitFor({ state: 'visible', timeout: 15000 });
 
     console.log('[Reddit Login] Login form found, filling credentials...');
 
-    // Fill in credentials and submit
-    const fillAndSubmit = `
-      (() => {
-        const userField = document.querySelector('input#login-username, input[name="username"]');
-        const passField = document.querySelector('input#login-password, input[name="password"]');
-        const submitBtn = document.querySelector('button[type="submit"]');
+    // Native Playwright: page.fill() properly simulates input events
+    // No need for manual dispatchEvent calls
+    await page.fill('input#login-username', credentials.username);
+    await page.fill('input#login-password', credentials.password);
 
-        if (!userField || !passField) {
-          return { success: false, error: 'Form fields not found' };
-        }
+    // Click submit button with auto-wait
+    // Native Playwright: auto-waits for element to be ready
+    await page.locator('button[type="submit"]').first().click();
 
-        // Set username
-        userField.value = '${credentials.username}';
-        userField.dispatchEvent(new Event('input', { bubbles: true }));
-        userField.dispatchEvent(new Event('change', { bubbles: true }));
-
-        // Set password
-        passField.value = '${credentials.password}';
-        passField.dispatchEvent(new Event('input', { bubbles: true }));
-        passField.dispatchEvent(new Event('change', { bubbles: true }));
-
-        // Click submit button
-        if (submitBtn) {
-          submitBtn.click();
-        }
-
-        return { success: true, submitted: true };
-      })()
-    `;
-
-    const submitResult = await Runtime.evaluate({ expression: fillAndSubmit, timeout: 10000 });
-    const submitData = submitResult.result.value;
-
-    if (!submitData.success) {
-      throw new Error(submitData.error || 'Failed to submit login form');
-    }
-
-    console.log('[Reddit Login] Login form submitted, waiting for redirect...');
+    console.log('[Reddit Login] Login form submitted, waiting for navigation...');
 
     // Wait for navigation after login
-    await Page.loadEventFired();
-    await sleep(3000);
+    // Native Playwright: waitForURL is more reliable than loadEventFired + sleep
+    await page.waitForURL(/\/(login|register|\?|$)/, { timeout: 15000 });
 
-    // Verify login success by checking for logout button
-    const verifyResult = await Runtime.evaluate({ expression: loginCheck, timeout: 5000 });
-    const verifyData = verifyResult.result.value;
+    // Additional wait for page to stabilize after redirect
+    await sleep(2000);
 
-    if (!verifyData.alreadyLoggedIn) {
-      throw new Error('Login verification failed - may have been redirected to an error page');
+    // Verify login success
+    // Native Playwright: expect().toBeVisible() with timeout
+    const verifyButton = page.getByTestId('logout-button');
+    const verifyCount = await verifyButton.count();
+
+    if (verifyCount === 0) {
+      // Also check alternative logout button
+      const altLogoutButton = page.locator('button[aria-label="Log out"]');
+      const altCount = await altLogoutButton.count();
+
+      if (altCount === 0) {
+        throw new Error('Login verification failed - logout button not found');
+      }
     }
 
     console.log('[Reddit Login] ✅ Login successful for user:', credentials.username);

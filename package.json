@@ -22,7 +22,7 @@
     "axios": "^1.18.0",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.3.0",
-    "chrome-remote-interface": "^0.33.3",
+    "playwright": "^1.48.0",
     "electron-log": "^5.2.0",
     "electron-updater": "^6.3.9",
     "proxy-chain": "^2.7.1",

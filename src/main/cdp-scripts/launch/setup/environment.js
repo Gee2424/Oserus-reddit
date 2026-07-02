@@ -1,5 +1,5 @@
 /**
- * Environment Setup Script
+ * Environment Setup Script (Native Playwright)
  *
  * Configures browser environment settings like zoom level,
  * language preferences, and timezone based on proxy geo.
@@ -17,22 +17,23 @@ const metadata = {
   category: 'launch.setup',
   timeout: 8000,
   requires: ['cdpConnection'],
-  version: '1.0.0',
-  description: 'Configure browser environment settings'
+  nativeMode: true,  // NEW: Use native Playwright API
+  version: '2.0.0',
+  description: 'Configure browser environment settings (native Playwright)'
 };
 
 /**
  * Execute environment setup
  *
- * @param {Object} connection - CDP connection object with domains
+ * @param {Object} page - Native Playwright page object (from native mode)
  * @param {Object} context - Execution context with { accountId, platform }
  * @returns {Promise<Object>} Setup result
  */
-async function execute(connection, context) {
-  const { Runtime, Page } = connection;
+async function execute(page, context) {
   const { accountId, platform } = context;
 
   console.log('[Environment Setup] Configuring environment for account:', accountId);
+  console.log('[Environment Setup] Using native Playwright API');
 
   try {
     // Get account geo preferences from database
@@ -43,18 +44,15 @@ async function execute(connection, context) {
       WHERE id = ?
     `).get(accountId);
 
-    const setupScript = `
-      (() => {
+    // Native Playwright: cleaner evaluate syntax
+    // Pass data as parameters instead of string interpolation
+    const result = await page.evaluate((timezone, countryCode) => {
+      try {
         // Set browser zoom to default (100%)
-        try {
-          document.body.style.zoom = '1.0';
-        } catch (e) {
-          console.log('Could not set zoom:', e.message);
-        }
+        document.body.style.zoom = '1.0';
 
-        // Set language preference if geo data available
-        const timezone = ${account?.geo_timezone ? `'${account.geo_timezone}'` : null};
-        const language = ${account?.geo_country ? getLanguageForCountry('${account.geo_country}') : null};
+        // Get language from country code if available
+        const language = countryCode ? getLanguageForCountry(countryCode) : null;
 
         return {
           success: true,
@@ -62,18 +60,19 @@ async function execute(connection, context) {
           timezone: timezone || 'auto',
           language: language || 'auto'
         };
-      })()
-    `;
+      } catch (e) {
+        console.log('Could not set environment:', e.message);
+        return {
+          success: false,
+          error: e.message
+        };
+      }
+    }, account?.geo_timezone || null, account?.geo_country || null);
 
-    const result = await Runtime.evaluate({
-      expression: setupScript,
-      timeout: 8000
-    });
-
-    console.log('[Environment Setup] ✅ Environment configured:', result.result.value);
+    console.log('[Environment Setup] ✅ Environment configured:', result);
     return {
       success: true,
-      config: result.result.value
+      config: result
     };
 
   } catch (error) {
@@ -82,6 +81,11 @@ async function execute(connection, context) {
   }
 }
 
+/**
+ * Get language code from country code
+ * @param {string} countryCode - ISO country code
+ * @returns {string|null} Language code
+ */
 function getLanguageForCountry(countryCode) {
   const languageMap = {
     'US': 'en-US',

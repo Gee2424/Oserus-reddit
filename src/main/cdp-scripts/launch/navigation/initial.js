@@ -1,5 +1,5 @@
 /**
- * Initial Navigation Script
+ * Initial Navigation Script (Native Playwright)
  *
  * Navigates to the platform's home page after successful login.
  * Handles platform-specific URL routing and waits for page load.
@@ -17,22 +17,23 @@ const metadata = {
   category: 'launch.navigation',
   timeout: 15000,
   requires: ['cdpConnection'],
-  version: '1.0.0',
-  description: 'Navigate to platform home page after login'
+  nativeMode: true,  // NEW: Use native Playwright API
+  version: '2.0.0',
+  description: 'Navigate to platform home page after login (native Playwright)'
 };
 
 /**
  * Execute initial navigation to platform home
  *
- * @param {Object} connection - CDP connection object with domains
+ * @param {Object} page - Native Playwright page object (from native mode)
  * @param {Object} context - Execution context with { platform, accountId, profileName }
  * @returns {Promise<Object>} Navigation result
  */
-async function execute(connection, context) {
-  const { Page } = connection;
+async function execute(page, context) {
   const { platform, profileName } = context;
 
   console.log('[Initial Navigation] Starting for platform:', platform);
+  console.log('[Initial Navigation] Using native Playwright API');
 
   try {
     // Platform home pages
@@ -48,12 +49,9 @@ async function execute(connection, context) {
 
     console.log('[Initial Navigation] Navigating to:', homeUrl);
 
-    // Navigate to home page
-    await Page.navigate({ url: homeUrl });
-    await Page.loadEventFired();
-
-    // Wait for page to settle
-    await sleep(2000);
+    // Native Playwright: single call with auto-waiting
+    // No manual sleep needed - Playwright waits automatically
+    await page.goto(homeUrl, { waitUntil: 'domcontentloaded' });
 
     console.log('[Initial Navigation] ✅ Navigation complete for:', platform);
     return {

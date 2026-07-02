@@ -145,8 +145,17 @@ async function executeScript(scriptId, context = {}, options = {}) {
       const timeout = options.timeout || script.metadata.timeout || DEFAULT_SCRIPT_TIMEOUT;
       const startTime = Date.now();
 
+      // Check if script wants native Playwright mode
+      let connectionToPass = context.connection || context;
+      if (script.metadata.nativeMode && context.connection && context.connection.native) {
+        // CRITICAL FIX: Pass full native object { page, context, browser }
+        // Individual scripts can destructure what they need
+        connectionToPass = context.connection.native;
+        console.log('[CDP Script Executor] Using native Playwright mode for:', scriptId);
+      }
+
       // Create execution timeout promise
-      const executionPromise = script.execute(context.connection || context, context);
+      const executionPromise = script.execute(connectionToPass, context);
 
       const result = await withTimeout(executionPromise, timeout);
 
@@ -170,7 +179,8 @@ async function executeScript(scriptId, context = {}, options = {}) {
       console.error('[CDP Script Executor] ❌ Script execution attempt', attempt, 'failed:', error.message);
 
       // Don't retry on certain errors
-      if (error.message.includes('CDP connection failed') ||
+      if (error.message.includes('connection failed') ||
+          error.message.includes('CDP connection failed') ||
           error.message.includes('Script not found') ||
           error.message.includes('Script format')) {
         break;

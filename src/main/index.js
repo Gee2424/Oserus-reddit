@@ -473,7 +473,34 @@ app.whenReady().then(() => {
 
   createWindow();
 
+  // Auto-manage Cloak Manager backend in production builds
+  // In development, users manually run the backend
+  if (app.isPackaged) {
+    try {
+      const CloakManagerBinary = require('./services/cloakManagerBinary');
+      const cmBinary = new CloakManagerBinary({ app });
+
+      // Ensure Cloak Manager is running (downloads if needed)
+      const port = await cmBinary.ensureRunning();
+
+      // Update CloakManager client to use the spawned instance
+      const { getCloakManagerClient } = require('./cloakmanager');
+      const cloakManager = getCloakManagerClient();
+      cloakManager.updateBaseUrl(`http://127.0.0.1:${port}`);
+      cloakManager.connectWebSocket();
+
+      // Store reference for cleanup on app quit
+      global.cloakManagerBinary = cmBinary;
+
+      elog.info('[CloakManager] Auto-started on port', port);
+    } catch (e) {
+      elog.error('[CloakManager] Failed to auto-start:', e);
+      // Fall through to existing behavior (manual connection)
+    }
+  }
+
   // Initialize CloakManager WebSocket connection
+  // This runs in dev mode or if auto-start failed in prod
   try {
     const { getCloakManagerClient } = require('./cloakmanager');
     const cloakManager = getCloakManagerClient();
@@ -534,6 +561,15 @@ app.on('before-quit', () => {
     const { shutdownAll } = require('./services/ipv4Bridge');
     shutdownAll().catch(() => {});
   } catch {}
+  // Cleanup spawned Cloak Manager backend (if we auto-started it)
+  if (global.cloakManagerBinary) {
+    try {
+      global.cloakManagerBinary.stop().catch((e) => elog.warn('[CloakManager] cleanup error:', e));
+      elog.info('[CloakManager] Stopping spawned binary...');
+    } catch (e) {
+      elog.warn('[CloakManager] cleanup error:', e);
+    }
+  }
   // Cleanup CloakManager WebSocket connection
   try {
     const { getCloakManagerClient } = require('./cloakmanager');

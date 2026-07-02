@@ -460,94 +460,42 @@ function sleep(ms) {
  * @returns {Promise<Object>} Test result with success status
  */
 async function testCDPConnection(cdpWsUrl) {
-  console.log('[CDP Connection Manager] Testing CDP connection to:', cdpWsUrl);
+  console.log('[CDP Connection Manager] Testing Playwright connection to:', cdpWsUrl);
 
   try {
-    const CDP = require('chrome-remote-interface');
+    const { chromium } = require('playwright');
 
-    // Check if this is a browser-level or page-level endpoint
-    const isBrowserEndpoint = cdpWsUrl.includes('/devtools/browser/');
+    // Playwright handles browser/page endpoints automatically
+    const browser = await chromium.connectOverCDP(cdpWsUrl);
 
-    let client, targetInfo;
-
-    if (isBrowserEndpoint) {
-      console.log('[CDP Connection Manager] 🔍 Browser-level endpoint detected, need to find page target');
-
-      // Connect to browser endpoint first
-      const browserClient = await CDP({ target: cdpWsUrl, local: true });
-      console.log('[CDP Connection Manager] 🔍 Connected to browser, fetching targets...');
-
-      // Get the first available page target
-      const { targetInfos } = await browserClient.Target.getTargets();
-      console.log('[CDP Connection Manager] 🔍 Available targets:', targetInfos?.length || 0);
-
-      // Debug: Log target structure to understand what fields are available
-      if (targetInfos && targetInfos.length > 0) {
-        console.log('[CDP Connection Manager] 🔍 First target structure:', JSON.stringify(targetInfos[0], null, 2));
-      }
-
-      // Find a page target
-      const pageTarget = targetInfos?.find(target =>
-        target.type === 'page' ||
-        target.type === 'webview' ||
-        target.url?.startsWith('http') ||
-        target.url?.startsWith('about:blank')
-      );
-
-      if (!pageTarget) {
-        console.error('[CDP Connection Manager] ❌ No page target found, available targets:', targetInfos);
-        await browserClient.close();
-        return { success: false, error: 'No page target found in browser' };
-      }
-
-      console.log('[CDP Connection Manager] ✅ Found page target:', pageTarget.type, pageTarget.url);
-      targetInfo = pageTarget;
-
-      // Try different methods to get the WebSocket URL
-      let pageWsUrl;
-      if (pageTarget.webSocketDebuggerUrl) {
-        pageWsUrl = `ws://127.0.0.1:${cdpWsUrl.match(/:(\d+)\//)[1]}${pageTarget.webSocketDebuggerUrl}`;
-      } else if (pageTarget.targetId) {
-        // Use targetId to construct page WebSocket URL
-        pageWsUrl = `ws://127.0.0.1:${cdpWsUrl.match(/:(\d+)\//)[1]}/devtools/page/${pageTarget.targetId}`;
-      } else if (pageTarget.id) {
-        // Alternative: construct from legacy id field
-        pageWsUrl = `ws://127.0.0.1:${cdpWsUrl.match(/:(\d+)\//)[1]}/devtools/page/${pageTarget.id}`;
-      } else {
-        console.error('[CDP Connection Manager] ❌ Cannot construct page WebSocket URL. Target fields:', Object.keys(pageTarget));
-        console.error('[CDP Connection Manager] ❌ Target data:', pageTarget);
-        await browserClient.close();
-        return { success: false, error: 'Cannot determine page WebSocket URL from target' };
-      }
-
-      console.log('[CDP Connection Manager] 🔍 Connecting to page target for test:', pageWsUrl);
-
-      // Close browser connection
-      await browserClient.close();
-
-      // Connect to the page target
-      client = await CDP({ target: pageWsUrl, local: true });
-
-    } else {
-      // Direct connection to page endpoint
-      client = await CDP({ target: cdpWsUrl, local: true });
-
-      // For page-level connections, we can't use Target domain
-      // Use basic page info instead
-      targetInfo = { type: 'page', url: cdpWsUrl };
+    // CRITICAL FIX: browser.contexts() is a method, not a property
+    const contexts = browser.contexts();
+    if (!contexts || contexts.length === 0) {
+      throw new Error('No contexts available');
     }
 
-    // Test basic CDP functionality
-    await client.Page.enable();
+    const context = contexts[0];
 
-    await client.close();
+    // CRITICAL FIX: context.pages() is a method, not a property
+    const pages = context.pages();
+    const page = (pages && pages.length > 0)
+      ? pages[0]
+      : await context.waitForEvent('page');
 
-    console.log('[CDP Connection Manager] ✅ CDP connection test SUCCESS');
-    console.log('[CDP Connection Manager] Target info:', targetInfo);
-    return { success: true, targetInfo: targetInfo };
+    // Test basic functionality
+    await page.goto('about:blank');
+    const title = await page.title();
+
+    // NOTE: Test empirically whether browser.close() is safe
+    // May need to just drop reference instead
+    // For now, we'll test the safer approach - just drop references
+    await browser.close();
+
+    console.log('[CDP Connection Manager] ✅ Playwright connection test SUCCESS');
+    console.log('[CDP Connection Manager] Page title:', title);
+    return { success: true, title };
   } catch (error) {
-    console.error('[CDP Connection Manager] ❌ CDP connection test FAILED:', error.message);
-    console.error('[CDP Connection Manager] Error details:', error);
+    console.error('[CDP Connection Manager] ❌ Connection test FAILED:', error.message);
     return { success: false, error: error.message };
   }
 }

@@ -14,7 +14,8 @@
  * @module cdp-automation
  */
 
-const CDP = require('chrome-remote-interface');
+const { chromium } = require('playwright');
+const { PlaywrightCDPAdapter } = require('./cdp/playwright-adapter');
 
 /**
  * Active CDP connections cache for reuse and cleanup
@@ -43,134 +44,68 @@ const NAVIGATION_TIMEOUT = 30000;
 const PAGE_LOAD_TIMEOUT = 45000;
 
 /**
- * Connect to a CloakManager profile via CDP
+ * Connect to a CloakManager profile via Playwright
+ *
+ * Uses Playwright's connectOverCDP to attach to already-running profiles.
+ * Reuses existing context/page to preserve fingerprint and session state.
  *
  * @param {string} cdpWsUrl - WebSocket URL from profile launch (e.g., "ws://127.0.0.1:54193/devtools/browser/...")
- * @returns {Promise<Object>} CDP client with access to DOM, Network, Page, Runtime APIs
+ * @returns {Promise<Object>} Playwright adapter with CDP-compatible API
  *
  * @example
- * const client = await connectToProfile(cdpWsUrl);
- * await client.Page.navigate({ url: 'https://www.reddit.com' });
+ * const adapter = await connectToProfile(cdpWsUrl);
+ * await adapter.Page.navigate({ url: 'https://www.reddit.com' });
  */
 async function connectToProfile(cdpWsUrl) {
   try {
-    console.log('[CDP] Connecting to:', cdpWsUrl);
+    console.log('[CDP] Connecting via Playwright to:', cdpWsUrl);
 
-    // Check if this is a browser-level or page-level endpoint
-    const isBrowserEndpoint = cdpWsUrl.includes('/devtools/browser/');
+    // Use Playwright's connectOverCDP to attach to running profile
+    const browser = await chromium.connectOverCDP(cdpWsUrl);
 
-    let client;
-    if (isBrowserEndpoint) {
-      console.log('[CDP] 🔍 Browser-level endpoint detected, need to find page target');
-
-      // Connect to browser endpoint first
-      const browserClient = await CDP({
-        target: cdpWsUrl,
-        local: true
-      });
-
-      console.log('[CDP] 🔍 Connected to browser, fetching targets...');
-
-      // Get the first available page target
-      const { targetInfos } = await browserClient.Target.getTargets();
-      console.log('[CDP] 🔍 Available targets:', targetInfos?.length || 0);
-
-      // Debug: Log target structure to understand what fields are available
-      if (targetInfos && targetInfos.length > 0) {
-        console.log('[CDP] 🔍 First target structure:', JSON.stringify(targetInfos[0], null, 2));
-      }
-
-      // Find a page target (type === 'page' or 'webview')
-      const pageTarget = targetInfos?.find(target =>
-        target.type === 'page' ||
-        target.type === 'webview' ||
-        target.url?.startsWith('http') ||
-        target.url?.startsWith('about:blank')
-      );
-
-      if (!pageTarget) {
-        console.error('[CDP] ❌ No page target found, available targets:', targetInfos);
-        await browserClient.close();
-        throw new Error('No page target found in browser');
-      }
-
-      console.log('[CDP] ✅ Found page target:', pageTarget.type, pageTarget.url);
-
-      // Try different methods to get the WebSocket URL
-      let pageWsUrl;
-      if (pageTarget.webSocketDebuggerUrl) {
-        pageWsUrl = `ws://127.0.0.1:${cdpWsUrl.match(/:(\d+)\//)[1]}${pageTarget.webSocketDebuggerUrl}`;
-      } else if (pageTarget.targetId) {
-        // Use targetId to construct page WebSocket URL
-        pageWsUrl = `ws://127.0.0.1:${cdpWsUrl.match(/:(\d+)\//)[1]}/devtools/page/${pageTarget.targetId}`;
-      } else if (pageTarget.id) {
-        // Alternative: construct from legacy id field
-        pageWsUrl = `ws://127.0.0.1:${cdpWsUrl.match(/:(\d+)\//)[1]}/devtools/page/${pageTarget.id}`;
-      } else {
-        console.error('[CDP] ❌ Cannot construct page WebSocket URL. Target fields:', Object.keys(pageTarget));
-        console.error('[CDP] ❌ Target data:', pageTarget);
-        await browserClient.close();
-        throw new Error('Cannot determine page WebSocket URL from target');
-      }
-
-      console.log('[CDP] 🔍 Connecting to page target:', pageWsUrl);
-
-      // Close browser connection
-      await browserClient.close();
-
-      // Connect to the page target
-      client = await CDP({
-        target: pageWsUrl,
-        local: true
-      });
-
-    } else {
-      // Direct connection to page endpoint
-      client = await CDP({
-        target: cdpWsUrl,
-        local: true
-      });
+    // CRITICAL FIX: browser.contexts() is a method, not a property
+    const contexts = browser.contexts();
+    if (!contexts || contexts.length === 0) {
+      throw new Error('No browser contexts available');
     }
 
-    // Enable essential domains
-    await Promise.all([
-      client.Page.enable(),
-      client.DOM.enable(),
-      client.Network.enable(),
-      client.Runtime.enable(),
-      client.Log.enable()
-    ]);
+    // Reuse existing context (don't create new one)
+    // This preserves fingerprint patches and session state
+    const context = contexts[0];
 
-    // REMOVED: Network.setUserAgentOverride() call
-    // CloakBrowser handles user agent via seed-based fingerprinting.
-    // Hardcoded UAs break fingerprint coherence and should never be set via CDP.
-    // Future migration to Playwright will properly respect CloakBrowser's stealth model.
+    // CRITICAL FIX: context.pages() is a method, not a property
+    const pages = context.pages();
+    let page;
+    if (pages && pages.length > 0) {
+      page = pages[0];
+      console.log('[CDP] Reusing existing page:', page.url());
+    } else {
+      console.log('[CDP] No existing pages, waiting for new page...');
+      page = await context.waitForEvent('page');
+    }
 
-    console.log('[CDP] ✅ Connected successfully');
+    // Wrap in CDP-compatible adapter for incremental migration
+    const adapter = new PlaywrightCDPAdapter(browser, context, page);
 
     // Store in active connections
     const profileName = extractProfileNameFromUrl(cdpWsUrl);
     if (profileName) {
       activeConnections.set(profileName, {
-        client,
-        connections: { Page: client.Page, DOM: client.DOM, Network: client.Network, Runtime: client.Runtime, Log: client.Log, Target: client.Target },
+        adapter,
+        browser,
+        context,
+        page,
         createdAt: Date.now(),
         lastUsed: Date.now()
       });
     }
 
-    return {
-      client,
-      Page: client.Page,
-      DOM: client.DOM,
-      Network: client.Network,
-      Runtime: client.Runtime,
-      Log: client.Log,
-      Target: client.Target
-    };
+    console.log('[CDP] ✅ Connected via Playwright successfully');
+    return adapter;
+
   } catch (error) {
     console.error('[CDP] ❌ Connection failed:', error.message);
-    throw new Error(`CDP connection failed: ${error.message}`);
+    throw new Error(`Playwright connection failed: ${error.message}`);
   }
 }
 

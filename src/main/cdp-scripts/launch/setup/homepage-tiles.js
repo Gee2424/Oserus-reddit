@@ -1,5 +1,5 @@
 /**
- * Homepage Tiles Setup Script
+ * Homepage Tiles Setup Script (Native Playwright)
  *
  * Configures browser homepage tiles with custom quick-access sites.
  * Injects tile configuration into browser's new tab page via localStorage.
@@ -17,22 +17,23 @@ const metadata = {
   category: 'launch.setup',
   timeout: 10000,
   requires: ['cdpConnection'],
-  version: '1.0.0',
-  description: 'Configure browser homepage tiles from database'
+  nativeMode: true,  // NEW: Use native Playwright API
+  version: '2.0.0',
+  description: 'Configure browser homepage tiles from database (native Playwright)'
 };
 
 /**
  * Execute homepage tiles setup
  *
- * @param {Object} connection - CDP connection object with domains
+ * @param {Object} page - Native Playwright page object (from native mode)
  * @param {Object} context - Execution context with { accountId, platform }
  * @returns {Promise<Object>} Setup result
  */
-async function execute(connection, context) {
-  const { Runtime } = connection;
+async function execute(page, context) {
   const { accountId, platform } = context;
 
   console.log('[Homepage Tiles] Setting up tiles for account:', accountId, 'platform:', platform);
+  console.log('[Homepage Tiles] Using native Playwright API');
 
   try {
     // Get tiles from database
@@ -53,24 +54,27 @@ async function execute(connection, context) {
 
     console.log('[Homepage Tiles] Found', tiles.length, 'tiles to configure');
 
-    // Setup script for browser
-    const setupScript = `
-      (() => {
+    // Native Playwright: Pass tiles as parameter instead of string interpolation
+    const result = await page.evaluate((tilesData) => {
+      try {
         // Store tiles in localStorage for custom new tab page
-        const tiles = ${JSON.stringify(tiles)};
+        localStorage.setItem('oserus_homepage_tiles', JSON.stringify(tilesData));
 
-        try {
-          localStorage.setItem('oserus_homepage_tiles', JSON.stringify(tiles));
-        } catch (e) {
-          console.error('Failed to store tiles:', e);
-        }
+        // Helper function to generate favicon URL
+        const generateFavicon = (url) => {
+          try {
+            const domain = new URL(url || '').hostname;
+            return domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64` : '';
+          } catch {
+            return '';
+          }
+        };
 
         // Also try to set up Chrome new tab shortcuts if available
         if (window.chrome && window.chrome.embeddedSearch) {
           try {
-            // This is experimental - may not work in all CloakManager versions
             window.chrome.embeddedSearch.newTabPage = {
-              getTiles: () => tiles.map(t => ({
+              getTiles: () => tilesData.map(t => ({
                 title: t.label || '?',
                 url: t.url || 'https://www.google.com',
                 favicon: generateFavicon(t.url)
@@ -81,16 +85,14 @@ async function execute(connection, context) {
           }
         }
 
-        return { success: true, tileCount: tiles.length };
-      })()
-    `;
+        return { success: true, tileCount: tilesData.length };
+      } catch (e) {
+        console.error('Failed to store tiles:', e);
+        return { success: false, error: e.message };
+      }
+    }, tiles);
 
-    const result = await Runtime.evaluate({
-      expression: setupScript,
-      timeout: 10000
-    });
-
-    console.log('[Homepage Tiles] ✅ Tiles setup completed:', result.result.value);
+    console.log('[Homepage Tiles] ✅ Tiles setup completed:', result);
     return {
       success: true,
       tileCount: tiles.length,
@@ -100,20 +102,6 @@ async function execute(connection, context) {
   } catch (error) {
     console.error('[Homepage Tiles] ❌ Setup failed:', error.message);
     throw error;
-  }
-}
-
-/**
- * Generate favicon URL for a URL
- * @param {string} url - URL to generate favicon for
- * @returns {string} Favicon URL
- */
-function generateFavicon(url) {
-  try {
-    const domain = new URL(url || '').hostname;
-    return domain ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64` : '';
-  } catch {
-    return '';
   }
 }
 
