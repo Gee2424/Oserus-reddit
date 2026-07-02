@@ -428,7 +428,7 @@ app.on('login', (event, webContents, _details, authInfo, callback) => {
   }
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   initDatabase();
 
   registerAuthHandlers(ipcMain);

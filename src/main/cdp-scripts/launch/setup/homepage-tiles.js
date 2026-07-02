@@ -25,11 +25,12 @@ const metadata = {
 /**
  * Execute homepage tiles setup
  *
- * @param {Object} page - Native Playwright page object (from native mode)
+ * @param {Object} nativeConnection - Native Playwright objects { page, context, browser }
  * @param {Object} context - Execution context with { accountId, platform }
  * @returns {Promise<Object>} Setup result
  */
-async function execute(page, context) {
+async function execute(nativeConnection, context) {
+  const { page } = nativeConnection;
   const { accountId, platform } = context;
 
   console.log('[Homepage Tiles] Setting up tiles for account:', accountId, 'platform:', platform);

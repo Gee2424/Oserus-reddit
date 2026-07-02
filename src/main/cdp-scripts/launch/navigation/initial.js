@@ -25,11 +25,12 @@ const metadata = {
 /**
  * Execute initial navigation to platform home
  *
- * @param {Object} page - Native Playwright page object (from native mode)
+ * @param {Object} nativeConnection - Native Playwright objects { page, context, browser }
  * @param {Object} context - Execution context with { platform, accountId, profileName }
  * @returns {Promise<Object>} Navigation result
  */
-async function execute(page, context) {
+async function execute(nativeConnection, context) {
+  const { page } = nativeConnection;
   const { platform, profileName } = context;
 
   console.log('[Initial Navigation] Starting for platform:', platform);

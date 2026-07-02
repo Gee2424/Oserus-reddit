@@ -26,11 +26,12 @@ const metadata = {
 /**
  * Execute Reddit auto-login
  *
- * @param {Object} page - Native Playwright page object (from native mode)
+ * @param {Object} nativeConnection - Native Playwright objects { page, context, browser }
  * @param {Object} context - Execution context with { accountId, credentials, platform }
  * @returns {Promise<Object>} Login result
  */
-async function execute(page, context) {
+async function execute(nativeConnection, context) {
+  const { page } = nativeConnection;
   const { credentials, accountId, platform } = context;
 
   console.log('[Reddit Login] Starting auto-login for account:', accountId);
