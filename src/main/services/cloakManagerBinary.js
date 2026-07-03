@@ -24,7 +24,7 @@ class CloakManagerBinary {
       repo: 'ctrldlogin',
       assetName: 'backend-x86_64-pc-windows-msvc.exe',
       // Only re-check GitHub this often (ms)
-      checkIntervalMs: 6 * 60 * 60 * 1000, // 6 hours
+      checkIntervalMs: 24 * 60 * 60 * 1000, // 24 hours (daily)
     };
 
     // Health check configuration
@@ -174,10 +174,15 @@ class CloakManagerBinary {
     const totalSize = parseInt(response.headers['content-length'], 10);
     let downloadedSize = 0;
 
+    // Store reference for progress tracking
+    this.downloadProgress = { downloaded: 0, total: totalSize };
+
     const writer = fs.createWriteStream(binaryPath + '.tmp');
 
     response.data.on('data', (chunk) => {
       downloadedSize += chunk.length;
+      this.downloadProgress.downloaded = downloadedSize;
+
       if (totalSize) {
         const percent = ((downloadedSize / totalSize) * 100).toFixed(1);
         console.log(`[CloakManager] Download progress: ${percent}%`);
@@ -469,6 +474,14 @@ class CloakManagerBinary {
       binaryExists: fs.existsSync(this.getBinaryPath()),
       currentVersion: this.getCurrentVersion(),
     };
+  }
+
+  /**
+   * Get current download progress if downloading
+   * @returns {object|null} Progress info or null if not downloading
+   */
+  getDownloadProgress() {
+    return this.downloadProgress || null;
   }
 }
 

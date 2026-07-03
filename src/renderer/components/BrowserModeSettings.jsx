@@ -7,11 +7,14 @@ import { useAuth } from '../lib/auth.jsx';
  * Provides admin-only interface for configuring CloakManager integration:
  * - CloakManager availability indicator
  * - Default browser mode selection (electron/cloakmanager)
- * - CloakManager URL configuration
+ * - CloakManager URL configuration (dev mode only)
  * - Help text and tooltips
  *
  * Only accessible to users with admin role.
  */
+
+// Check if running in development mode
+const isDev = !window.api.app.isPackaged;
 
 export default function BrowserModeSettings() {
   const { token, user } = useAuth();
@@ -294,31 +297,33 @@ export default function BrowserModeSettings() {
           </select>
         </div>
 
-        {/* CloakManager URL */}
-        <div>
-          <label style={{ display: 'block', fontSize: 12, fontWeight: 500, marginBottom: 6, color: 'var(--text-0)' }}>
-            CloakManager Service URL
-          </label>
-          <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 8 }}>
-            API endpoint for CloakManager backend service
+        {/* CloakManager URL - ONLY IN DEV MODE */}
+        {isDev && (
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 500, marginBottom: 6, color: 'var(--text-0)' }}>
+              CloakManager Service URL (Development)
+            </label>
+            <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 8 }}>
+              Manual configuration only available in development mode
+            </div>
+            <input
+              type="text"
+              value={settings.cloakmanagerUrl}
+              onChange={(e) => setSettings({ ...settings, cloakmanagerUrl: e.target.value })}
+              placeholder="http://127.0.0.1:7331"
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                fontSize: 13,
+                background: 'var(--bg-0)',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+                color: 'var(--text-0)',
+                fontFamily: 'monospace'
+              }}
+            />
           </div>
-          <input
-            type="text"
-            value={settings.cloakmanagerUrl}
-            onChange={(e) => setSettings({ ...settings, cloakmanagerUrl: e.target.value })}
-            placeholder="http://127.0.0.1:7331"
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              fontSize: 13,
-              background: 'var(--bg-0)',
-              border: '1px solid var(--border)',
-              borderRadius: 4,
-              color: 'var(--text-0)',
-              fontFamily: 'monospace'
-            }}
-          />
-        </div>
+        )}
       </div>
 
       {/* Save Button and Message */}

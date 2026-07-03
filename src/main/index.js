@@ -323,7 +323,7 @@ function registerOserusBrowserHandlers() {
 
     if (modeSettings?.browser_mode === 'cloakmanager') {
       finalMode = 'cloakmanager';
-      profileName = modeSettings.cloak_profile_name || `reddit-${account.username}`;
+      profileName = modeSettings.cloak_profile_name; // Always set by account creation/update
     } else if (modeSettings?.browser_mode === 'inherit') {
       // Check user default
       const user = userFromToken(token);
@@ -331,6 +331,11 @@ function registerOserusBrowserHandlers() {
         SELECT default_browser_mode FROM user_browser_settings WHERE user_id = ?
       `).get(user.id);
       finalMode = userSettings?.default_browser_mode || 'electron';
+
+      // Inherit mode always uses Electron - CloakManager is only for explicit cloakmanager mode
+      if (finalMode === 'cloakmanager') {
+        finalMode = 'electron';
+      }
     }
 
     // If CloakManager mode, launch CloakManager profile instead of Electron browser
@@ -448,7 +453,7 @@ app.whenReady().then(async () => {
   registerAnalyticsHandlers(ipcMain);
   registerActivityHandlers(ipcMain);
   registerTeamHandlers(ipcMain);
-  registerCloakmanagerHandlers(ipcMain, mainWindow);
+  registerCloakmanagerHandlers(ipcMain, mainWindow, app);
   registerRedditHandlers(ipcMain);
   registerRolesHandlers(ipcMain);
   registerInboxHandlers(ipcMain);
@@ -474,39 +479,110 @@ app.whenReady().then(async () => {
   createWindow();
 
   // Auto-manage Cloak Manager backend in production builds
-  // In development, users manually run the backend
+  // In development, users manually run the backend on http://127.0.0.1:7331
   if (app.isPackaged) {
-    try {
-      const CloakManagerBinary = require('./services/cloakManagerBinary');
-      const cmBinary = new CloakManagerBinary({ app });
+    const CloakManagerBinary = require('./services/cloakManagerBinary');
+    const cmBinary = new CloakManagerBinary({ app });
 
-      // Ensure Cloak Manager is running (downloads if needed)
+    // Store reference globally for IPC handlers and cleanup
+    global.cloakManagerBinary = cmBinary;
+
+    // Store initialization state for UI to query
+    global.cloakManagerInitState = {
+      status: 'initializing',
+      error: null,
+      port: null,
+      timestamp: Date.now()
+    };
+
+    try {
+      console.log('[CloakManager] Auto-starting in production mode...');
+
+      // Step 1: Ensure binary is downloaded and running
       const port = await cmBinary.ensureRunning();
 
-      // Update CloakManager client to use the spawned instance
+      // Step 2: Update CloakManager client
       const { getCloakManagerClient } = require('./cloakmanager');
       const cloakManager = getCloakManagerClient();
       cloakManager.updateBaseUrl(`http://127.0.0.1:${port}`);
-      cloakManager.connectWebSocket();
 
-      // Store reference for cleanup on app quit
-      global.cloakManagerBinary = cmBinary;
+      // Step 3: Connect WebSocket
+      await cloakManager.connectWebSocket();
 
-      elog.info('[CloakManager] Auto-started on port', port);
+      // Success state
+      global.cloakManagerInitState = {
+        status: 'ready',
+        error: null,
+        port: port,
+        timestamp: Date.now()
+      };
+
+      elog.info('[CloakManager] Auto-started successfully on port', port);
+
     } catch (e) {
-      elog.error('[CloakManager] Failed to auto-start:', e);
-      // Fall through to existing behavior (manual connection)
+      // FAILURE STATE - store error for UI to display
+      console.error('[CloakManager] Auto-start failed:', e);
+      global.cloakManagerInitState = {
+        status: 'failed',
+        error: e.message,
+        port: null,
+        timestamp: Date.now(),
+        // Provide actionable guidance
+        actionableError: getActionableError(e)
+      };
+
+      elog.error('[CloakManager] Auto-start failed - UI will show error state');
+
+      // Notify main window if already created (delay to ensure renderer is ready)
+      setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('cloakmanager:init_failed', {
+            error: e.message,
+            actionableError: getActionableError(e)
+          });
+        }
+      }, 1000);
+    }
+  } else {
+    // Development mode: Try to connect to manually-run CloakManager
+    // Developers run CloakManager on http://127.0.0.1:7331
+    try {
+      const { getCloakManagerClient } = require('./cloakmanager');
+      const cloakManager = getCloakManagerClient();
+      cloakManager.connectWebSocket();
+      elog.info('[CloakManager] Dev mode: attempting connection to default URL');
+    } catch (e) {
+      elog.warn('[CloakManager] Dev mode: connection skipped', e?.message);
     }
   }
 
-  // Initialize CloakManager WebSocket connection
-  // This runs in dev mode or if auto-start failed in prod
-  try {
-    const { getCloakManagerClient } = require('./cloakmanager');
-    const cloakManager = getCloakManagerClient();
-    cloakManager.connectWebSocket();
-  } catch (e) {
-    elog.warn('[CloakManager] init skipped:', e?.message);
+  /**
+   * Convert technical errors to user-facing actionable messages
+   */
+  function getActionableError(error) {
+    const message = error?.message || error?.toString() || 'Unknown error';
+
+    if (message.includes('rate limit')) {
+      return 'GitHub download limit reached. Please wait 10 minutes and restart the app.';
+    }
+    if (message.includes('network') || message.includes('ECONNREFUSED') || message.includes('ENOTFOUND')) {
+      return 'Cannot reach GitHub. Check your internet connection.';
+    }
+    if (message.includes('health check') || message.includes('timeout')) {
+      return 'CloakManager service started but is not responding. It may be initializing slowly - try restarting the app in 30 seconds.';
+    }
+    if (message.includes('Failed to fetch release')) {
+      return 'Cannot fetch CloakManager release info. Check your internet connection.';
+    }
+    if (message.includes('binary not found') || message.includes('not found')) {
+      return 'CloakManager binary not found. Click "Download CloakManager" to install it.';
+    }
+    if (message.includes('Cannot find available port')) {
+      return 'Cannot find an available port for CloakManager. Close other applications and try again.';
+    }
+
+    // Default generic error
+    return `CloakManager failed to start: ${message}. Try clicking "Download CloakManager" to fix the issue.`;
   }
 
   // Autopilot coordinator — only acts when an admin has enabled it AND a

@@ -37,15 +37,27 @@ async function execute(nativeConnection, context) {
   console.log('[Homepage Tiles] Using native Playwright API');
 
   try {
-    // Get tiles from database
-    const { getDb } = require('../../../../db');
+    // Check if already set up (first launch tracking)
+    const alreadySetup = await page.evaluate(() => {
+      return localStorage.getItem('oserus_homepage_tiles_setup_complete') === 'true';
+    });
+
+    if (alreadySetup) {
+      console.log('[Homepage Tiles] Already set up, skipping');
+      return { success: true, skipped: true, reason: 'already_setup' };
+    }
+
+    console.log('[Homepage Tiles] First launch detected, configuring tiles...');
+
+    // Get tiles from database (fixed path: 3 levels up to main/, not 4)
+    const { getDb } = require('../../../db');
     let tiles = [];
     try {
-      const { listTiles } = require('../../../../ipc/homepage');
+      const { listTiles } = require('../../../ipc/homepage');
       tiles = listTiles();
     } catch (e) {
       console.log('[Homepage Tiles] Using default tiles');
-      tiles = require('../../../../ipc/homepage').DEFAULTS;
+      tiles = require('../../../ipc/homepage').DEFAULTS;
     }
 
     if (!tiles || !tiles.length) {
@@ -60,6 +72,10 @@ async function execute(nativeConnection, context) {
       try {
         // Store tiles in localStorage for custom new tab page
         localStorage.setItem('oserus_homepage_tiles', JSON.stringify(tilesData));
+
+        // Mark setup as complete
+        localStorage.setItem('oserus_homepage_tiles_setup_complete', 'true');
+        localStorage.setItem('oserus_homepage_tiles_setup_date', new Date().toISOString());
 
         // Helper function to generate favicon URL
         const generateFavicon = (url) => {
@@ -96,6 +112,7 @@ async function execute(nativeConnection, context) {
     console.log('[Homepage Tiles] ✅ Tiles setup completed:', result);
     return {
       success: true,
+      firstLaunch: true,
       tileCount: tiles.length,
       skipped: false
     };

@@ -199,7 +199,7 @@ async function prepareSessionForAccount(accountId) {
       mode: 'cloakmanager',
       accountId: account.id,
       partitionKey: account.partition_key,
-      profileName: profileName || `reddit-${account.username}`
+      profileName: profileName // Always set by account creation/update
     };
   }
 

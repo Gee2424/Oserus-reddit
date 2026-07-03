@@ -78,8 +78,8 @@ export default function CloakManagerLauncher({ account, initialUrl = 'https://ww
             throw new Error(modeResult.error || 'Failed to get account mode');
           }
 
-          // Step 3: Determine profile name
-          const profile = modeResult.profileName || `reddit-${account.username}`;
+          // Step 3: Get profile name (always set now)
+          const profile = modeResult.profileName;
           console.log('📋 Profile name:', profile);
           setProfileName(profile);
 
@@ -91,7 +91,10 @@ export default function CloakManagerLauncher({ account, initialUrl = 'https://ww
             const createResult = await window.api.cloakmanager.createProfile({
               token,
               accountId: account.id,
-              accountConfig: { headless: false }
+              accountConfig: {
+                os: 'windows',
+                headless: false
+              }
             });
 
             if (!cancelled) {

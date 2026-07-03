@@ -95,13 +95,28 @@ class CloakManagerClient {
     console.log('[CloakManager] Profile name:', profileName, 'platform:', platformPrefix);
 
     try {
-      // MINIMAL PROFILE CREATION - backend auto-generates everything
-      // IMPORTANT: browser_brand must be "Chrome" (capitalized) - this is REQUIRED
-      // NOTE: headless=false so CDP can display the browser window
+      // ANTI-CAPTCHA PROFILE CREATION
+      // Critical for avoiding CAPTCHA on new accounts
       const payload = {
         name: profileName,
-        headless: false,  // Changed to false - CDP cannot project from headless
-        browser_brand: "Chrome"  // REQUIRED, must be capitalized
+        headless: false,  // CDP cannot project from headless
+        browser_brand: "Chrome",  // REQUIRED, must be capitalized
+
+        // ===== ANTI-CAPTCHA FEATURES =====
+        warmup_enabled: true,  // CRITICAL: warm up profile to avoid CAPTCHA
+        warmup_sites: [
+          "https://www.google.com",
+          "https://www.wikipedia.org",
+          "https://www.youtube.com",
+          "https://www.reddit.com"
+        ],
+
+        // ===== FINGERPRINT IDENTITY =====
+        seed_name: `${accountConfig.os || 'windows'}-chrome-us`,  // Use consistent seed
+        os: accountConfig.os || 'windows',  // windows, mac, or linux
+
+        // ===== OPTIONAL OVERRIDES =====
+        browser_theme: "light"  // Less suspicious than dark mode
       };
 
       // Add proxy if provided (with auto_geoip for timezone/locale detection)

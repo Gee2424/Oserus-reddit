@@ -33,6 +33,8 @@ const ACTIVE_GAP_MS   = 5  * 60 * 1000;   // user-active threshold
 
 function parseTs(s) {
   if (!s) return 0;
+  // SQLite datetime('now') returns UTC time in format 'YYYY-MM-DD HH:MM:SS'
+  // Append 'Z' to parse as UTC
   return new Date(s.replace(' ', 'T') + 'Z').getTime();
 }
 

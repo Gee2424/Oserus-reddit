@@ -111,10 +111,7 @@ export default function AddAccountsPage({ navigate, initialTab }) {
               token,
               accountId: res.id,
               accountConfig: {
-                os: 'windows',
-                timezone: 'America/New_York',
-                locale: 'en-US',
-                resolution: '1920x1080',
+                os: 'windows'
               },
             });
             if (!profileRes.ok) {

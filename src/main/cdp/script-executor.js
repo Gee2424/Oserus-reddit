@@ -182,15 +182,35 @@ async function executeScript(scriptId, context = {}, options = {}) {
       if (error.message.includes('connection failed') ||
           error.message.includes('CDP connection failed') ||
           error.message.includes('Script not found') ||
-          error.message.includes('Script format')) {
+          error.message.includes('Script format') ||
+          error.message.includes('Target closed') ||
+          error.message.includes('Session closed') ||
+          error.message.includes('INCORRECT_CREDENTIALS') ||
+          error.message.includes('incorrect password') ||
+          error.message.includes('wrong password')) {
+        console.log('[CDP Script Executor] Non-retryable error, stopping retries');
         break;
       }
 
+      // Check for rate limiting errors - use longer backoff
+      const isRateLimitError = error.message.includes('429') ||
+                               error.message.includes('too many requests') ||
+                               error.message.includes('rate limit') ||
+                               error.message.includes('Try again later') ||
+                               error.message.includes('prove you are human');
+
       // Retry with exponential backoff
       if (attempt < MAX_RETRY_ATTEMPTS) {
-        const delay = 1000 * Math.pow(2, attempt - 1);
-        console.log('[CDP Script Executor] Retrying in', delay, 'ms...');
-        await sleep(delay);
+        // Longer delay for rate limits (5s, 10s, 20s instead of 1s, 2s, 4s)
+        const baseDelay = isRateLimitError ? 5000 : 1000;
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+
+        // Add some randomness to avoid synchronized retries
+        const jitter = Math.random() * 1000;
+        const totalDelay = delay + jitter;
+
+        console.log(`[CDP Script Executor] ${isRateLimitError ? '⚠️ Rate limit detected' : 'Retrying'} in ${(totalDelay/1000).toFixed(1)}s...`);
+        await sleep(totalDelay);
       }
     }
   }
@@ -253,25 +273,49 @@ async function executeLaunchSequence(profileName, accountId, platform) {
   };
 
   try {
+    // Helper: random delay to appear more human and avoid rate limiting
+    const randomDelay = (min, max) => {
+      const delay = min + Math.random() * (max - min);
+      console.log(`[CDP Script Executor] ⏱️ Waiting ${(delay/1000).toFixed(1)}s before next script...`);
+      return sleep(delay);
+    };
+
     // 1. Auto-login script
     if (platform === 'reddit' && credentials) {
+      console.log('[CDP Script Executor] Step 1/5: Reddit login');
       const loginResult = await executeScript('launch/authentication/reddit-login', context);
       results.login = { success: true, error: null };
+
+      // Random delay before next script (2-4 seconds)
+      await randomDelay(2000, 4000);
     }
 
     // 2. Initial navigation script
+    console.log('[CDP Script Executor] Step 2/5: Initial navigation');
     const navResult = await executeScript('launch/navigation/initial', context);
     results.navigation = { success: true, error: null };
 
+    // Random delay (1.5-3 seconds)
+    await randomDelay(1500, 3000);
+
     // 3. Homepage tiles script
+    console.log('[CDP Script Executor] Step 3/5: Homepage tiles setup');
     const tilesResult = await executeScript('launch/setup/homepage-tiles', context);
     results.tiles = { success: true, error: null };
 
+    // Random delay (1-2 seconds)
+    await randomDelay(1000, 2000);
+
     // 4. Inbox setup script
+    console.log('[CDP Script Executor] Step 4/5: Inbox setup');
     const inboxResult = await executeScript('launch/setup/inbox-setup', context);
     results.inbox = { success: true, error: null };
 
+    // Random delay (1-2 seconds)
+    await randomDelay(1000, 2000);
+
     // 5. Environment setup script
+    console.log('[CDP Script Executor] Step 5/5: Environment setup');
     const envResult = await executeScript('launch/setup/environment', context);
     results.environment = { success: true, error: null };
 

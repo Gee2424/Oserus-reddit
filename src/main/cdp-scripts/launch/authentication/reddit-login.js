@@ -16,10 +16,10 @@ const metadata = {
   name: 'Reddit Auto-Login',
   platform: 'reddit',
   category: 'launch.authentication',
-  timeout: 30000,
+  timeout: 60000,  // Increased from 30s to 60s for slow page loads
   requires: ['cdpConnection', 'credentials'],
   nativeMode: true,  // NEW: Use native Playwright API
-  version: '2.0.0',
+  version: '2.0.1',
   description: 'Reddit login with native Playwright API (better locators, auto-waiting, humanization)'
 };
 
@@ -147,7 +147,19 @@ async function execute(nativeConnection, context) {
 
       if (errorVisible) {
         const errorText = await errorBanner.textContent();
-        throw new Error(`Login failed: ${errorText || 'Unknown error'}`);
+        const errorMessage = errorText || 'Unknown error';
+
+        // Check for incorrect password error - this is non-retryable
+        const isIncorrectPassword = errorMessage.toLowerCase().includes('incorrect') ||
+                                   errorMessage.toLowerCase().includes('wrong') ||
+                                   errorMessage.toLowerCase().includes('password') ||
+                                   errorMessage.toLowerCase().includes('username');
+
+        if (isIncorrectPassword) {
+          throw new Error('INCORRECT_CREDENTIALS: Login failed - ' + errorMessage);
+        }
+
+        throw new Error(`Login failed: ${errorMessage}`);
       }
 
       throw new Error('Login failed - still on login page after submission');

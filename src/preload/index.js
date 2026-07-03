@@ -1,9 +1,14 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Get isPackaged safely - in development this will be false, in production (packaged app) will be true
+// We use process.resourcesPath as a heuristic - it's only set in packaged apps
+const isPackaged = process.resourcesPath && process.resourcesPath.includes('app.asar');
+
 const api = {
   app: {
     version: () => ipcRenderer.invoke('app:version'),
     restart: () => ipcRenderer.invoke('app:restart'),
+    isPackaged: isPackaged, // Expose whether running in packaged mode
   },
   updater: {
     installNow: () => ipcRenderer.invoke('updater:installNow'),
@@ -322,6 +327,10 @@ const api = {
     deleteProfile: (data) => ipcRenderer.invoke('cloakmanager:deleteProfile', data),
     getRunningProfiles: (data) => ipcRenderer.invoke('cloakmanager:getRunningProfiles', data),
     getCDPInfo: (data) => ipcRenderer.invoke('cloakmanager:getCDPInfo', data),
+    // Binary status and management (NEW)
+    getBinaryStatus: (data) => ipcRenderer.invoke('cloakmanager:getBinaryStatus', data),
+    startBinary: (data) => ipcRenderer.invoke('cloakmanager:startBinary', data),
+    stopBinary: (data) => ipcRenderer.invoke('cloakmanager:stopBinary', data),
     // WebSocket event listeners
     onProfileLaunched: (callback) => {
       const listener = (_event, data) => callback(data);
@@ -367,6 +376,17 @@ const api = {
       const listener = () => callback();
       ipcRenderer.on('cloakmanager:ws_fallback', listener);
       return () => ipcRenderer.removeListener('cloakmanager:ws_fallback', listener);
+    },
+    // Binary event listeners (NEW)
+    onInitFailed: (callback) => {
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('cloakmanager:init_failed', listener);
+      return () => ipcRenderer.removeListener('cloakmanager:init_failed', listener);
+    },
+    onBinaryProgress: (callback) => {
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('cloakmanager:binary_progress', listener);
+      return () => ipcRenderer.removeListener('cloakmanager:binary_progress', listener);
     }
   },
 };

@@ -1032,10 +1032,42 @@ function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_cloakmanager_profiles_profile_name ON cloakmanager_profiles(profile_name);
     `);
     console.log('[db] CloakManager integration migration complete.');
-
   } catch (e) {
     console.error('[db] CloakManager migration failed:', e.message);
   }
+
+  // Migration: fix NULL cloak_profile_name values in account_browser_settings
+  // This ensures all accounts have a profile name set for CDP orchestrator to find
+  try {
+    const nullCount = db.prepare(`
+      SELECT COUNT(*) as count FROM account_browser_settings
+      WHERE cloak_profile_name IS NULL
+    `).get();
+
+    if (nullCount.count > 0) {
+      console.log(`[db] Found ${nullCount.count} accounts with NULL cloak_profile_name, fixing...`);
+      db.exec(`
+        -- Update NULL values to computed defaults
+        UPDATE account_browser_settings
+        SET cloak_profile_name = 'reddit-' || (
+          SELECT username FROM reddit_accounts WHERE id = account_browser_settings.account_id
+        )
+        WHERE cloak_profile_name IS NULL
+          AND account_id IN (SELECT id FROM reddit_accounts WHERE platform = 'reddit');
+
+        -- Handle other platforms too
+        UPDATE account_browser_settings
+        SET cloak_profile_name = (
+          SELECT platform || '-' || username FROM reddit_accounts WHERE id = account_browser_settings.account_id
+        )
+        WHERE cloak_profile_name IS NULL;
+      `);
+      console.log('[db] Fixed NULL cloak_profile_name values.');
+    }
+  } catch (e) {
+    console.warn('[db] Failed to fix NULL cloak_profile_name values:', e.message);
+  }
+
   } catch (e) {
     console.warn('[db] content_sources backfill skipped:', e?.message);
   }

@@ -207,6 +207,19 @@ function register(ipcMain) {
         );
       log(user, 'account.create', 'account', info.lastInsertRowid, `${plat} u/${username}`);
       markDirty();
+
+      // Initialize account_browser_settings with default profile name
+      const { getProfileName } = require('../lib/profileName');
+      const account = { username, platform: plat };
+      const defaultProfileName = getProfileName(account);
+
+      getDb().prepare(`
+        INSERT INTO account_browser_settings (account_id, browser_mode, cloak_profile_name)
+        VALUES (?, 'inherit', ?)
+      `).run(info.lastInsertRowid, defaultProfileName);
+
+      console.log('[accounts:create] Initialized browser_settings with profile:', defaultProfileName);
+
       return { ok: true, id: info.lastInsertRowid, partitionKey };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -355,6 +368,12 @@ function register(ipcMain) {
       );
 
       const txn = getDb().transaction(() => {
+        const { getProfileName } = require('../lib/profileName');
+        const insertBrowserSettings = getDb().prepare(`
+          INSERT INTO account_browser_settings (account_id, browser_mode, cloak_profile_name)
+          VALUES (?, 'inherit', ?)
+        `);
+
         for (let i = 0; i < input.length; i++) {
           const raw = input[i].trim();
           if (!raw || raw.startsWith('#')) continue;
@@ -369,6 +388,11 @@ function register(ipcMain) {
               encryptSecret(p), e || null, encryptSecret(ep || null),
               status || 'warming', proxyId || null, userAgent || null
             );
+
+            // Initialize browser_settings with default profile name
+            const defaultProfileName = getProfileName({ username: cleanUser, platform: plat });
+            insertBrowserSettings.run(info.lastInsertRowid, defaultProfileName);
+
             created.push({ id: info.lastInsertRowid, username: cleanUser });
           } catch (err) {
             errors.push({ line: i + 1, username: cleanUser, error: err.message });

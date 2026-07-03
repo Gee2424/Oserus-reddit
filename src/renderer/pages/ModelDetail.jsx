@@ -59,9 +59,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
   const [proxyForm, setProxyForm] = useState({ label: '', kind: 'http', host: '', port: '', username: '', password: '' });
   const [proxyError, setProxyError] = useState(null);
 
-  const [scheduledPosts, setScheduledPosts] = useState([]);
   const [activityEntries, setActivityEntries] = useState([]);
-  const [modelDocs, setModelDocs] = useState([]);
   const [tab, setTab] = useState('resources'); // resources | analytics | activity
   // Reddit + RedGIFs share a single "Reddit" group inside Linked accounts —
   // this picks which sub-platform's section is currently visible.
@@ -87,16 +85,14 @@ export default function ModelDetailPage({ modelId, navigate }) {
 
   async function load() {
     setLoading(true);
-    const [profilesRes, accountsRes, proxiesRes, promoRes, schedRes, activityRes, docsRes] = await Promise.all([
+    const [profilesRes, accountsRes, proxiesRes, promoRes, activityRes] = await Promise.all([
       window.api.profiles.list({ token }),
       window.api.accounts.listForProfile({ token, profileId: Number(modelId) }),
       window.api.proxies.list({ token }),
       window.api.subs.listPromo({ token, profileId: Number(modelId) }),
-      window.api.scheduled.list({ token, profileId: Number(modelId) }),
       canViewActivity
         ? window.api.activity.list({ token, limit: 20 })
         : Promise.resolve({ ok: true, entries: [] }),
-      window.api.docs.list({ token, profileId: Number(modelId) }),
     ]);
     if (profilesRes.ok) {
       const found = profilesRes.profiles.find(p => p.id === Number(modelId));
@@ -105,9 +101,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
     if (accountsRes.ok) setAccounts(accountsRes.accounts);
     if (proxiesRes.ok) setProxies(proxiesRes.proxies);
     if (promoRes.ok) setPromoSubs(promoRes.subs);
-    if (schedRes.ok) setScheduledPosts(schedRes.posts);
     if (activityRes.ok) setActivityEntries(activityRes.entries);
-    if (docsRes.ok) setModelDocs(docsRes.docs);
     setLoading(false);
   }
 
@@ -218,10 +212,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
               token,
               accountId: res.id,
               accountConfig: {
-                os: 'windows',
-                timezone: 'America/New_York',
-                locale: 'en-US',
-                resolution: '1920x1080',
+                os: 'windows'
               },
             });
 
@@ -447,13 +438,6 @@ export default function ModelDetailPage({ modelId, navigate }) {
                 </button>
               );
             })}
-            <span style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 4px' }} />
-            <button
-              onClick={() => setShowAddProxy(true)}
-              className="ghost"
-              style={{ fontSize: 12, padding: '5px 12px' }}
-              title="Add a proxy to this model"
-            >⌁ Proxy</button>
           </div>
         )}
       </div>
@@ -858,50 +842,6 @@ export default function ModelDetailPage({ modelId, navigate }) {
         <ModelAnalyticsTab token={token} profileId={Number(modelId)} accounts={accounts} />
       )}
 
-      {tab === 'scheduler' && (
-      <div style={{ marginBottom: 28 }}>
-        <div style={styles.platformHeader}>
-          <span style={{ fontSize: 20 }}>◷</span>
-          <h2>Scheduled posts</h2>
-          <span className="mono dim" style={{ fontSize: 12 }}>
-            {scheduledPosts.filter(p => p.status === 'pending').length} upcoming
-          </span>
-          <div style={{ flex: 1 }} />
-          <button className="ghost" onClick={() => navigate('scheduler')}>Open Scheduler →</button>
-        </div>
-        {scheduledPosts.length === 0 ? (
-          <div className="empty-state" style={{ padding: 22, fontSize: 13 }}>
-            No posts scheduled for this model's accounts yet.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {scheduledPosts.slice(0, 5).map(p => (
-              <div key={p.id} style={styles.accountRow}>
-                <span style={{
-                  padding: '2px 8px', borderRadius: 999, fontSize: 10, fontFamily: 'var(--font-mono)',
-                  background: p.status === 'pending' ? 'rgba(212,166,74,0.12)' : 'rgba(255,255,255,0.04)',
-                  color: p.status === 'pending' ? 'var(--gold-bright)' : 'var(--text-2)',
-                  border: `1px solid ${p.status === 'pending' ? 'var(--gold)' : 'var(--border-strong)'}`,
-                  textTransform: 'uppercase',
-                }}>{p.status}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>{p.title}</div>
-                  <div className="muted mono" style={{ fontSize: 11 }}>
-                    r/{p.subreddit} · u/{p.account_username} · {new Date(p.scheduled_for).toLocaleString()}
-                  </div>
-                </div>
-              </div>
-            ))}
-            {scheduledPosts.length > 5 && (
-              <button className="ghost" onClick={() => navigate('scheduler')} style={{ alignSelf: 'flex-start' }}>
-                +{scheduledPosts.length - 5} more in Scheduler
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-      )}
-
       {tab === 'activity' && canViewActivity && activityEntries.length > 0 && (
         <div style={{ marginBottom: 28 }}>
           <div style={styles.platformHeader}>
@@ -929,47 +869,6 @@ export default function ModelDetailPage({ modelId, navigate }) {
             ))}
           </div>
         </div>
-      )}
-
-      {tab === 'docs' && (
-      <div style={{ marginBottom: 28 }}>
-        <div style={styles.platformHeader}>
-          <span style={{ fontSize: 20 }}>◫</span>
-          <h2>Docs for this model</h2>
-          <span className="mono dim" style={{ fontSize: 12 }}>{modelDocs.length}</span>
-          <div style={{ flex: 1 }} />
-          <button className="ghost" onClick={() => navigate('docs')}>Open Docs →</button>
-        </div>
-        {modelDocs.length === 0 ? (
-          <div className="empty-state" style={{ padding: 22, fontSize: 13 }}>
-            No docs attached. Open Docs → New doc → pick this model from the dropdown.
-          </div>
-        ) : (
-          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            {modelDocs.slice(0, 5).map((d, i) => (
-              <button
-                key={d.id}
-                onClick={() => navigate('docs')}
-                style={{
-                  textAlign: 'left', width: '100%',
-                  padding: '12px 14px',
-                  background: 'transparent',
-                  border: 'none',
-                  borderTop: i === 0 ? 'none' : '1px solid var(--border)',
-                  borderRadius: 0,
-                  color: 'var(--text-0)',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{ fontSize: 13, fontWeight: 500 }}>{d.title}</div>
-                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                  {d.author_name || 'unknown'} · updated {new Date(d.updated_at + 'Z').toLocaleDateString()}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
       )}
 
       {tab === 'promo' && (

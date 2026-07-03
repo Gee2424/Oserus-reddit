@@ -37,6 +37,18 @@ async function execute(nativeConnection, context) {
   console.log('[Environment Setup] Using native Playwright API');
 
   try {
+    // Check if already set up (first launch tracking)
+    const alreadySetup = await page.evaluate(() => {
+      return localStorage.getItem('oserus_environment_setup_complete') === 'true';
+    });
+
+    if (alreadySetup) {
+      console.log('[Environment Setup] Already set up, skipping');
+      return { success: true, skipped: true, reason: 'already_setup' };
+    }
+
+    console.log('[Environment Setup] First launch detected, configuring environment...');
+
     // Get account geo preferences from database
     const { getDb } = require('../../../../db');
     const account = getDb().prepare(`
@@ -54,6 +66,10 @@ async function execute(nativeConnection, context) {
 
         // Get language from country code if available
         const language = countryCode ? getLanguageForCountry(countryCode) : null;
+
+        // Mark setup as complete
+        localStorage.setItem('oserus_environment_setup_complete', 'true');
+        localStorage.setItem('oserus_environment_setup_date', new Date().toISOString());
 
         return {
           success: true,
@@ -73,6 +89,7 @@ async function execute(nativeConnection, context) {
     console.log('[Environment Setup] ✅ Environment configured:', result);
     return {
       success: true,
+      firstLaunch: true,
       config: result
     };
 

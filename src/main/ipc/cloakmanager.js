@@ -20,8 +20,9 @@ const CDP_LAUNCH_DELAY = process.env.CDP_LAUNCH_DELAY || 95000; // Default 95s, 
  * Register all CloakManager IPC handlers
  * @param {Object} ipcMain - Electron ipcMain instance
  * @param {Object} mainWindow - Electron mainWindow instance (for event broadcasting)
+ * @param {Object} app - Electron app instance (for checking isPackaged)
  */
-function registerCloakmanagerHandlers(ipcMain, mainWindow) {
+function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
   const client = getCloakManagerClient();
 
   // Initialize CDP orchestrator with CloakManager client
@@ -349,6 +350,16 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow) {
       // Validate mode
       if (!['electron', 'cloakmanager', 'inherit'].includes(mode)) {
         return { ok: false, error: 'Invalid browser mode' };
+      }
+
+      // Compute default profile name if not provided
+      if (!profileName) {
+        const { getProfileName } = require('../lib/profileName');
+        const account = getDb().prepare('SELECT username, platform FROM reddit_accounts WHERE id = ?').get(accountId);
+        if (account) {
+          profileName = getProfileName(account);
+          console.log('[IPC] Computed default profile name:', profileName);
+        }
       }
 
       // Check if settings already exist (no id column - account_id is the primary key)
@@ -748,6 +759,173 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow) {
       };
     } catch (error) {
       console.error('[IPC] Manual trigger failed:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  /**
+   * Get CloakManager binary status and health
+   * Exposes download, spawn, and connection state to UI
+   */
+  ipcMain.handle('cloakmanager:getBinaryStatus', async (event, { token }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) {
+        return { ok: false, error: 'Invalid token' };
+      }
+
+      // Access the globally-stored binary instance (stored in index.js)
+      const cmBinary = global.cloakManagerBinary;
+
+      if (!cmBinary) {
+        // In dev mode or before auto-start
+        return {
+          ok: true,
+          status: {
+            binaryState: 'not_managed', // dev mode or before initialization
+            isRunning: false,
+            port: null,
+            version: null,
+            binaryExists: false,
+            currentVersion: null,
+            lastUpdateCheck: null,
+            autoStartEnabled: app.isPackaged
+          }
+        };
+      }
+
+      const status = cmBinary.getStatus();
+      const health = await getCloakManagerClient().isAvailable();
+
+      return {
+        ok: true,
+        status: {
+          ...status,
+          backendAvailable: health,
+          autoStartEnabled: app.isPackaged
+        }
+      };
+    } catch (error) {
+      console.error('Failed to get binary status:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  /**
+   * Manually trigger CloakManager download and spawn
+   * Used by UI to retry failed auto-start or trigger first-time setup
+   */
+  ipcMain.handle('cloakmanager:startBinary', async (event, { token }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user || user.role !== 'admin') {
+        return { ok: false, error: 'Admin only' };
+      }
+
+      // Access or create binary instance
+      const CloakManagerBinary = require('../services/cloakManagerBinary');
+      let cmBinary = global.cloakManagerBinary;
+
+      if (!cmBinary) {
+        cmBinary = new CloakManagerBinary({ app });
+        global.cloakManagerBinary = cmBinary;
+      }
+
+      // Emit progress events to renderer
+      const emitProgress = (stage, message, percent = null) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('cloakmanager:binary_progress', {
+            stage,
+            message,
+            percent
+          });
+        }
+      };
+
+      try {
+        emitProgress('starting', 'Initializing CloakManager binary...');
+
+        // Step 1: Ensure binary exists
+        const binaryPath = cmBinary.getBinaryPath();
+        const fs = require('fs');
+        if (!fs.existsSync(binaryPath)) {
+          emitProgress('downloading', 'Downloading CloakManager binary...', 0);
+
+          const latest = await cmBinary.fetchLatestRelease();
+          emitProgress('downloading', `Downloading version ${latest.version}...`, 10);
+
+          // Download with progress tracking
+          await cmBinary.downloadBinary(latest.downloadUrl, latest.version);
+          emitProgress('downloading', 'Download complete', 100);
+        }
+
+        // Step 2: Check for updates
+        emitProgress('updating', 'Checking for updates...');
+        await cmBinary.checkForUpdates();
+
+        // Step 3: Spawn the binary
+        emitProgress('spawning', 'Starting CloakManager service...');
+        const port = await cmBinary.spawn();
+
+        // Step 4: Update CloakManager client
+        emitProgress('connecting', 'Connecting to CloakManager...');
+        const client = getCloakManagerClient();
+        client.updateBaseUrl(`http://127.0.0.1:${port}`);
+        await client.connectWebSocket();
+
+        emitProgress('ready', 'CloakManager is ready', 100);
+
+        return {
+          ok: true,
+          port,
+          message: 'CloakManager started successfully'
+        };
+      } catch (spawnError) {
+        emitProgress('error', `Failed: ${spawnError.message}`);
+
+        // Provide actionable error messages
+        let actionableError = spawnError.message;
+        if (spawnError.message.includes('rate limit')) {
+          actionableError = 'GitHub rate limit exceeded. Please wait a few minutes and try again.';
+        } else if (spawnError.message.includes('network')) {
+          actionableError = 'Network error. Check your internet connection.';
+        } else if (spawnError.message.includes('health check')) {
+          actionableError = 'Service started but failed health check. Try again in 30 seconds.';
+        }
+
+        return {
+          ok: false,
+          error: actionableError,
+          technical: spawnError.message
+        };
+      }
+    } catch (error) {
+      console.error('Failed to start binary:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  /**
+   * Stop the CloakManager binary
+   * Used by UI to stop the service manually
+   */
+  ipcMain.handle('cloakmanager:stopBinary', async (event, { token }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user || user.role !== 'admin') {
+        return { ok: false, error: 'Admin only' };
+      }
+
+      const cmBinary = global.cloakManagerBinary;
+      if (!cmBinary) {
+        return { ok: true, message: 'Binary not running' };
+      }
+
+      await cmBinary.stop();
+
+      return { ok: true, message: 'CloakManager stopped successfully' };
+    } catch (error) {
+      console.error('Failed to stop binary:', error);
       return { ok: false, error: error.message };
     }
   });
