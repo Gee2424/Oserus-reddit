@@ -255,7 +255,6 @@ export default function InboxPage({ embedded, standalone, navigate }) {
             <button className="ghost" disabled={!isLive} onClick={async () => {
               for (const a of platformAccounts) await inboxLive.refresh(a.id, 'unread');
             }}>↻ Refresh All Accounts</button>
-            {navigate && <button className="ghost" onClick={() => navigate('add-accounts', { tab: 'proxies' })}>⚙ Proxies</button>}
             {!standalone && <button className="ghost" onClick={popOut}>⧉ Pop out</button>}
           </div>
         </div>

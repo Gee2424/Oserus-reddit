@@ -46,19 +46,12 @@ export default function RedditApiPage({ navigate }) {
         })}
         <div style={{ flex: 1 }} />
         {navigate && (
-          <>
-            <button
-              onClick={() => navigate('scheduler-pro')}
-              className="ghost"
-              style={{ fontSize: 12, padding: '5px 14px' }}
-            >◷ Scheduler</button>
-            <button
-              onClick={() => navigate('add-accounts', { tab: 'proxies' })}
-              className="ghost"
-              style={{ fontSize: 12, padding: '5px 14px' }}
-              title="Manage proxy pool"
-            >⚙ Proxies</button>
-          </>
+          <button
+            onClick={() => navigate('add-accounts', { tab: 'proxies' })}
+            className="ghost"
+            style={{ fontSize: 12, padding: '5px 14px' }}
+            title="Manage proxy pool"
+          >⚙ Proxies</button>
         )}
       </div>
 

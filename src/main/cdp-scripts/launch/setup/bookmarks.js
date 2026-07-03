@@ -1,12 +1,12 @@
 /**
  * Bookmarks Setup Script (Native Playwright)
  *
- * Creates browser bookmarks for the main social media platforms.
+ * Creates browser bookmarks for the main social media platforms using Ctrl+D simulation.
  * Runs only on first launch.
  *
  * @category launch.setup
  * @platform all
- * @timeout 10000
+ * @timeout 30000
  * @requires ['cdpConnection']
  */
 
@@ -15,15 +15,15 @@ const metadata = {
   name: 'Bookmarks Setup',
   platform: 'all',
   category: 'launch.setup',
-  timeout: 10000,
+  timeout: 30000,  // Increased to 30s for 4 page loads
   requires: ['cdpConnection'],
   nativeMode: true,
-  version: '1.0.0',
-  description: 'Create bookmarks for social media platforms (first launch only)'
+  version: '2.0.0',
+  description: 'Create bookmarks using Ctrl+D simulation (Method A - works immediately)'
 };
 
 /**
- * Execute bookmarks setup
+ * Execute bookmarks setup using Ctrl+D simulation
  *
  * @param {Object} nativeConnection - Native Playwright objects { page, context, browser }
  * @param {Object} context - Execution context with { accountId, platform }
@@ -34,7 +34,7 @@ async function execute(nativeConnection, context) {
   const { accountId, platform } = context;
 
   console.log('[Bookmarks Setup] Setting up bookmarks for account:', accountId);
-  console.log('[Bookmarks Setup] Using native Playwright API');
+  console.log('[Bookmarks Setup] Using Ctrl+D simulation method');
 
   try {
     // Check if already set up (first launch tracking)
@@ -57,48 +57,60 @@ async function execute(nativeConnection, context) {
       { title: 'TikTok', url: 'https://www.tiktok.com' }
     ];
 
-    // Native Playwright: Create bookmarks via Chrome DevTools Protocol
-    const result = await page.evaluate((bookmarksData) => {
+    let createdCount = 0;
+    const failed = [];
+
+    // Create bookmarks using Ctrl+D simulation
+    for (const bm of bookmarks) {
       try {
-        // Store bookmarks in localStorage for custom bookmark manager
-        localStorage.setItem('oserus_bookmarks', JSON.stringify(bookmarksData));
+        console.log(`[Bookmarks Setup] Bookmarking: ${bm.title} - ${bm.url}`);
 
-        // Mark setup as complete
-        localStorage.setItem('oserus_bookmarks_setup_complete', 'true');
-        localStorage.setItem('oserus_bookmarks_setup_date', new Date().toISOString());
+        // Navigate to the page
+        await page.goto(bm.url, { waitUntil: 'domcontentloaded', timeout: 10000 });
 
-        // Try to use Chrome's bookmarks API if available
-        if (window.chrome && window.chrome.bookmarks) {
-          bookmarksData.forEach(bookmark => {
-            try {
-              window.chrome.bookmarks.create({
-                title: bookmark.title,
-                url: bookmark.url,
-                parentId: '1' // Bookmarks bar
-              });
-            } catch (e) {
-              console.log('Could not create bookmark via API:', e.message);
-            }
-          });
-        }
+        // Bring page to front
+        await page.bringToFront();
 
-        return {
-          success: true,
-          bookmarkCount: bookmarksData.length,
-          bookmarks: bookmarksData.map(b => ({ title: b.title, url: b.url }))
-        };
-      } catch (e) {
-        console.error('Failed to create bookmarks:', e);
-        return { success: false, error: e.message };
+        // Wait a moment for page to stabilize
+        await page.waitForTimeout(500);
+
+        // Press Ctrl+D to bookmark (Cmd+D on macOS would be 'Meta+D')
+        await page.keyboard.press('Control+D');
+
+        // Wait for bookmark bubble/dialog to appear
+        await page.waitForTimeout(800);
+
+        // Dismiss the "bookmark added" bubble or dialog
+        await page.keyboard.press('Escape');
+
+        // Wait for dismissal to complete
+        await page.waitForTimeout(300);
+
+        createdCount++;
+        console.log(`[Bookmarks Setup] ✅ Bookmarked: ${bm.title}`);
+
+      } catch (error) {
+        console.error(`[Bookmarks Setup] ❌ Failed to bookmark ${bm.title}:`, error.message);
+        failed.push({ title: bm.title, url: bm.url, error: error.message });
       }
-    }, bookmarks);
+    }
 
-    console.log('[Bookmarks Setup] ✅ Bookmarks created:', result);
+    // Mark setup as complete (even if some failed)
+    await page.evaluate(() => {
+      localStorage.setItem('oserus_bookmarks_setup_complete', 'true');
+      localStorage.setItem('oserus_bookmarks_setup_date', new Date().toISOString());
+      localStorage.setItem('oserus_bookmarks_count', createdCount.toString());
+    });
+
+    console.log(`[Bookmarks Setup] ✅ Setup complete: ${createdCount}/${bookmarks.length} bookmarks created`);
+
     return {
       success: true,
       firstLaunch: true,
-      bookmarkCount: result.bookmarkCount,
-      bookmarks: result.bookmarks
+      bookmarkCount: createdCount,
+      total: bookmarks.length,
+      failed: failed,
+      skipped: false
     };
 
   } catch (error) {
