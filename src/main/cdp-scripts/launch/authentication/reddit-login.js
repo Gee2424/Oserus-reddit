@@ -37,6 +37,12 @@ async function execute(nativeConnection, context) {
   console.log('[Reddit Login] Starting auto-login for account:', accountId);
   console.log('[Reddit Login] Using native Playwright API');
 
+  // CRITICAL: Add random delay at start to stagger simultaneous launches
+  // This prevents multiple profiles from hitting Reddit at exactly the same time
+  const initialDelay = 2000 + Math.random() * 3000; // 2-5 seconds random
+  console.log(`[Reddit Login] ⏱️ Initial ${(initialDelay/1000).toFixed(1)}s delay to avoid rate limiting...`);
+  await new Promise(resolve => setTimeout(resolve, initialDelay));
+
   try {
     if (!credentials || !credentials.username || !credentials.password) {
       throw new Error('No credentials available for login');
@@ -67,42 +73,113 @@ async function execute(nativeConnection, context) {
     console.log('[Reddit Login] Not logged in, proceeding with login flow...');
 
     // Wait for login form with auto-waiting
-    // Native Playwright: locator.waitFor() handles the polling
-    const usernameField = page.locator('input#login-username').first();
-    await usernameField.waitFor({ state: 'visible', timeout: 15000 });
+    // Try multiple selector strategies for shadow DOM compatibility
+    const usernameField = page.locator('input[name="username"]').first();
+    await usernameField.waitFor({ state: 'visible', timeout: 20000 });
+
+    const passwordField = page.locator('input[name="password"]').first();
+    await passwordField.waitFor({ state: 'visible', timeout: 5000 });
 
     console.log('[Reddit Login] Login form found, filling credentials...');
 
-    // Native Playwright: page.fill() properly simulates input events
-    // No need for manual dispatchEvent calls
-    await page.fill('input#login-username', credentials.username);
-    await page.fill('input#login-password', credentials.password);
+    // Fill username with human-like typing
+    await usernameField.click();
+    await usernameField.fill(credentials.username);
+    await sleep(500 + Math.random() * 500); // Human-like pause
 
-    // Click submit button with auto-wait
-    // Native Playwright: auto-waits for element to be ready
-    await page.locator('button[type="submit"]').first().click();
+    // Fill password with human-like typing
+    await passwordField.click();
+    await passwordField.fill(credentials.password);
+    await sleep(500 + Math.random() * 500); // Human-like pause
+
+    // Find and click login button
+    // Reddit uses multiple button selectors depending on login flow
+    const loginButton = page.locator('button.login').or(
+      page.locator('button[type="submit"]')
+    ).or(
+      page.locator('button:has-text("Log In")')
+    ).first();
+
+    // Wait for button to be enabled (Reddit enables it after form validation)
+    console.log('[Reddit Login] Waiting for login button to be enabled...');
+    await loginButton.waitFor({ state: 'visible', timeout: 10000 });
+
+    // Wait for disabled attribute to be removed
+    await page.waitForFunction((button) => {
+      return !button.disabled;
+    }, loginButton, { timeout: 10000 }).catch(() => {
+      console.log('[Reddit Login] Button still disabled, attempting click anyway...');
+    });
+
+    await loginButton.click();
 
     console.log('[Reddit Login] Login form submitted, waiting for navigation...');
 
-    // Wait for navigation after login
-    // Native Playwright: waitForURL is more reliable than loadEventFired + sleep
-    await page.waitForURL(/\/(login|register|\?|$)/, { timeout: 15000 });
+    // Wait for navigation or 2FA page
+    // Reddit may show 2FA, redirect to home, or show onboarding
+    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {
+      console.log('[Reddit Login] Network idle timeout, continuing...');
+    });
 
-    // Additional wait for page to stabilize after redirect
-    await sleep(2000);
+    // Check if we're on 2FA page
+    const otpPage = page.locator('input[name="appOtp"], input[name="backupOtp"]');
+    const otpCount = await otpPage.count();
 
-    // Verify login success
-    // Native Playwright: expect().toBeVisible() with timeout
+    if (otpCount > 0) {
+      console.log('[Reddit Login] ⚠️ 2FA required but not supported - awaiting manual intervention');
+      return {
+        success: false,
+        requires2FA: true,
+        username: credentials.username,
+        message: '2FA code required'
+      };
+    }
+
+    // Wait for potential redirect
+    await sleep(3000);
+
+    // Check if we're still on login page (indicates failure)
+    const stillOnLogin = page.url().includes('/login');
+    if (stillOnLogin) {
+      // Check for error messages
+      const errorBanner = page.locator('[role="alert"], .error, [class*="error"]').first();
+      const errorVisible = await errorBanner.isVisible().catch(() => false);
+
+      if (errorVisible) {
+        const errorText = await errorBanner.textContent();
+        throw new Error(`Login failed: ${errorText || 'Unknown error'}`);
+      }
+
+      throw new Error('Login failed - still on login page after submission');
+    }
+
+    // Verify login success by checking for logged-in indicators
+    // Try multiple selectors for different Reddit UI states
     const verifyButton = page.getByTestId('logout-button');
     const verifyCount = await verifyButton.count();
 
     if (verifyCount === 0) {
-      // Also check alternative logout button
-      const altLogoutButton = page.locator('button[aria-label="Log out"]');
+      // Also check alternative logout indicators
+      const altLogoutButton = page.locator('button[aria-label="Log out"], button:has-text("Log out"), [id*="logout"]');
       const altCount = await altLogoutButton.count();
 
       if (altCount === 0) {
-        throw new Error('Login verification failed - logout button not found');
+        // Check if we're on home page (logged in)
+        const onHomePage = page.url().match(/reddit\.com\/?(\?.*)?$/) ||
+                          page.url().includes('/hot') ||
+                          page.url().includes('/popular');
+
+        if (onHomePage) {
+          console.log('[Reddit Login] ✅ Login successful (redirected to home)');
+          return {
+            success: true,
+            username: credentials.username,
+            alreadyLoggedIn: false,
+            verified: true
+          };
+        }
+
+        throw new Error('Login verification failed - no logout indicators found');
       }
     }
 
