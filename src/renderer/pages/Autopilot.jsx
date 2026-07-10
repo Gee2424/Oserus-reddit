@@ -29,7 +29,7 @@ const PERSONAS = [
 ];
 
 export default function AutopilotPage() {
-  const { token } = useAuth();
+  const { token, activeTeamId } = useAuth();
   const can = useCan();
   const canManage = can('protocols.manage');
   const canRun     = can('protocols.run');
@@ -48,9 +48,9 @@ export default function AutopilotPage() {
 
   // -- bootstrap profile + account lists --
   useEffect(() => {
-    window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
-    window.api.accounts.listForUser({ token }).then((r) => { if (r.ok) setAccounts(r.accounts || []); });
-  }, [token]);
+    window.api.profiles.list({ token, teamId: activeTeamId }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
+    window.api.accounts.listForUser({ token, teamId: activeTeamId }).then((r) => { if (r.ok) setAccounts(r.accounts || []); });
+  }, [token, activeTeamId]);
 
   // -- load the protocol for the current (profile, platform) selection --
   const loadProtocol = useCallback(async () => {

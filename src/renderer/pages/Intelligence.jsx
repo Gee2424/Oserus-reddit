@@ -78,7 +78,7 @@ const PLATFORM_LANG = {
 };
 
 export default function IntelligencePage() {
-  const { token } = useAuth();
+  const { token, activeTeamId } = useAuth();
 
   const [profiles, setProfiles] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -92,9 +92,9 @@ export default function IntelligencePage() {
   const [tab, setTab] = useState('discover');
 
   useEffect(() => {
-    window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
-    window.api.accounts.listForUser({ token }).then((r) => { if (r.ok) setAccounts(r.accounts || []); });
-  }, [token]);
+    window.api.profiles.list({ token, teamId: activeTeamId }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
+    window.api.accounts.listForUser({ token, teamId: activeTeamId }).then((r) => { if (r.ok) setAccounts(r.accounts || []); });
+  }, [token, activeTeamId]);
 
   useEffect(() => {
     if (!msg && !err) return;
@@ -172,6 +172,7 @@ export default function IntelligencePage() {
           {(platform !== 'reddit' || tab === 'discover') && (
             <DiscoverPanel
               token={token}
+              activeTeamId={activeTeamId}
               accountId={sel.accountId}
               profileId={sel.profileId}
               platform={platform}
@@ -201,7 +202,7 @@ export default function IntelligencePage() {
 
 // ─────────────────────────────────────────────────── Discover (per platform)
 
-function DiscoverPanel({ token, accountId, profileId, platform, lang, onMsg, onError }) {
+function DiscoverPanel({ token, activeTeamId, accountId, profileId, platform, lang, onMsg, onError }) {
   const [target, setTarget] = useState('');
   const [query,  setQuery]  = useState('');
   // Reddit-only.
@@ -212,8 +213,8 @@ function DiscoverPanel({ token, accountId, profileId, platform, lang, onMsg, onE
   const [savePlanProfileId, setSavePlanProfileId] = useState('');
   const [profiles, setProfiles] = useState([]);
   useEffect(() => {
-    window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
-  }, [token]);
+    window.api.profiles.list({ token, teamId: activeTeamId }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
+  }, [token, activeTeamId]);
   // If a model is already picked upstream, default the save-target to it.
   useEffect(() => {
     if (profileId) setSavePlanProfileId(String(profileId));

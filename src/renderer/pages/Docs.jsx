@@ -3,7 +3,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 
 export default function DocsPage() {
-  const { token } = useAuth();
+  const { token, activeTeamId } = useAuth();
   const can = useCan();
   const [docs, setDocs] = useState([]);
   const [profiles, setProfiles] = useState([]);
@@ -17,13 +17,13 @@ export default function DocsPage() {
   async function loadAll() {
     const [d, p] = await Promise.all([
       window.api.docs.list({ token }),
-      window.api.profiles.list({ token }),
+      window.api.profiles.list({ token, teamId: activeTeamId }),
     ]);
     if (d.ok) setDocs(d.docs);
     if (p.ok) setProfiles(p.profiles);
   }
 
-  useEffect(() => { loadAll(); }, [token]);
+  useEffect(() => { loadAll(); }, [token, activeTeamId]);
 
   function openDoc(doc) {
     setSelected(doc);

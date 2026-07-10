@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './lib/auth.jsx';
 import { PermissionsProvider } from './lib/permissions.jsx';
 import { ActiveAccountProvider } from './lib/activeAccount.jsx';
@@ -9,6 +9,7 @@ import DashboardPage from './pages/Dashboard.jsx';
 import ProfilesPage from './pages/Profiles.jsx';
 import ModelDetailPage from './pages/ModelDetail.jsx';
 // Team page merged into the Management Hub (Dashboard).
+import TeamPage from './pages/Team.jsx';
 import SettingsPage from './pages/Settings.jsx';
 import DocsPage from './pages/Docs.jsx';
 import AnalyticsPage from './pages/Analytics.jsx';
@@ -44,11 +45,22 @@ function getPopoutInfo() {
 
 function Inner() {
   const { user, loading } = useAuth();
-  const [route, setRoute] = useState('dashboard');
+  const [route, setRoute] = useState('loading');
   const [routeParams, setRouteParams] = useState({});
-  // Force a re-parse of the hash whenever it changes so popouts can
-  // switch routes in-place without a full page reload.
   const [, forceHash] = React.useState(0);
+
+  // After login, check if user has teams — if zero, go to team creation
+  useEffect(() => {
+    if (!user) return;
+    window.api.team.listTeams({}).then(res => {
+      if (res.ok && res.teams && res.teams.length > 0) {
+        setRoute('dashboard');
+      } else {
+        setRoute('team');
+      }
+    }).catch(() => setRoute('dashboard'));
+  }, [user]);
+
   React.useEffect(() => {
     const onHash = () => forceHash((n) => n + 1);
     window.addEventListener('hashchange', onHash);
@@ -64,6 +76,11 @@ function Inner() {
     </div>;
   }
   if (!user) return <LoginPage />;
+  if (route === 'loading') {
+    return <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
+      <div className="mono dim">loading…</div>
+    </div>;
+  }
 
   const navigate = (r, params = {}) => {
     setRoute(r);
@@ -90,6 +107,7 @@ function Inner() {
         return <SettingsPage navigate={navigate} />;
       case 'votes':
         return <SchedulerProPage initialProTab="configure" navigate={navigate} />;
+      case 'team': return <TeamPage navigate={navigate} />;
       case 'settings': return <SettingsPage navigate={navigate} />;
       case 'docs': return <DocsPage />;
       case 'analytics': return <AnalyticsPage />;

@@ -100,6 +100,12 @@ const OPERATOR_PERMISSIONS = [
 
 const BUILTIN_ROLES = [
   {
+    key: 'owner',
+    label: 'Owner',
+    description: 'Team owner with full access to everything.',
+    permissions: PERMISSION_KEYS, // all
+  },
+  {
     key: 'admin',
     label: 'Admin',
     description: 'Full access to everything.',

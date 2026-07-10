@@ -1,10 +1,10 @@
 const { net, session } = require('electron');
 const proxyChain = require('proxy-chain');
 const ipv4Bridge = require('../services/ipv4Bridge');
-const { getDb, encryptSecret, decryptSecret } = require('../db');
+const { getDb, encryptSecret, decryptSecret, credentialVaultGet, credentialVaultSet, credentialVaultDelete } = require('../db');
 const { userFromToken } = require('./auth');
 const { requirePermission } = require('../permissions');
-const { markDirty } = require('../sync/supabase');
+
 
 function ensureProxyMigrations() {
   const db = getDb();
@@ -28,6 +28,7 @@ function ensureProxyMigrations() {
   // / Webshare all expose a token URL the operator can GET to flip
   // the IP without changing the proxy host or creds. Optional.
   if (!have('rotation_url'))          db.exec('ALTER TABLE proxies ADD COLUMN rotation_url TEXT');
+  if (!have('team_id'))               db.exec('ALTER TABLE proxies ADD COLUMN team_id TEXT');
 }
 
 // Reach the public IP via the proxy. Resolves true if the request comes
@@ -42,7 +43,7 @@ async function pingProxy(proxy) {
   const partition = `proxy-test-${proxy.id}-${Date.now()}`;
   const sess = session.fromPartition(partition);
   const scheme = ['http','https','socks4','socks4a','socks5','socks5h'].includes(proxy.kind) ? proxy.kind : 'http';
-  const pw = proxy.username ? (decryptSecret(proxy.password_encrypted) || '') : null;
+  const pw = proxy.username ? (credentialVaultGet('proxy_password', proxy.id) || decryptSecret(proxy.password_encrypted) || '') : null;
 
   let proxyRules;
   if (proxy.username) {
@@ -102,21 +103,28 @@ async function pingProxy(proxy) {
 
 function register(ipcMain) {
   ensureProxyMigrations();
-  ipcMain.handle('proxies:list', (_e, { token }) => {
+  ipcMain.handle('proxies:list', (_e, { token, teamId }) => {
     const user = userFromToken(token);
     if (!user) return { ok: false, error: 'Not authenticated' };
     ensureProxyMigrations();
-    const rows = getDb()
-      .prepare(`SELECT id, label, kind, host, port, username, password_encrypted, created_at,
-                       last_test_ok, last_test_at, last_test_error,
-                       rotation_minutes, session_user_template, rotation_url
-                FROM proxies ORDER BY label`)
-      .all();
+    const rows = teamId
+      ? getDb()
+          .prepare(`SELECT id, label, kind, host, port, username, password_encrypted, created_at,
+                           last_test_ok, last_test_at, last_test_error,
+                           rotation_minutes, session_user_template, rotation_url
+                    FROM proxies WHERE team_id = ? ORDER BY label`)
+          .all(teamId)
+      : getDb()
+          .prepare(`SELECT id, label, kind, host, port, username, password_encrypted, created_at,
+                           last_test_ok, last_test_at, last_test_error,
+                           rotation_minutes, session_user_template, rotation_url
+                    FROM proxies ORDER BY label`)
+          .all();
     return {
       ok: true,
       proxies: rows.map(r => ({
         ...r,
-        has_password: !!r.password_encrypted,
+        has_password: !!(r.password_encrypted || credentialVaultGet('proxy_password', r.id)),
         password_encrypted: undefined,
       })),
     };
@@ -163,7 +171,7 @@ function register(ipcMain) {
   ipcMain.handle('proxies:create', (_e, args) => {
     try {
       const { token, label, kind, host, port, username, password,
-              rotation_minutes, session_user_template, rotation_url } = args;
+              rotation_minutes, session_user_template, rotation_url, teamId } = args;
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'infra.proxies.manage');
@@ -172,17 +180,18 @@ function register(ipcMain) {
       const info = getDb()
         .prepare(
           `INSERT INTO proxies
-             (label, kind, host, port, username, password_encrypted,
-              rotation_minutes, session_user_template, rotation_url)
+             (label, kind, host, port, username,
+              rotation_minutes, session_user_template, rotation_url, team_id)
            VALUES (?,?,?,?,?,?,?,?,?)`
         )
         .run(
-          label, kind, host, Number(port), username || null, encryptSecret(password),
+          label, kind, host, Number(port), username || null,
           Math.max(0, Number(rotation_minutes) || 0),
           session_user_template || null,
           rotation_url || null,
+          teamId || null,
         );
-      markDirty();
+      if (password) credentialVaultSet('proxy_password', info.lastInsertRowid, password);
       return { ok: true, id: info.lastInsertRowid };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -203,13 +212,12 @@ function register(ipcMain) {
         }
       }
       if (updates.password !== undefined) {
-        sets.push('password_encrypted = ?');
-        params.push(updates.password ? encryptSecret(updates.password) : null);
+        if (updates.password) credentialVaultSet('proxy_password', proxyId, updates.password);
+        else credentialVaultDelete('proxy_password', proxyId);
       }
       if (!sets.length) return { ok: true };
       params.push(proxyId);
       getDb().prepare(`UPDATE proxies SET ${sets.join(', ')} WHERE id = ?`).run(...params);
-      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -256,7 +264,6 @@ function register(ipcMain) {
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'infra.proxies.manage');
       getDb().prepare('DELETE FROM proxies WHERE id = ?').run(proxyId);
-      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -275,7 +282,7 @@ function register(ipcMain) {
       )
       .get(accountId);
     if (!row) return { ok: true, proxy: null };
-    const password = decryptSecret(row.password_encrypted);
+    const password = credentialVaultGet('proxy_password', row.id) || decryptSecret(row.password_encrypted) || '';
     const auth = row.username ? `${encodeURIComponent(row.username)}:${encodeURIComponent(password || '')}@` : '';
     const scheme = row.kind === 'socks5' ? 'socks5' : (row.kind === 'https' ? 'https' : 'http');
     return {

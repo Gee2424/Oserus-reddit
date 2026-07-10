@@ -20,7 +20,7 @@ function ensureTable() {
 }
 
 function register(ipcMain) {
-  ipcMain.handle('analytics:summary', (_e, { token, profileId }) => {
+  ipcMain.handle('analytics:summary', (_e, { token, profileId, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
@@ -28,18 +28,24 @@ function register(ipcMain) {
 
       // Per-account roll-up. Most VAs care about: status, total karma if known,
       // number of posts they've drafted/scheduled.
-      const accounts = profileId
-        ? getDb().prepare(
-            `SELECT a.id, a.username, a.platform, a.status, a.profile_id, p.name AS profile_name
-             FROM reddit_accounts a LEFT JOIN model_profiles p ON p.id = a.profile_id
-             WHERE a.profile_id = ?
-             ORDER BY a.username`
-          ).all(profileId)
-        : getDb().prepare(
-            `SELECT a.id, a.username, a.platform, a.status, a.profile_id, p.name AS profile_name
-             FROM reddit_accounts a LEFT JOIN model_profiles p ON p.id = a.profile_id
-             ORDER BY a.profile_id, a.username`
-          ).all();
+      let acctSql, acctParams;
+      if (profileId) {
+        acctSql = `SELECT a.id, a.username, a.platform, a.status, a.profile_id, p.name AS profile_name
+                   FROM reddit_accounts a LEFT JOIN model_profiles p ON p.id = a.profile_id
+                   WHERE a.profile_id = ?`;
+        acctParams = [profileId];
+      } else if (teamId) {
+        acctSql = `SELECT a.id, a.username, a.platform, a.status, a.profile_id, p.name AS profile_name
+                   FROM reddit_accounts a LEFT JOIN model_profiles p ON p.id = a.profile_id
+                   WHERE a.team_id = ?`;
+        acctParams = [teamId];
+      } else {
+        acctSql = `SELECT a.id, a.username, a.platform, a.status, a.profile_id, p.name AS profile_name
+                   FROM reddit_accounts a LEFT JOIN model_profiles p ON p.id = a.profile_id
+                   ORDER BY a.profile_id, a.username`;
+        acctParams = [];
+      }
+      const accounts = acctParams.length ? getDb().prepare(acctSql).all(...acctParams) : getDb().prepare(acctSql).all();
 
       const stats = accounts.map(a => {
         const latest = getDb().prepare(

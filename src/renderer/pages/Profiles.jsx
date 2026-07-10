@@ -9,7 +9,7 @@ import { Banner } from '../components/ui.jsx';
 const COLORS = ['#c8553d', '#d4a55a', '#7a9a5a', '#5a7a9a', '#9a5a8e', '#8e6a4a'];
 
 export default function ProfilesPage({ navigate }) {
-  const { token, user } = useAuth();
+  const { token, user, activeTeamId } = useAuth();
   const { startAccount } = useActiveAccount();
   const { isAvailable, checkAvailability, launchProgress, cloakStatus } = useCloakManagerLaunch();
   const [profiles, setProfiles] = useState([]);
@@ -22,7 +22,7 @@ export default function ProfilesPage({ navigate }) {
 
     try {
       // Get accounts for this profile
-      const accounts = await window.api.accounts.listForProfile({ token, profileId });
+      const accounts = await window.api.accounts.listForProfile({ token, profileId, teamId: activeTeamId });
       if (!accounts.ok) {
         alert(accounts.error || 'Could not load accounts');
         setLaunchingProfile(null);
@@ -103,13 +103,13 @@ export default function ProfilesPage({ navigate }) {
   }
 
   async function load() {
-    const p = await window.api.profiles.list({ token });
+    const p = await window.api.profiles.list({ token, teamId: activeTeamId });
     if (p.ok) setProfiles(p.profiles);
     if (canManage) {
       const u = await window.api.auth.listUsers({ token });
       if (u.ok) setUsers(u.users);
     }
-    const px = await window.api.proxies.list({ token }).catch(() => ({ ok: false }));
+    const px = await window.api.proxies.list({ token, teamId: activeTeamId }).catch(() => ({ ok: false }));
     if (px.ok) setProxies(px.proxies || []);
     const r = await window.api.roles.list({ token }).catch(() => ({ ok: false }));
     if (r.ok) setRoles(r.roles || []);
@@ -126,7 +126,7 @@ export default function ProfilesPage({ navigate }) {
   useEffect(() => {
     load();
     checkAvailability(token);
-  }, []);
+  }, [token, activeTeamId]);
   useCloudReload(['model_profiles', 'proxies', 'roles', 'role_permissions'], () => { load(); });
 
   async function addProfile(e) {
@@ -138,6 +138,7 @@ export default function ProfilesPage({ navigate }) {
       assignedUserId: form.assigned_user_id ? Number(form.assigned_user_id) : null,
       niche: form.niche, brandVoice: form.brand_voice, notes: form.notes,
       avatarColor: form.avatar_color,
+      teamId: activeTeamId,
     });
     if (!res.ok) { setError(res.error); return; }
     setForm(blank()); setShowAdd(false); load();

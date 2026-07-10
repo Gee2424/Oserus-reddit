@@ -28,7 +28,7 @@ import PopOutButton from '../components/PopOutButton.jsx';
 // operations grid.
 
 export default function DashboardPage() {
-  const { token, user } = useAuth();
+  const { token, user, activeTeamId } = useAuth();
   const can = useCan();
   const canSeeTeam = can('activity.view');
   const canAdminMembers = can('users.manage');
@@ -47,7 +47,7 @@ export default function DashboardPage() {
   const refresh = useCallback(async () => {
     try {
       const [o, a] = await Promise.all([
-        window.api.team.overview({ token }),
+        window.api.team.overview({ token, teamId: activeTeamId }),
         window.api.activity.list({ token, limit: 200 }),
       ]);
       if (o.ok) { setOverview(o); setLoadError(null); }
@@ -56,7 +56,7 @@ export default function DashboardPage() {
     } catch (err) {
       setLoadError(err.message);
     }
-  }, [token]);
+  }, [token, activeTeamId]);
 
   useEffect(() => { refresh(); }, [refresh]);
   // Live refresh every 10s so heartbeat-driven presence and time-on-task
@@ -73,12 +73,12 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!expanded) { setDetail(null); return; }
     let alive = true;
-    window.api.team.memberDetail({ token, userId: expanded }).then((r) => {
+    window.api.team.memberDetail({ token, teamId: activeTeamId, userId: expanded }).then((r) => {
       if (!alive) return;
       setDetail(r.ok ? r : { ok: false, error: r.error });
     });
     return () => { alive = false; };
-  }, [expanded, token]);
+  }, [expanded, token, activeTeamId]);
 
   const totals = overview?.totals || EMPTY_TOTALS;
   const members = overview?.members || [];

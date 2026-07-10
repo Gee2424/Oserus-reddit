@@ -1,7 +1,7 @@
 const { getDb } = require('../db');
 const { userFromToken, requireManagerOrAdmin } = require('./auth');
 const { hasPermission } = require('../permissions');
-const { markDirty } = require('../sync/supabase');
+
 
 // Add proxy_id to model_profiles so a single proxy can be inherited by every
 // account under a model. Account-level proxy_id still wins when set.
@@ -45,14 +45,25 @@ function listAssignments(profileId) {
 
 function register(ipcMain) {
   ensureProfileMigrations();
-  ipcMain.handle('profiles:list', (_e, { token }) => {
+  ipcMain.handle('profiles:list', (_e, { token, teamId }) => {
     const user = userFromToken(token);
     if (!user) return { ok: false, error: 'Not authenticated' };
 
     // Non-managers see profiles they're either the legacy primary assignee on
     // OR a member of via profile_assignments.
-    const rows =
-      hasPermission(user, 'profiles.manage')
+    const rows = teamId
+      ? getDb()
+          .prepare(
+            `SELECT p.*, u.display_name AS assigned_to_name, u.username AS assigned_to_username,
+                    (SELECT COUNT(*) FROM reddit_accounts WHERE profile_id = p.id) AS account_count,
+                    (SELECT COUNT(*) FROM reddit_accounts WHERE profile_id = p.id AND status = 'ready') AS ready_count
+             FROM model_profiles p
+             LEFT JOIN users u ON u.id = p.assigned_user_id
+             WHERE p.team_id = ?
+             ORDER BY p.created_at DESC`
+          )
+          .all(teamId)
+      : hasPermission(user, 'profiles.manage')
         ? getDb()
             .prepare(
               `SELECT p.*, u.display_name AS assigned_to_name, u.username AS assigned_to_username,
@@ -116,14 +127,13 @@ function register(ipcMain) {
 
   ipcMain.handle('profiles:create', (_e, args) => {
     try {
-      const { token, name, assignedUserId, niche, brandVoice, notes, avatarColor } = args;
+      const { token, name, assignedUserId, niche, brandVoice, notes, avatarColor, teamId } = args;
       requireManagerOrAdmin(token);
       const info = getDb()
         .prepare(
-          'INSERT INTO model_profiles (name, assigned_user_id, niche, brand_voice, notes, avatar_color) VALUES (?,?,?,?,?,?)'
+          'INSERT INTO model_profiles (name, assigned_user_id, niche, brand_voice, notes, avatar_color, team_id) VALUES (?,?,?,?,?,?,?)'
         )
-        .run(name, assignedUserId || null, niche || null, brandVoice || null, notes || null, avatarColor || null);
-      markDirty();
+        .run(name, assignedUserId || null, niche || null, brandVoice || null, notes || null, avatarColor || null, teamId || null);
       return { ok: true, id: info.lastInsertRowid };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -144,7 +154,6 @@ function register(ipcMain) {
       if (!sets.length) return { ok: true };
       params.push(profileId);
       getDb().prepare(`UPDATE model_profiles SET ${sets.join(', ')} WHERE id = ?`).run(...params);
-      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -157,7 +166,6 @@ function register(ipcMain) {
       getDb()
         .prepare('UPDATE model_profiles SET assigned_user_id = ? WHERE id = ?')
         .run(assignedUserId || null, profileId);
-      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -168,7 +176,6 @@ function register(ipcMain) {
     try {
       requireManagerOrAdmin(token);
       getDb().prepare('DELETE FROM model_profiles WHERE id = ?').run(profileId);
-      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };

@@ -74,7 +74,7 @@ function splitOnce(s, sep) {
 
 // Proxy management. Reused on the Operations page.
 export default function ProxiesPanel() {
-  const { token } = useAuth();
+  const { token, activeTeamId } = useAuth();
   const can = useCan();
   const canManage = can('infra.proxies.manage');
   const [proxies, setProxies] = useState([]);
@@ -102,7 +102,7 @@ export default function ProxiesPanel() {
   }
 
   async function load() {
-    const res = await window.api.proxies.list({ token });
+    const res = await window.api.proxies.list({ token, teamId: activeTeamId });
     if (res.ok) setProxies(res.proxies);
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [token]);
@@ -132,6 +132,7 @@ export default function ProxiesPanel() {
         rotation_minutes: Math.max(0, Number(form.rotation_minutes) || 0),
         session_user_template: form.session_user_template || null,
         rotation_url: form.rotation_url || null,
+        teamId: activeTeamId,
       });
     }
     if (!res.ok) { setError(res.error); return; }

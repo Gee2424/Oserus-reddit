@@ -45,7 +45,7 @@ function timeLabel(s) {
 // Monitor / Replenish flow — that was a wrapper around the same data.
 
 export default function SchedulerProPage() {
-  const { token } = useAuth();
+  const { token, activeTeamId } = useAuth();
   const { accounts } = useActiveAccount();
 
   const [profiles, setProfiles] = useState([]);
@@ -55,8 +55,8 @@ export default function SchedulerProPage() {
   const [err, setErr] = useState(null);
 
   useEffect(() => {
-    window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
-  }, [token]);
+    window.api.profiles.list({ token, teamId: activeTeamId }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
+  }, [token, activeTeamId]);
 
   const load = useCallback(async () => {
     if (!sel.accountId) { setPosts([]); return; }

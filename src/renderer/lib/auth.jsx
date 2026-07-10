@@ -2,55 +2,107 @@ import React, { createContext, useContext, useEffect, useRef, useState } from 'r
 
 const AuthCtx = createContext(null);
 
-// Presence heartbeat config — matches the main process IDLE_GAP_MS (5
-// min). The renderer pings every 20s with the timestamp of its last
-// real user input; the main process credits time-on-task only when
-// that timestamp is within the 5-minute window.
-const HEARTBEAT_MS = 20_000;
+function normalizeUser(u) {
+  if (!u) return null;
+  return {
+    id: u.id,
+    email: u.email,
+    username: u.display_name || u.email || u.id,
+    display_name: u.display_name || u.email || 'User',
+    role: u.role || 'member',
+  };
+}
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => localStorage.getItem('token') || null);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeTeamId, setActiveTeamId] = useState(null);
   const lastInputAt = useRef(Date.now());
 
   useEffect(() => {
     let cancelled = false;
     async function check() {
-      if (!token) {
-        setUser(null);
-        setLoading(false);
-        return;
-      }
-      const res = await window.api.auth.me({ token });
-      if (cancelled) return;
-      if (res.ok) setUser(res.user);
-      else {
-        setToken(null);
-        localStorage.removeItem('token');
+      try {
+        const res = await window.api.teamAuth.me();
+        if (cancelled) return;
+        if (res.ok && res.user) {
+          const u = normalizeUser(res.user);
+          setUser(u);
+          const teamsRes = await window.api.team.listTeams({});
+          if (teamsRes.ok && teamsRes.teams && teamsRes.teams.length > 0) {
+            setActiveTeamId(teamsRes.teams[0].id);
+          }
+        } else {
+          setUser(null);
+        }
+      } catch {
         setUser(null);
       }
       setLoading(false);
     }
     check();
     return () => { cancelled = true; };
-  }, [token]);
+  }, []);
 
-  async function login(username, password) {
-    const res = await window.api.auth.login({ username, password });
+  async function signUp(email, password) {
+    const res = await window.api.teamAuth.signUp({ email, password });
     if (res.ok) {
-      localStorage.setItem('token', res.token);
-      setToken(res.token);
-      setUser(res.user);
+      const u = normalizeUser(res.user);
+      setUser(u);
+      const teamId = res.defaultTeamId;
+      if (teamId) {
+        setActiveTeamId(teamId);
+        window.api.team.backfillData({ teamId }).catch(() => {});
+        window.api.team.loadTeamKey({ teamId }).catch(() => {});
+      }
+      // Wire auth client for sync
+      const sessionRes = await window.api.teamAuth.getSession({});
+      if (sessionRes.ok && sessionRes.session?.access_token) {
+        window.api.cloud.setAccessToken({ token: sessionRes.session.access_token }).catch(() => {});
+      }
       return { ok: true };
     }
     return { ok: false, error: res.error };
   }
 
-  // Track real user input so the heartbeat can tell the main process
-  // when we're idle. Any of these resets the timer.
+  async function signIn(email, password) {
+    const res = await window.api.teamAuth.signIn({ email, password });
+    if (res.ok) {
+      const u = normalizeUser(res.user);
+      setUser(u);
+      const teamId = res.defaultTeamId;
+      if (teamId) {
+        setActiveTeamId(teamId);
+        window.api.team.backfillData({ teamId }).catch(() => {});
+        window.api.team.loadTeamKey({ teamId }).catch(() => {});
+      }
+      // Wire auth client for sync
+      const sessionRes = await window.api.teamAuth.getSession({});
+      if (sessionRes.ok && sessionRes.session?.access_token) {
+        window.api.cloud.setAccessToken({ token: sessionRes.session.access_token }).catch(() => {});
+      }
+      return { ok: true };
+    }
+    return { ok: false, error: res.error };
+  }
+
+  async function changePassword(newPassword) {
+    const res = await window.api.teamAuth.changePassword({ newPassword });
+    return res.ok ? { ok: true } : { ok: false, error: res.error };
+  }
+
+  async function logout() {
+    await window.api.teamAuth.signOut();
+    setUser(null);
+    setActiveTeamId(null);
+  }
+
+  function setActiveTeam(teamId) {
+    setActiveTeamId(teamId);
+  }
+
   useEffect(() => {
-    if (!token) return;
+    if (!user) return;
     const bump = () => { lastInputAt.current = Date.now(); };
     const opts = { passive: true, capture: true };
     window.addEventListener('mousedown', bump, opts);
@@ -65,34 +117,25 @@ export function AuthProvider({ children }) {
       window.removeEventListener('touchstart',bump, opts);
       window.removeEventListener('focus',     bump);
     };
-  }, [token]);
+  }, [user]);
 
-  // Heartbeat loop. Fires immediately on login + every HEARTBEAT_MS
-  // while logged in. Carries the last-input timestamp so the server
-  // can pause the timer after 5 minutes of nothing.
   useEffect(() => {
-    if (!token) return;
+    if (!user) return;
     let stopped = false;
+    const machineId = 'desktop-' + (user.id || 'unknown').slice(0, 8);
     const beat = () => {
       if (stopped) return;
       try {
-        window.api.auth.heartbeat?.({ token, lastActionAt: lastInputAt.current, source: 'app' });
+        window.api.team.heartbeat?.({ machineId, label: 'Desktop', autopilotEnabled: true, appVersion: '' });
       } catch {}
     };
     beat();
-    const id = setInterval(beat, HEARTBEAT_MS);
+    const id = setInterval(beat, 30000);
     return () => { stopped = true; clearInterval(id); };
-  }, [token]);
-
-  async function logout() {
-    if (token) await window.api.auth.logout({ token });
-    localStorage.removeItem('token');
-    setToken(null);
-    setUser(null);
-  }
+  }, [user]);
 
   return (
-    <AuthCtx.Provider value={{ token, user, loading, login, logout }}>
+    <AuthCtx.Provider value={{ user, loading, signIn, signUp, logout, changePassword, isFirstLogin: false, activeTeamId, setActiveTeam }}>
       {children}
     </AuthCtx.Provider>
   );

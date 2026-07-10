@@ -41,7 +41,7 @@ const PLAT_ICONS = { reddit: '🔴', redgifs: '🟠', x: '🔵', instagram: '�
 const PLATFORMS = SHARED_PLATFORMS.map((p) => ({ ...p, icon: PLAT_ICONS[p.v] || '◈' }));
 
 export default function ModelDetailPage({ modelId, navigate }) {
-  const { token, user } = useAuth();
+  const { token, user, activeTeamId } = useAuth();
   const { refresh: refreshActive, startAccount } = useActiveAccount();
   const [model, setModel] = useState(null);
   const [accounts, setAccounts] = useState([]);
@@ -86,9 +86,9 @@ export default function ModelDetailPage({ modelId, navigate }) {
   async function load() {
     setLoading(true);
     const [profilesRes, accountsRes, proxiesRes, promoRes, activityRes] = await Promise.all([
-      window.api.profiles.list({ token }),
-      window.api.accounts.listForProfile({ token, profileId: Number(modelId) }),
-      window.api.proxies.list({ token }),
+      window.api.profiles.list({ token, teamId: activeTeamId }),
+      window.api.accounts.listForProfile({ token, profileId: Number(modelId), teamId: activeTeamId }),
+      window.api.proxies.list({ token, teamId: activeTeamId }),
       window.api.subs.listPromo({ token, profileId: Number(modelId) }),
       canViewActivity
         ? window.api.activity.list({ token, limit: 20 })
@@ -125,7 +125,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
   useEffect(() => {
     load();
     if (token) checkAvailability(token);
-  }, [modelId, token, checkAvailability]);
+  }, [modelId, token, activeTeamId, checkAvailability]);
 
   function startAddFor(platform) {
     setEditing(null);
@@ -270,6 +270,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
       port: Number(proxyForm.port),
       username: proxyForm.username || null,
       password: proxyForm.password || null,
+      teamId: activeTeamId,
     });
     if (!res.ok) { setProxyError(res.error); return; }
     setProxyForm({ label: '', kind: 'http', host: '', port: '', username: '', password: '' });

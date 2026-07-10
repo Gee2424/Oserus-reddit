@@ -6,7 +6,7 @@ import { Banner } from '../components/ui.jsx';
 const STATUS_COLORS = { warming: '#d4a55a', ready: '#7a9a5a', paused: '#968b78', banned: '#b3473a' };
 
 export default function AnalyticsPage() {
-  const { token } = useAuth();
+  const { token, activeTeamId } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -17,7 +17,7 @@ export default function AnalyticsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await window.api.analytics.summary({ token });
+      const res = await window.api.analytics.summary({ token, teamId: activeTeamId });
       if (res.ok) {
         setData(res);
       } else {

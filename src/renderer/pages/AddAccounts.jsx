@@ -30,7 +30,7 @@ const STATUSES = [
 ];
 
 export default function AddAccountsPage({ navigate, initialTab }) {
-  const { token } = useAuth();
+  const { token, activeTeamId } = useAuth();
   const [tab, setTab] = useState(initialTab && TABS.some((t) => t.key === initialTab) ? initialTab : 'bulk');
   const [profiles, setProfiles] = useState([]);
   const [proxies, setProxies] = useState([]);
@@ -45,9 +45,9 @@ export default function AddAccountsPage({ navigate, initialTab }) {
   const [last, setLast] = useState(null);
 
   useEffect(() => {
-    window.api.profiles.list({ token }).then((r) => { if (r.ok) setProfiles(r.profiles); });
-    window.api.proxies.list({ token }).then((r) => { if (r.ok) setProxies(r.proxies); });
-  }, [token]);
+    window.api.profiles.list({ token, teamId: activeTeamId }).then((r) => { if (r.ok) setProfiles(r.profiles); });
+    window.api.proxies.list({ token, teamId: activeTeamId }).then((r) => { if (r.ok) setProxies(r.proxies); });
+  }, [token, activeTeamId]);
 
   useEffect(() => {
     if (!msg && !err) return;
@@ -300,7 +300,7 @@ export default function AddAccountsPage({ navigate, initialTab }) {
 
           {tab === 'warmup' && <WarmupSubsPanel token={token} />}
 
-          {tab === 'backup' && <BackupPoolPanel token={token} />}
+          {tab === 'backup' && <BackupPoolPanel token={token} activeTeamId={activeTeamId} />}
 
           {tab === 'proxies' && <ProxiesPanel />}
         </div>
@@ -388,14 +388,14 @@ function WarmupSubsPanel({ token }) {
   );
 }
 
-function BackupPoolPanel({ token }) {
+function BackupPoolPanel({ token, activeTeamId }) {
   const [accounts, setAccounts] = useState([]);
 
   async function load() {
-    const r = await window.api.accounts.listForUser({ token });
+    const r = await window.api.accounts.listForUser({ token, teamId: activeTeamId });
     if (r.ok) setAccounts(r.accounts || []);
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [activeTeamId]);
 
   async function mark(id, status) {
     await window.api.accounts.bulkSetStatus({ token, accountIds: [id], status });
