@@ -10,6 +10,32 @@ function getDb() {
 }
 
 // Encrypt sensitive data using Electron's safeStorage (OS keychain-backed)
+function credentialVaultGet(refType, refId) {
+  try {
+    const row = db.prepare(
+      'SELECT password_encrypted FROM credential_vault WHERE ref_type = ? AND ref_id = ?'
+    ).get(refType, String(refId));
+    return row ? decryptSecret(row.password_encrypted) : null;
+  } catch { return null; }
+}
+
+function credentialVaultSet(refType, refId, plaintext) {
+  try {
+    const enc = encryptSecret(plaintext);
+    db.prepare(
+      `INSERT INTO credential_vault (ref_type, ref_id, password_encrypted) VALUES (?, ?, ?)
+       ON CONFLICT(ref_type, ref_id) DO UPDATE SET password_encrypted = excluded.password_encrypted`
+    ).run(refType, String(refId), enc);
+  } catch (e) { console.error('[db] credentialVaultSet failed:', e.message); }
+}
+
+function credentialVaultDelete(refType, refId) {
+  try {
+    db.prepare('DELETE FROM credential_vault WHERE ref_type = ? AND ref_id = ?')
+      .run(refType, String(refId));
+  } catch {}
+}
+
 function encryptSecret(plaintext) {
   if (!plaintext) return null;
   if (!safeStorage.isEncryptionAvailable()) {
@@ -91,6 +117,21 @@ function initDatabase() {
       username TEXT,
       password_encrypted TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Per-machine credential vault. NEVER synced to Supabase.
+    -- Each machine stores account/proxy passwords locally, encrypted
+    -- with the machine's OS keychain (safeStorage). ref_type indicates
+    -- the kind of credential ('account_password', 'email_password',
+    -- 'proxy_password') and ref_id is the Supabase UUID of the
+    -- associated record.
+    CREATE TABLE IF NOT EXISTS credential_vault (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ref_type TEXT NOT NULL,
+      ref_id TEXT NOT NULL,
+      password_encrypted TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(ref_type, ref_id)
     );
 
     CREATE TABLE IF NOT EXISTS webview_tabs (
@@ -660,6 +701,15 @@ function initDatabase() {
       console.log('[db] geo cache columns added (timezone, country, checked_at).');
     }
 
+    // team_id — scopes data to a specific team. Added as part of the
+    // team architecture migration. Nullable for backward compatibility
+    // with existing data until backfill runs.
+    const hasAccountTeamId = cols.some((c) => c.name === 'team_id');
+    if (!hasAccountTeamId) {
+      db.exec("ALTER TABLE reddit_accounts ADD COLUMN team_id TEXT");
+      console.log('[db] team_id column added to reddit_accounts.');
+    }
+
     // Per-profile fingerprint. A real person has ONE device, not a
     // separate one per platform — so the fingerprint, OS profile, and
     // proxy-geo cache live on model_profiles and get reused by every
@@ -675,22 +725,12 @@ function initDatabase() {
       if (!pHave('geo_timezone'))     db.exec('ALTER TABLE model_profiles ADD COLUMN geo_timezone TEXT');
       if (!pHave('geo_country'))      db.exec('ALTER TABLE model_profiles ADD COLUMN geo_country TEXT');
       if (!pHave('geo_checked_at'))   db.exec('ALTER TABLE model_profiles ADD COLUMN geo_checked_at TEXT');
+      if (!pHave('team_id'))          db.exec('ALTER TABLE model_profiles ADD COLUMN team_id TEXT');
     } catch (e) {
       console.error('[db] model_profiles fingerprint migration failed:', e.message);
     }
   } catch (e) {
     console.error('[db] Platform migration failed:', e.message);
-  }
-
-  // Seed admin
-  const userCount = db.prepare('SELECT COUNT(*) AS c FROM users').get().c;
-  if (userCount === 0) {
-    const bcrypt = require('bcryptjs');
-    const hash = bcrypt.hashSync('changeme', 10);
-    db.prepare(
-      'INSERT INTO users (username, password_hash, role, display_name, avatar_color) VALUES (?,?,?,?,?)'
-    ).run('admin', hash, 'admin', 'Administrator', '#c8553d');
-    console.log('[db] Seeded default admin user: admin / changeme');
   }
 
   // Clean up old per-user RedGifs locked tabs from previous versions.
@@ -1089,4 +1129,4 @@ function setKv(key, value) {
   ).run(key, value == null ? null : String(value));
 }
 
-module.exports = { initDatabase, getDb, encryptSecret, decryptSecret, getKv, setKv };
+module.exports = { initDatabase, getDb, encryptSecret, decryptSecret, getKv, setKv, credentialVaultGet, credentialVaultSet, credentialVaultDelete };

@@ -444,14 +444,14 @@ async function autoTestProxies() {
     const proxies = db.prepare('SELECT * FROM proxies').all();
     if (!proxies.length) return;
     const { net, session } = require('electron');
-    const { decryptSecret } = require('../db');
+    const { decryptSecret, credentialVaultGet } = require('../db');
     for (const p of proxies) {
       const partition = `proxy-auto-${p.id}-${Date.now()}`;
       const sess = session.fromPartition(partition);
       const scheme = p.kind === 'socks5' ? 'socks5' : (p.kind === 'https' ? 'https' : 'http');
       await sess.setProxy({ proxyRules: `${scheme}://${p.host}:${p.port}`, proxyBypassRules: '<-loopback>' });
       if (p.username) {
-        const pw = decryptSecret(p.password_encrypted) || '';
+        const pw = credentialVaultGet('proxy_password', p.id) || decryptSecret(p.password_encrypted) || '';
         sess.removeAllListeners('login');
         sess.on('login', (_e, _d, _i, cb) => cb(p.username, pw));
       }

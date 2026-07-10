@@ -14,7 +14,7 @@
 const { session, net } = require('electron');
 const elog = require('electron-log');
 const fs = require('fs');
-const { getDb, decryptSecret } = require('../db');
+const { getDb, decryptSecret, credentialVaultGet } = require('../db');
 const fingerprintMod = require('../fingerprint');
 const { writePreloadFor } = require('../antidetectPreload');
 const proxyChain = require('proxy-chain');
@@ -272,7 +272,7 @@ async function prepareSessionForAccount(accountId) {
     const scheme = ['http','https','socks4','socks4a','socks5','socks5h'].includes(account.proxy_kind)
       ? account.proxy_kind
       : 'http';
-    const password = account.proxy_username ? (decryptSecret(account.proxy_pw_enc) || '') : null;
+    const password = account.proxy_username ? (credentialVaultGet('proxy_password', account.proxy_id) || decryptSecret(account.proxy_pw_enc) || '') : null;
     const username = account.proxy_username ? buildRotatingUsername(account) : null;
 
     // Chromium can't authenticate SOCKS5 at all (it has no protocol-

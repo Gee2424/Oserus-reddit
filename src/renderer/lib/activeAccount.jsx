@@ -24,7 +24,7 @@ function loadActive(platform) {
 const KNOWN_PLATFORMS = ['reddit', 'redgifs', 'x', 'instagram', 'tiktok'];
 
 export function ActiveAccountProvider({ children }) {
-  const { token, user } = useAuth();
+  const { token, user, activeTeamId } = useAuth();
   const [accounts, setAccounts] = useState([]);
   const [activeIds, setActiveIds] = useState(() => {
     const o = {};
@@ -36,7 +36,7 @@ export function ActiveAccountProvider({ children }) {
   const refresh = useCallback(async () => {
     if (!token) return;
     setLoading(true);
-    const res = await window.api.accounts.listForUser({ token });
+    const res = await window.api.accounts.listForUser({ token, teamId: activeTeamId });
     setLoading(false);
     if (res.ok) {
       setAccounts(res.accounts);

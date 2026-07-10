@@ -1,8 +1,9 @@
-const { getDb, encryptSecret, decryptSecret } = require('../db');
+const { getDb, encryptSecret, decryptSecret, credentialVaultGet, credentialVaultSet, credentialVaultDelete } = require('../db');
 const { userFromToken } = require('./auth');
 const { log } = require('./activity');
 const { hasPermission } = require('../permissions');
-const { markDirty } = require('../sync/supabase');
+const { getSharedCredential, setSharedCredential } = require('../sharedCredentials');
+
 
 function canAccessProfile(user, profileId) {
   if (hasPermission(user, 'profiles.manage')) return true;
@@ -15,8 +16,8 @@ function canAccessProfile(user, profileId) {
 function hydrateAccount(a) {
   return {
     ...a,
-    has_password: !!a.password_encrypted,
-    has_email_password: !!a.email_password_encrypted,
+    has_password: !!(a.password_encrypted || credentialVaultGet('account_password', a.id)),
+    has_email_password: !!(a.email_password_encrypted || credentialVaultGet('email_password', a.id)),
     password_encrypted: undefined,
     email_password_encrypted: undefined,
   };
@@ -117,7 +118,7 @@ function register(ipcMain) {
     }
   });
 
-  ipcMain.handle('accounts:listForProfile', (_e, { token, profileId, platform }) => {
+  ipcMain.handle('accounts:listForProfile', (_e, { token, profileId, platform, teamId }) => {
     const user = userFromToken(token);
     if (!user) return { ok: false, error: 'Not authenticated' };
     if (!canAccessProfile(user, profileId))
@@ -126,6 +127,7 @@ function register(ipcMain) {
     const params = [profileId];
     let platformClause = '';
     if (platform) { platformClause = 'AND a.platform = ?'; params.push(platform); }
+    if (teamId) { platformClause += ' AND a.team_id = ?'; params.push(teamId); }
 
     const accounts = getDb()
       .prepare(
@@ -140,7 +142,7 @@ function register(ipcMain) {
     return { ok: true, accounts: accounts.map(hydrateAccount) };
   });
 
-  ipcMain.handle('accounts:listForUser', (_e, { token, statusFilter, platform }) => {
+  ipcMain.handle('accounts:listForUser', (_e, { token, statusFilter, platform, teamId }) => {
     const user = userFromToken(token);
     if (!user) return { ok: false, error: 'Not authenticated' };
 
@@ -159,6 +161,10 @@ function register(ipcMain) {
     if (platform) {
       where.push('a.platform = ?');
       params.push(platform);
+    }
+    if (teamId) {
+      where.push('a.team_id = ?');
+      params.push(teamId);
     }
     const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
@@ -185,7 +191,7 @@ function register(ipcMain) {
 
   ipcMain.handle('accounts:create', (_e, args) => {
     try {
-      const { token, profileId, platform, username, password, email, emailPassword, status, proxyId, notes, userAgent, osProfile } = args;
+      const { token, profileId, platform, username, password, email, emailPassword, status, proxyId, notes, userAgent, osProfile, teamId } = args;
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       if (!canAccessProfile(user, profileId)) throw new Error('Not authorized');
@@ -197,16 +203,23 @@ function register(ipcMain) {
       const info = getDb()
         .prepare(
           `INSERT INTO reddit_accounts
-           (profile_id, platform, username, partition_key, password_encrypted, email, email_password_encrypted, status, proxy_id, notes, user_agent, os_profile)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+           (profile_id, platform, username, partition_key, email, status, proxy_id, notes, user_agent, os_profile, team_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?)`
         )
         .run(
           profileId, plat, username, partitionKey,
-          encryptSecret(password), email || null, encryptSecret(emailPassword),
-          status || 'warming', proxyId || null, notes || null, userAgent || null, os,
+          email || null, status || 'warming', proxyId || null, notes || null, userAgent || null, os,
+          teamId || null,
         );
+      if (password) {
+        credentialVaultSet('account_password', info.lastInsertRowid, password);
+        if (teamId) setSharedCredential(teamId, info.lastInsertRowid, 'account_password', password, user.id).catch(() => {});
+      }
+      if (emailPassword) {
+        credentialVaultSet('email_password', info.lastInsertRowid, emailPassword);
+        if (teamId) setSharedCredential(teamId, info.lastInsertRowid, 'email_password', emailPassword, user.id).catch(() => {});
+      }
       log(user, 'account.create', 'account', info.lastInsertRowid, `${plat} u/${username}`);
-      markDirty();
 
       // Initialize account_browser_settings with default profile name
       const { getProfileName } = require('../lib/profileName');
@@ -246,12 +259,22 @@ function register(ipcMain) {
         }
       }
       if (updates.password !== undefined) {
-        sets.push('password_encrypted = ?');
-        params.push(updates.password ? encryptSecret(updates.password) : null);
+        if (updates.password) {
+          credentialVaultSet('account_password', accountId, updates.password);
+          if (acct.team_id) setSharedCredential(acct.team_id, accountId, 'account_password', updates.password, user.id).catch(() => {});
+        } else {
+          credentialVaultDelete('account_password', accountId);
+          if (acct.team_id) deleteSharedCredential(acct.team_id, accountId, 'account_password').catch(() => {});
+        }
       }
       if (updates.emailPassword !== undefined) {
-        sets.push('email_password_encrypted = ?');
-        params.push(updates.emailPassword ? encryptSecret(updates.emailPassword) : null);
+        if (updates.emailPassword) {
+          credentialVaultSet('email_password', accountId, updates.emailPassword);
+          if (acct.team_id) setSharedCredential(acct.team_id, accountId, 'email_password', updates.emailPassword, user.id).catch(() => {});
+        } else {
+          credentialVaultDelete('email_password', accountId);
+          if (acct.team_id) deleteSharedCredential(acct.team_id, accountId, 'email_password').catch(() => {});
+        }
       }
       if (sets.length === 0 && !updates.browserMode && !updates.cloakProfileName) return { ok: true };
       params.push(accountId);
@@ -302,26 +325,35 @@ function register(ipcMain) {
         }
       }
 
-      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
     }
   });
 
-  ipcMain.handle('accounts:getCredentials', (_e, { token, accountId }) => {
+  ipcMain.handle('accounts:getCredentials', async (_e, { token, accountId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       const acct = getDb().prepare('SELECT * FROM reddit_accounts WHERE id = ?').get(accountId);
       if (!acct) throw new Error('Not found');
       if (!canAccessProfile(user, acct.profile_id)) throw new Error('Not authorized');
+      let password = credentialVaultGet('account_password', accountId);
+      if (!password && acct.team_id) {
+        password = await getSharedCredential(acct.team_id, accountId, 'account_password');
+      }
+      if (!password) password = decryptSecret(acct.password_encrypted);
+      let emailPassword = credentialVaultGet('email_password', accountId);
+      if (!emailPassword && acct.team_id) {
+        emailPassword = await getSharedCredential(acct.team_id, accountId, 'email_password');
+      }
+      if (!emailPassword) emailPassword = decryptSecret(acct.email_password_encrypted);
       return {
         ok: true,
         username: acct.username,
-        password: decryptSecret(acct.password_encrypted),
+        password: password || null,
         email: acct.email,
-        emailPassword: decryptSecret(acct.email_password_encrypted),
+        emailPassword: emailPassword || null,
       };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -337,7 +369,6 @@ function register(ipcMain) {
       if (!canAccessProfile(user, acct.profile_id)) throw new Error('Not authorized');
       getDb().prepare('DELETE FROM reddit_accounts WHERE id = ?').run(accountId);
       log(user, 'account.delete', 'account', accountId, `${acct.platform} u/${acct.username}`);
-      markDirty();
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -363,8 +394,8 @@ function register(ipcMain) {
 
       const insert = getDb().prepare(
         `INSERT INTO reddit_accounts
-         (profile_id, platform, username, partition_key, password_encrypted, email, email_password_encrypted, status, proxy_id, user_agent)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`
+         (profile_id, platform, username, partition_key, email, status, proxy_id, user_agent)
+         VALUES (?,?,?,?,?,?,?,?)`
       );
 
       const txn = getDb().transaction(() => {
@@ -385,9 +416,10 @@ function register(ipcMain) {
             const partitionKey = `${plat}-${profileId}-${cleanUser.toLowerCase().replace(/[^a-z0-9_-]/g, '')}-${Date.now()}-${i}`;
             const info = insert.run(
               profileId, plat, cleanUser, partitionKey,
-              encryptSecret(p), e || null, encryptSecret(ep || null),
-              status || 'warming', proxyId || null, userAgent || null
+              e || null, status || 'warming', proxyId || null, userAgent || null
             );
+            if (p) credentialVaultSet('account_password', info.lastInsertRowid, p);
+            if (ep) credentialVaultSet('email_password', info.lastInsertRowid, ep);
 
             // Initialize browser_settings with default profile name
             const defaultProfileName = getProfileName({ username: cleanUser, platform: plat });
@@ -401,7 +433,6 @@ function register(ipcMain) {
       });
       txn();
       log(user, 'account.bulkImport', 'profile', profileId, `imported ${created.length} ${plat} (${errors.length} errors)`);
-      markDirty();
       return { ok: true, created, errors };
     } catch (err) {
       return { ok: false, error: err.message };

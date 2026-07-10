@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { dialog } = require('electron');
 const AdmZip = require('adm-zip');
-const { getDb, encryptSecret, decryptSecret } = require('../db');
+const { getDb, encryptSecret, decryptSecret, credentialVaultGet, credentialVaultSet } = require('../db');
 const { userFromToken, requireManagerOrAdmin } = require('./auth');
 
 function register(ipcMain) {
@@ -38,9 +38,9 @@ function register(ipcMain) {
         accounts: accounts.map(a => ({
           platform: a.platform || 'reddit',
           username: a.username,
-          password: decryptSecret(a.password_encrypted),
+          password: credentialVaultGet('account_password', a.id) || decryptSecret(a.password_encrypted),
           email: a.email,
-          email_password: decryptSecret(a.email_password_encrypted),
+          email_password: credentialVaultGet('email_password', a.id) || decryptSecret(a.email_password_encrypted),
           status: a.status,
           notes: a.notes,
           proxy_id: a.proxy_id,
@@ -52,7 +52,7 @@ function register(ipcMain) {
           host: p.host,
           port: p.port,
           username: p.username,
-          password: decryptSecret(p.password_encrypted),
+          password: credentialVaultGet('proxy_password', p.id) || decryptSecret(p.password_encrypted),
         })),
       };
 
@@ -109,7 +109,7 @@ function register(ipcMain) {
         // Insert proxies first, build remap of old_id -> new_id
         const proxyRemap = {};
         const proxyInsert = db.prepare(
-          'INSERT INTO proxies (label, kind, host, port, username, password_encrypted) VALUES (?,?,?,?,?,?)'
+          'INSERT INTO proxies (label, kind, host, port, username) VALUES (?,?,?,?,?)'
         );
         for (const p of (bundle.proxies || [])) {
           // De-dupe: if an identical proxy already exists, reuse it
@@ -118,11 +118,13 @@ function register(ipcMain) {
           ).get(p.host, p.port, p.kind);
           if (existing) {
             proxyRemap[p.id] = existing.id;
+            if (p.password) credentialVaultSet('proxy_password', existing.id, p.password);
           } else {
             const info = proxyInsert.run(
-              p.label, p.kind, p.host, p.port, p.username, encryptSecret(p.password)
+              p.label, p.kind, p.host, p.port, p.username
             );
             proxyRemap[p.id] = info.lastInsertRowid;
+            if (p.password) credentialVaultSet('proxy_password', info.lastInsertRowid, p.password);
           }
         }
 
@@ -142,24 +144,24 @@ function register(ipcMain) {
         // Insert accounts
         const acctInsert = db.prepare(
           `INSERT INTO reddit_accounts
-           (profile_id, platform, username, partition_key, password_encrypted, email, email_password_encrypted, status, proxy_id, notes)
-           VALUES (?,?,?,?,?,?,?,?,?,?)`
+           (profile_id, platform, username, partition_key, email, status, proxy_id, notes)
+           VALUES (?,?,?,?,?,?,?,?)`
         );
         for (const a of (bundle.accounts || [])) {
           const plat = a.platform || 'reddit';
           const partitionKey = `${plat}-${newProfileId}-${a.username.toLowerCase().replace(/[^a-z0-9_-]/g, '')}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-          acctInsert.run(
+          const acctInfo = acctInsert.run(
             newProfileId,
             plat,
             a.username,
             partitionKey,
-            encryptSecret(a.password),
             a.email || null,
-            encryptSecret(a.email_password),
             a.status || 'warming',
-            a.proxy_id ? (proxyRemap[a.proxy_id] || null) : null,
+            proxyRemap[a.proxy_id] || null,
             a.notes || null,
           );
+          if (a.password) credentialVaultSet('account_password', acctInfo.lastInsertRowid, a.password);
+          if (a.email_password) credentialVaultSet('email_password', acctInfo.lastInsertRowid, a.email_password);
         }
 
         return { newProfileId, accountCount: bundle.accounts.length };

@@ -3,24 +3,35 @@ import { useAuth } from '../lib/auth.jsx';
 import logoUrl from '../assets/logo.png';
 
 export default function LoginPage() {
-  const { login } = useAuth();
-  const [username, setUsername] = useState('');
+  const { signIn, signUp } = useAuth();
+  const [mode, setMode] = useState('signin');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
     setError(null);
+    if (mode === 'signup' && password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
     setBusy(true);
-    const res = await login(username, password);
+    const fn = mode === 'signin' ? signIn : signUp;
+    const res = await fn(email, password);
     setBusy(false);
-    if (!res.ok) setError(res.error || 'Login failed');
+    if (!res.ok) setError(res.error || 'Authentication failed');
+  }
+
+  function toggleMode() {
+    setMode(mode === 'signin' ? 'signup' : 'signin');
+    setError(null);
   }
 
   return (
     <div style={styles.wrap}>
-      {/* Ambient gradient glow */}
       <div style={styles.glowA} />
       <div style={styles.glowB} />
 
@@ -31,34 +42,60 @@ export default function LoginPage() {
 
         <form onSubmit={submit} style={styles.form}>
           <div style={styles.eyebrow}>Team access</div>
-          <h1 style={styles.title}>Welcome back.</h1>
-          <div style={styles.sub}>Sign in to continue.</div>
+          <h1 style={styles.title}>
+            {mode === 'signin' ? 'Welcome back.' : 'Create account.'}
+          </h1>
+          <div style={styles.sub}>
+            {mode === 'signin' ? 'Sign in to continue.' : 'Sign up to get started.'}
+          </div>
 
           {error && <div className="error-banner">{error}</div>}
 
           <div style={{ marginBottom: 14 }}>
-            <label>Username</label>
+            <label>Email</label>
             <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               autoFocus
-              autoComplete="username"
+              autoComplete="email"
+              required
             />
           </div>
-          <div style={{ marginBottom: 22 }}>
+          <div style={{ marginBottom: mode === 'signup' ? 14 : 22 }}>
             <label>Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
+              autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+              required
+              minLength={6}
             />
           </div>
+          {mode === 'signup' && (
+            <div style={{ marginBottom: 22 }}>
+              <label>Confirm password</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                autoComplete="new-password"
+                required
+                minLength={6}
+              />
+            </div>
+          )}
           <button type="submit" className="primary" disabled={busy} style={{ width: '100%' }}>
-            {busy ? 'Signing in…' : 'Sign in'}
+            {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
           </button>
-          <div style={styles.hint} className="mono">
-            Default admin → <span style={{ color: 'var(--gold)' }}>admin / changeme</span>
+
+          <div style={styles.switchMode}>
+            <button type="button" className="ghost" onClick={toggleMode} style={{ fontSize: 12 }}>
+              {mode === 'signin'
+                ? "Don't have an account? Sign up"
+                : 'Already have an account? Sign in'}
+            </button>
           </div>
         </form>
 
@@ -99,56 +136,52 @@ const styles = {
     alignItems: 'center',
   },
   logoWrap: {
-    width: 280,
-    marginBottom: 22,
-    display: 'flex',
-    justifyContent: 'center',
+    width: 80,
+    height: 80,
+    marginBottom: 18,
+    display: 'grid',
+    placeItems: 'center',
+    borderRadius: '50%',
+    background: 'linear-gradient(135deg, rgba(61, 107, 79, 0.20), rgba(212, 166, 74, 0.10))',
+    border: '1px solid rgba(212, 166, 74, 0.15)',
   },
-  logo: {
-    width: '100%',
-    height: 'auto',
-    filter: 'drop-shadow(0 4px 16px rgba(61, 107, 79, 0.3))',
-  },
+  logo: { width: 48, height: 'auto', opacity: 0.85 },
   form: {
     width: '100%',
-    padding: '34px 32px',
-    background: 'var(--bg-elev)',
+    background: 'var(--bg-1)',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-lg)',
-    boxShadow: 'var(--shadow-2)',
+    padding: '28px 32px 24px',
   },
   eyebrow: {
     fontFamily: 'var(--font-mono)',
-    fontSize: 10,
-    letterSpacing: '0.18em',
+    fontSize: 9,
+    letterSpacing: '0.2em',
     textTransform: 'uppercase',
-    color: 'var(--green-bright)',
-    marginBottom: 10,
+    color: 'var(--text-3)',
+    marginBottom: 2,
   },
   title: {
-    fontSize: 30,
-    fontVariationSettings: '"opsz" 144',
-    marginBottom: 4,
-    background: 'linear-gradient(90deg, var(--green-bright), var(--gold))',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    backgroundClip: 'text',
+    fontFamily: 'var(--font-display)',
+    fontSize: 24,
+    fontWeight: 600,
+    color: 'var(--text-1)',
+    margin: '0 0 2px',
   },
   sub: {
+    fontSize: 13,
     color: 'var(--text-2)',
-    fontStyle: 'italic',
-    marginBottom: 26,
+    marginBottom: 22,
   },
-  hint: {
-    marginTop: 18,
-    fontSize: 11,
-    color: 'var(--text-3)',
+  switchMode: {
+    marginTop: 14,
     textAlign: 'center',
   },
   footer: {
     marginTop: 18,
     fontSize: 10,
-    letterSpacing: '0.3em',
+    letterSpacing: '0.2em',
     color: 'var(--text-3)',
+    opacity: 0.5,
   },
 };

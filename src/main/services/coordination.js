@@ -18,6 +18,7 @@
 
 const { getDb } = require('../db');
 const { getSetting } = require('./settings');
+const defaultBackend = require('../sync/defaultBackend');
 
 const nowSql = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 const plusSql = (sec) => new Date(Date.now() + sec * 1000).toISOString().replace('T', ' ').slice(0, 19);
@@ -71,8 +72,8 @@ const local = {
 // that 409s means someone else holds it. Expired locks are pruned first.
 
 function supabaseClient() {
-  const url = getSetting('supabase_url');
-  const key = getSetting('supabase_key');
+  const url = getSetting('supabase_url') || defaultBackend.SUPABASE_URL;
+  const key = getSetting('supabase_key') || defaultBackend.SUPABASE_ANON_KEY;
   if (!url || !key) return null;
   const base = url.replace(/\/$/, '') + '/rest/v1';
   const headers = {
@@ -140,18 +141,23 @@ const supabase = {
 /* ------------------------------- FACADE ---------------------------------- */
 
 function activeBackend() {
-  if (getSetting('coordination_backend') === 'supabase' && supabaseClient()) return supabase;
+  if (getSetting('coordination_backend') === 'local') return local;
+  if (supabaseClient()) return supabase;
   return local;
 }
 
-// Public async interface. Remote failures degrade to local so a Supabase
-// outage never blocks posting on a VA's machine.
+// Public async interface. For lock acquisition, failure means skip (don't
+// post) — a missed window is recoverable, a double-post is not.
+// For reads (countPostsSince, lastPostAt), fall back to local to maintain
+// basic eligibility checks.
 async function withFallback(method, args, localFallback) {
   const backend = activeBackend();
   if (backend.id === 'local') return local[method](...args);
   try {
     return await backend[method](...args);
   } catch (e) {
+    const isLockOp = method === 'acquireLock' || method === 'releaseLock';
+    if (isLockOp) return false;
     if (localFallback !== undefined) return localFallback;
     return local[method](...args);
   }

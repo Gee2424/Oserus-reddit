@@ -11,31 +11,30 @@ const PermissionsContext = createContext({
 });
 
 export function PermissionsProvider({ children }) {
-  const { token, user } = useAuth();
+  const { user } = useAuth();
   const [permissions, setPermissions] = useState(new Set());
   const [effectiveRole, setEffectiveRole] = useState(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewRole, setPreviewRole] = useState(null);
 
   const load = useCallback(async () => {
-    if (!token || !user) {
+    if (!user) {
       setPermissions(new Set());
       setEffectiveRole(null);
       return;
     }
     try {
-      const res = await window.api.roles.myPermissions({ token, previewRoleKey: previewRole });
+      const res = await window.api.roles.myPermissions({ token: user.id, previewRoleKey: previewRole });
       if (res.ok) {
         setPermissions(new Set(res.permissions));
         setEffectiveRole(res.role);
         setPreviewing(!!res.previewing);
       }
     } catch (e) {
-      // Preview attempt without roles.manage — silently fall back to real role.
       if (previewRole) setPreviewRole(null);
       console.error('[permissions] load failed', e);
     }
-  }, [token, user, previewRole]);
+  }, [user, previewRole]);
 
   useEffect(() => { load(); }, [load]);
 

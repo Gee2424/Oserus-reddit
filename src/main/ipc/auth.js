@@ -81,17 +81,37 @@ function makeToken() {
 }
 
 function userFromToken(token) {
-  if (!token) return null;
-  let userId = sessions.get(token);
-  if (!userId) {
-    // Cache miss — check disk (e.g. another process/window or just-loaded app)
-    ensureSessionsTable();
-    const row = getDb().prepare('SELECT user_id FROM auth_sessions WHERE token = ?').get(token);
-    if (!row) return null;
-    userId = row.user_id;
-    sessions.set(token, userId);
+  if (token) {
+    let userId = sessions.get(token);
+    if (!userId) {
+      ensureSessionsTable();
+      const row = getDb().prepare('SELECT user_id FROM auth_sessions WHERE token = ?').get(token);
+      if (row) {
+        userId = row.user_id;
+        sessions.set(token, userId);
+        return getDb().prepare('SELECT id, username, role, display_name FROM users WHERE id = ?').get(userId);
+      }
+    } else {
+      return getDb().prepare('SELECT id, username, role, display_name FROM users WHERE id = ?').get(userId);
+    }
   }
-  return getDb().prepare('SELECT id, username, role, display_name FROM users WHERE id = ?').get(userId);
+  // Fall back to Supabase session if no local token found
+  try {
+    const { getSessionUser } = require('./teamAuth');
+    const su = getSessionUser();
+    if (su) {
+      const db = getDb();
+      const localUser = db.prepare('SELECT id FROM users WHERE email = ?').get(su.email);
+      return {
+        id: su.id,
+        localId: localUser?.id || null,
+        username: su.email || '',
+        role: su.role || 'member',
+        display_name: su.display_name || su.email || '',
+      };
+    }
+  } catch {}
+  return null;
 }
 
 const { hasPermission, requirePermission } = require('../permissions');
@@ -209,108 +229,14 @@ function register(ipcMain) {
     }
   });
 
-  ipcMain.handle('auth:createUser', (_e, { token, username, password, role, displayName, email, phone, notes }) => {
-    try {
-      const me = requireManagerOrAdmin(token);
-      // Need users.assign_admin to create someone with the 'admin' role.
-      if (role === 'admin' && !hasPermission(me, 'users.assign_admin')) {
-        throw new Error('You don\'t have permission to create admin users');
-      }
-      // Validate the role exists in the DB (allows custom roles too).
-      const exists = getDb().prepare('SELECT 1 FROM roles WHERE key = ?').get(role);
-      if (!exists) throw new Error('Invalid role');
-      const hash = bcrypt.hashSync(password, 10);
-      const info = getDb()
-        .prepare(
-          'INSERT INTO users (username, password_hash, role, display_name, email, phone, notes) VALUES (?,?,?,?,?,?,?)'
-        )
-        .run(username, hash, role, displayName || username, email || null, phone || null, notes || null);
-      return { ok: true, id: info.lastInsertRowid };
-    } catch (err) {
-      return { ok: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('auth:deleteUser', (_e, { token, userId }) => {
-    try {
-      const me = requireAdmin(token);
-      if (me.id === userId) throw new Error("You can't delete yourself");
-      getDb().prepare('DELETE FROM users WHERE id = ?').run(userId);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('auth:resetUserPassword', (_e, { token, userId, newPassword }) => {
-    try {
-      const me = requireManagerOrAdmin(token);
-      // Without users.assign_admin, you can't touch an admin's password.
-      if (!hasPermission(me, 'users.assign_admin')) {
-        const target = getDb().prepare('SELECT role FROM users WHERE id = ?').get(userId);
-        if (target && target.role === 'admin') throw new Error("You can't change an admin's password");
-      }
-      if (!newPassword || newPassword.length < 6) throw new Error('Password must be 6+ characters');
-      const hash = bcrypt.hashSync(newPassword, 10);
-      getDb().prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, userId);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('auth:listUsers', (_e, { token }) => {
-    try {
-      requireManagerOrAdmin(token);
-      const users = getDb()
-        .prepare('SELECT id, username, role, display_name, email, phone, notes, created_at FROM users ORDER BY created_at DESC')
-        .all();
-      return { ok: true, users };
-    } catch (err) {
-      return { ok: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('auth:updateUser', (_e, { token, userId, data }) => {
-    try {
-      const me = requireManagerOrAdmin(token);
-      // Without users.assign_admin you can't edit admins or promote anyone to admin.
-      const target = getDb().prepare('SELECT role FROM users WHERE id = ?').get(userId);
-      if (!hasPermission(me, 'users.assign_admin')) {
-        if (target && target.role === 'admin') throw new Error("You can't edit admin accounts");
-        if (data.role === 'admin') throw new Error("You can't promote anyone to admin");
-      }
-      const fields = [];
-      const values = [];
-      for (const key of ['display_name', 'email', 'notes', 'role']) {
-        if (data[key] !== undefined) {
-          fields.push(`${key} = ?`);
-          values.push(data[key] || null);
-        }
-      }
-      if (!fields.length) return { ok: true };
-      values.push(userId);
-      getDb().prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err.message };
-    }
-  });
-
-  ipcMain.handle('auth:changePassword', (_e, { token, currentPassword, newPassword }) => {
-    const user = userFromToken(token);
-    if (!user) return { ok: false, error: 'Not authenticated' };
-    const row = getDb().prepare('SELECT * FROM users WHERE id = ?').get(user.id);
-    if (!bcrypt.compareSync(currentPassword, row.password_hash)) {
-      return { ok: false, error: 'Current password is wrong' };
-    }
-    if (!newPassword || newPassword.length < 6) {
-      return { ok: false, error: 'New password must be 6+ characters' };
-    }
-    const hash = bcrypt.hashSync(newPassword, 10);
-    getDb().prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hash, user.id);
-    return { ok: true };
-  });
+  // ─── Legacy local auth handlers — demoted. Use teamAuth channels instead.
+  // These return "not available" to prevent accidental use of the old system.
+  ipcMain.handle('auth:createUser', () => ({ ok: false, error: 'Use Team → Add member instead' }));
+  ipcMain.handle('auth:deleteUser', () => ({ ok: false, error: 'Use Team → Remove member instead' }));
+  ipcMain.handle('auth:resetUserPassword', () => ({ ok: false, error: 'Use teamAuth:changePassword instead' }));
+  ipcMain.handle('auth:listUsers', () => ({ ok: false, error: 'Use team:listMembers instead' }));
+  ipcMain.handle('auth:updateUser', () => ({ ok: false, error: 'Use team:changeRole instead' }));
+  ipcMain.handle('auth:changePassword', () => ({ ok: false, error: 'Use teamAuth:changePassword instead' }));
 }
 
 // Browser-side beat — called by main/browser.js for any user with at

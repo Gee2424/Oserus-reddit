@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const elog = require('electron-log');
-const { initDatabase, getDb, decryptSecret } = require('./db');
+const { initDatabase, getDb, decryptSecret, credentialVaultGet } = require('./db');
 const { initAutoUpdater, quitAndInstall, stopAutoUpdater, checkNow } = require('./updater');
 const { createTray, destroyTray, markQuitting, isAppQuitting, setUpdateReady } = require('./tray');
 
@@ -39,6 +39,7 @@ process.on('uncaughtException', (err) => {
 });
 
 const registerAuthHandlers = require('./ipc/auth');
+const registerTeamAuthHandlers = require('./ipc/teamAuth');
 const registerProfileHandlers = require('./ipc/profiles');
 const registerAccountHandlers = require('./ipc/accounts');
 const registerWebviewHandlers = require('./ipc/webviews');
@@ -382,14 +383,19 @@ function registerOserusBrowserHandlers() {
   // a self-contained autofill script (or empty string when no creds are
   // stored). The script self-guards against double-injection via
   // window.__oserusAutofillActive.
-  ipcMain.handle('oserus-browser:autofillScript', (_e, { accountId } = {}) => {
+  ipcMain.handle('oserus-browser:autofillScript', async (_e, { accountId } = {}) => {
     try {
       if (!accountId) return { ok: true, script: '' };
       const acct = getDb().prepare(
-        'SELECT username, password_encrypted FROM reddit_accounts WHERE id = ?'
+        'SELECT username, team_id, password_encrypted FROM reddit_accounts WHERE id = ?'
       ).get(accountId);
-      if (!acct || !acct.username || !acct.password_encrypted) return { ok: true, script: '' };
-      const password = decryptSecret(acct.password_encrypted) || '';
+      if (!acct || !acct.username) return { ok: true, script: '' };
+      let password = credentialVaultGet('account_password', accountId);
+      if (!password && acct.team_id) {
+        const { getSharedCredential } = require('./sharedCredentials');
+        password = await getSharedCredential(acct.team_id, accountId, 'account_password');
+      }
+      if (!password) password = decryptSecret(acct.password_encrypted) || '';
       if (!password) return { ok: true, script: '' };
       const script = buildAutofillScript(JSON.stringify(acct.username), JSON.stringify(password));
       return { ok: true, script };
@@ -415,7 +421,7 @@ app.on('login', (event, webContents, _details, authInfo, callback) => {
     // Identify the account by matching its partition_key in the storage path.
     const db = getDb();
     const acc = db.prepare(
-      `SELECT a.proxy_username, px.password_encrypted AS pw_enc
+      `SELECT a.proxy_username, px.id AS proxy_id, px.password_encrypted AS pw_enc
          FROM reddit_accounts a
          LEFT JOIN proxies px ON px.id = a.proxy_id
         WHERE a.proxy_id IS NOT NULL
@@ -424,7 +430,7 @@ app.on('login', (event, webContents, _details, authInfo, callback) => {
     ).get(wcPartition);
     if (acc && acc.proxy_username) {
       event.preventDefault();
-      const pw = acc.pw_enc ? decryptSecret(acc.pw_enc) : '';
+      const pw = (acc.proxy_id ? credentialVaultGet('proxy_password', acc.proxy_id) : null) || (acc.pw_enc ? decryptSecret(acc.pw_enc) : '');
       callback(acc.proxy_username, pw || '');
       return;
     }
@@ -437,6 +443,7 @@ app.whenReady().then(async () => {
   initDatabase();
 
   registerAuthHandlers(ipcMain);
+  registerTeamAuthHandlers(ipcMain);
   registerProfileHandlers(ipcMain);
   registerAccountHandlers(ipcMain);
   registerWebviewHandlers(ipcMain);

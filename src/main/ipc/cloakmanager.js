@@ -10,7 +10,7 @@
 
 const { getCloakManagerClient } = require('../cloakmanager');
 const { userFromToken } = require('./auth');
-const { getDb, decryptSecret } = require('../db');
+const { getDb, decryptSecret, credentialVaultGet } = require('../db');
 const cdpOrchestrator = require('../cdp/orchestrator');
 
 // Phase 2: Configurable CDP launch delay for development
@@ -423,7 +423,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
 
       // Get proxy configuration if available (match actual schema)
       const proxy = getDb().prepare(`
-        SELECT host, port, kind as protocol, username, password_encrypted as password
+        SELECT id, host, port, kind as protocol, username, password_encrypted as password
         FROM proxies
         WHERE id = (SELECT proxy_id FROM reddit_accounts WHERE id = ?)
       `).get(accountId);
@@ -438,7 +438,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
           port: proxy.port,
           protocol: proxy.protocol || 'socks5',
           username: proxy.username || '',
-          password: proxy.password ? decryptSecret(proxy.password) : '',
+          password: proxy.password ? (credentialVaultGet('proxy_password', proxy.id) || decryptSecret(proxy.password) || '') : '',
           country: 'US' // Default country (not stored in proxy schema)
         };
         console.log('[IPC] Using proxy:', proxyConfig.host, proxyConfig.port);
