@@ -462,6 +462,10 @@ ALTER TABLE IF EXISTS teams             ADD COLUMN IF NOT EXISTS key_version int
 -- needs to check team membership/role goes through one of these instead
 -- of querying team_members directly.
 
+-- Needed so authenticated users can insert into team_invitations
+-- (foreign key validation on invited_by -> auth.users.id).
+grant select on table auth.users to authenticated;
+
 drop function if exists public.user_team_ids() cascade;
 create function public.user_team_ids()
 returns setof uuid

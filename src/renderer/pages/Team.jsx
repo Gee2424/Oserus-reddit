@@ -191,7 +191,8 @@ export default function TeamPage({ navigate }) {
               padding: '8px 16px', fontSize: 13, fontWeight: tab === t ? 600 : 400,
               borderBottom: tab === t ? '2px solid var(--gold)' : '2px solid transparent',
               color: tab === t ? 'var(--gold-bright)' : 'var(--text-2)',
-              background: 'transparent', border: 'none', cursor: 'pointer',
+              background: 'transparent', borderWidth: 0, borderStyle: 'solid',
+              borderColor: 'transparent', cursor: 'pointer',
             }}
           >
             {t.charAt(0).toUpperCase() + t.slice(1)}
