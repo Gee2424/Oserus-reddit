@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from './lib/auth.jsx';
 import { PermissionsProvider } from './lib/permissions.jsx';
 import { ActiveAccountProvider } from './lib/activeAccount.jsx';
 import { InboxLiveProvider } from './lib/inboxLive.jsx';
+import { ToastProvider } from './lib/toast.jsx';
+import { ConfirmProvider } from './lib/confirm.jsx';
 import LoginPage from './pages/Login.jsx';
 import Shell from './components/Shell.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
@@ -22,6 +24,7 @@ import AddAccountsPage from './pages/AddAccounts.jsx';
 import RedGifsDashboardPage from './pages/RedGifsDashboard.jsx';
 import RedditApiPage from './pages/RedditApi.jsx';
 import InboxPage from './pages/Inbox.jsx';
+import { Spinner } from './components/ui.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { installCloudReloadBridge } from './lib/cloudReload.jsx';
@@ -72,13 +75,13 @@ function Inner() {
 
   if (loading) {
     return <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
-      <div className="mono dim">loading…</div>
+      <Spinner label="Loading…" />
     </div>;
   }
   if (!user) return <LoginPage />;
   if (route === 'loading') {
     return <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
-      <div className="mono dim">loading…</div>
+      <Spinner label="Loading…" />
     </div>;
   }
 
@@ -140,7 +143,11 @@ function Inner() {
     return (
       <PermissionsProvider>
         <ActiveAccountProvider>
-          <PopoutShell><ErrorBoundary label={popoutRoute}>{popPage}</ErrorBoundary></PopoutShell>
+          <ToastProvider>
+            <ConfirmProvider>
+              <PopoutShell><ErrorBoundary label={popoutRoute}>{popPage}</ErrorBoundary></PopoutShell>
+            </ConfirmProvider>
+          </ToastProvider>
         </ActiveAccountProvider>
       </PermissionsProvider>
     );
@@ -149,12 +156,16 @@ function Inner() {
   return (
     <PermissionsProvider>
       <ActiveAccountProvider>
-        <InboxLiveProvider>
-          <Shell route={route} navigate={navigate}>
-            <ErrorBoundary label={route}>{page}</ErrorBoundary>
-          </Shell>
-          <UpdateBanner />
-        </InboxLiveProvider>
+        <ToastProvider>
+          <ConfirmProvider>
+            <InboxLiveProvider>
+              <Shell route={route} navigate={navigate}>
+                <ErrorBoundary label={route}>{page}</ErrorBoundary>
+              </Shell>
+              <UpdateBanner />
+            </InboxLiveProvider>
+          </ConfirmProvider>
+        </ToastProvider>
       </ActiveAccountProvider>
     </PermissionsProvider>
   );

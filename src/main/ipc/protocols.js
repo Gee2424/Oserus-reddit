@@ -332,6 +332,25 @@ function register(ipcMain) {
       return { ok: false, error: err.message };
     }
   });
+
+  // ─────────────────────────────────────── Team session bridge ───
+
+  ipcMain.handle('settings:setTeam', (_e, { teamId }) => {
+    try {
+      setSetting('active_team_id', teamId || null);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('settings:getTeam', () => {
+    try {
+      return { ok: true, teamId: getSetting('active_team_id') };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
 }
 
 module.exports = register;

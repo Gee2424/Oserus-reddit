@@ -39,6 +39,10 @@ function candidateAccounts() {
   const platforms = postablePlatforms();
   if (!platforms.length) return [];
   const placeholders = platforms.map(() => '?').join(',');
+  const teamId = getSetting('active_team_id');
+  const params = [...platforms];
+  let teamClause = '';
+  if (teamId) { teamClause = ' AND a.team_id = ?'; params.push(teamId); }
   return getDb().prepare(
     `SELECT a.id, a.username, a.status, a.platform, a.profile_id,
             a.proxy_id, a.partition_key,
@@ -46,9 +50,9 @@ function candidateAccounts() {
        FROM reddit_accounts a
        JOIN model_profiles p ON p.id = a.profile_id
       WHERE a.platform IN (${placeholders})
-        AND a.status IN ('warming','ready')
+        AND a.status IN ('warming','ready')${teamClause}
       ORDER BY a.platform, a.proxy_id, a.id`
-  ).all(...platforms);
+  ).all(...params);
 }
 
 // Group accounts by (platform, proxy_id) so the executor can run
@@ -233,14 +237,17 @@ async function runDueScheduled() {
     // Prefer the stored platform column when present (set by recent
     // create/bulkCreate). Fall back to the account's platform for rows
     // that pre-date the column migration. COALESCE handles both.
+    const teamId = getSetting('active_team_id');
+    const teamClause = teamId ? ' AND a.team_id = ?' : '';
+    const params = teamId ? [teamId] : [];
     due = db.prepare(
       `SELECT s.*, COALESCE(s.platform, a.platform) AS platform, a.profile_id AS profile_id
          FROM scheduled_posts s
          JOIN reddit_accounts a ON a.id = s.account_id
         WHERE s.status = 'pending'
-          AND s.scheduled_for <= datetime('now')
+          AND s.scheduled_for <= datetime('now')${teamClause}
         ORDER BY s.scheduled_for ASC LIMIT 25`
-    ).all();
+    ).all(...params);
   } catch (e) {
     // Previously this was swallowed silently — operator saw no posts
     // fire with no signal as to why. Surface to the log so we can
@@ -441,7 +448,10 @@ async function runDueBoosts() {
 async function autoTestProxies() {
   try {
     const db = getDb();
-    const proxies = db.prepare('SELECT * FROM proxies').all();
+    const teamId = getSetting('active_team_id');
+    const proxies = teamId
+      ? db.prepare('SELECT * FROM proxies WHERE team_id = ?').all(teamId)
+      : db.prepare('SELECT * FROM proxies').all();
     if (!proxies.length) return;
     const { net, session } = require('electron');
     const { decryptSecret, credentialVaultGet } = require('../db');
@@ -479,9 +489,12 @@ async function refreshKarmaSnapshots() {
   const db = getDb();
   let accounts;
   try {
+    const teamId = getSetting('active_team_id');
     accounts = db.prepare(
-      "SELECT id, partition_key FROM reddit_accounts WHERE platform = 'reddit' AND status != 'banned'"
-    ).all();
+      teamId
+        ? "SELECT id, partition_key FROM reddit_accounts WHERE platform = 'reddit' AND status != 'banned' AND team_id = ?"
+        : "SELECT id, partition_key FROM reddit_accounts WHERE platform = 'reddit' AND status != 'banned'"
+    ).all(...(teamId ? [teamId] : []));
   } catch { return; }
   const { request } = require('./redditSession');
   for (const a of accounts) {

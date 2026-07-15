@@ -20,6 +20,7 @@ const path = require('path');
 const { BrowserWindow, ipcMain } = require('electron');
 const elog = require('electron-log');
 const { getDb } = require('../db');
+const { getSetting } = require('./settings');
 const { selectorsFor, urlFor } = require('./engagementSelectors');
 
 function pickRandom(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
@@ -583,11 +584,18 @@ async function engagementTick() {
   if (!dueRows.length) return;
 
   const pick = dueRows[Math.floor(Math.random() * dueRows.length)];
-  const acct = db.prepare(
-    `SELECT id FROM reddit_accounts
-      WHERE profile_id = ? AND platform = ? AND status IN ('warming','ready')
-      ORDER BY RANDOM() LIMIT 1`
-  ).get(pick.profile_id, pick.platform);
+  const teamId = getSetting('active_team_id');
+  const acct = teamId
+    ? db.prepare(
+        `SELECT id FROM reddit_accounts
+          WHERE profile_id = ? AND platform = ? AND status IN ('warming','ready') AND team_id = ?
+          ORDER BY RANDOM() LIMIT 1`
+      ).get(pick.profile_id, pick.platform, teamId)
+    : db.prepare(
+        `SELECT id FROM reddit_accounts
+          WHERE profile_id = ? AND platform = ? AND status IN ('warming','ready')
+          ORDER BY RANDOM() LIMIT 1`
+      ).get(pick.profile_id, pick.platform);
   if (!acct) return;
 
   // Daily-cap guard. Comments live in engagement_sessions (DOM-comment

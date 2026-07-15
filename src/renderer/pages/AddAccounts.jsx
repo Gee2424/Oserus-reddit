@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { Banner } from '../components/ui.jsx';
+import { useToast } from '../lib/toast.jsx';
+import { useConfirm } from '../lib/confirm.jsx';
 import ProxiesPanel from '../components/ProxiesPanel.jsx';
 
 const TABS = [
@@ -31,6 +33,8 @@ const STATUSES = [
 
 export default function AddAccountsPage({ navigate, initialTab }) {
   const { token, activeTeamId } = useAuth();
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
   const [tab, setTab] = useState(initialTab && TABS.some((t) => t.key === initialTab) ? initialTab : 'bulk');
   const [profiles, setProfiles] = useState([]);
   const [proxies, setProxies] = useState([]);
@@ -40,8 +44,6 @@ export default function AddAccountsPage({ navigate, initialTab }) {
     lines: '', username: '', password: '', email: '', emailPw: '',
   });
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState(null);
-  const [err, setErr] = useState(null);
   const [last, setLast] = useState(null);
 
   useEffect(() => {
@@ -49,18 +51,12 @@ export default function AddAccountsPage({ navigate, initialTab }) {
     window.api.proxies.list({ token, teamId: activeTeamId }).then((r) => { if (r.ok) setProxies(r.proxies); });
   }, [token, activeTeamId]);
 
-  useEffect(() => {
-    if (!msg && !err) return;
-    const t = setTimeout(() => { setMsg(null); setErr(null); }, 5000);
-    return () => clearTimeout(t);
-  }, [msg, err]);
-
   function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
   async function submitBulk() {
-    if (!form.profileId) { setErr('Pick a class first.'); return; }
-    if (!form.lines.trim()) { setErr('Paste accounts (one per line, username:password).'); return; }
-    setBusy(true); setErr(null); setLast(null);
+    if (!form.profileId) { toast('err', 'Pick a class first.'); return; }
+    if (!form.lines.trim()) { toast('err', 'Paste accounts (one per line, username:password).'); return; }
+    setBusy(true); setLast(null);
     const res = await window.api.accounts.bulkCreate({
       token,
       profileId: Number(form.profileId),
@@ -69,19 +65,20 @@ export default function AddAccountsPage({ navigate, initialTab }) {
       status: form.status,
       userAgent: form.userAgent || null,
       lines: form.lines,
+      teamId: activeTeamId,
     });
     setBusy(false);
     if (res.ok) {
-      setMsg(`Added ${res.created.length} account${res.created.length === 1 ? '' : 's'}.${res.errors?.length ? ` ${res.errors.length} failed.` : ''}`);
       setLast(res);
       setForm((f) => ({ ...f, lines: '' }));
-    } else setErr(res.error);
+      toast('ok', `Added ${res.created.length} account${res.created.length === 1 ? '' : 's'}.${res.errors?.length ? ` ${res.errors.length} failed.` : ''}`);
+    } else toast('err', res.error);
   }
 
   async function submitDirect() {
-    if (!form.profileId) { setErr('Pick a class first.'); return; }
-    if (!form.username || !form.password) { setErr('Username and password required.'); return; }
-    setBusy(true); setErr(null);
+    if (!form.profileId) { toast('err', 'Pick a class first.'); return; }
+    if (!form.username || !form.password) { toast('err', 'Username and password required.'); return; }
+    setBusy(true);
     const res = await window.api.accounts.create({
       token,
       profileId: Number(form.profileId),
@@ -93,6 +90,7 @@ export default function AddAccountsPage({ navigate, initialTab }) {
       proxyId: form.proxyId ? Number(form.proxyId) : null,
       status: form.status,
       userAgent: form.userAgent || null,
+      teamId: activeTeamId,
     });
     setBusy(false);
     if (res.ok) {
@@ -122,9 +120,9 @@ export default function AddAccountsPage({ navigate, initialTab }) {
           console.error('Failed to set browser mode:', err);
         }
       }
-      setMsg(`Added u/${form.username}.`);
       setForm((f) => ({ ...f, username: '', password: '', email: '', emailPw: '' }));
-    } else setErr(res.error);
+      toast('ok', `Added u/${form.username}.`);
+    } else toast('err', res.error);
   }
 
   return (
@@ -139,8 +137,7 @@ export default function AddAccountsPage({ navigate, initialTab }) {
         </div>
       </div>
 
-      {err && <Banner kind="err">{err}</Banner>}
-      {msg && <Banner kind="ok">{msg}</Banner>}
+
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {/* Tab bar */}
@@ -310,11 +307,12 @@ export default function AddAccountsPage({ navigate, initialTab }) {
 }
 
 function WarmupSubsPanel({ token }) {
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
   const [list, setList] = useState([]);
   const [name, setName] = useState('');
   const [vibe, setVibe] = useState('');
   const [desc, setDesc] = useState('');
-  const [err, setErr] = useState(null);
 
   async function load() {
     const r = await window.api.subs.listWarmup({ token });
@@ -323,13 +321,13 @@ function WarmupSubsPanel({ token }) {
   useEffect(() => { load(); }, []);
 
   async function add() {
-    setErr(null);
-    if (!name.trim()) { setErr('Subreddit name required.'); return; }
+    if (!name.trim()) { toast('err', 'Subreddit name required.'); return; }
     const r = await window.api.subs.createWarmup({ token, name: name.trim(), vibe: vibe.trim() || null, description: desc.trim() || null });
-    if (r.ok) { setName(''); setVibe(''); setDesc(''); load(); } else setErr(r.error);
+    if (r.ok) { setName(''); setVibe(''); setDesc(''); load(); } else toast('err', r.error);
   }
   async function del(id) {
-    if (!confirm('Remove this warm-up subreddit?')) return;
+    const ok = await confirm('Remove this warm-up subreddit?', { confirmLabel: 'Remove', variant: 'danger' });
+    if (!ok) return;
     await window.api.subs.deleteWarmup({ token, id });
     load();
   }
@@ -356,7 +354,6 @@ function WarmupSubsPanel({ token }) {
         </div>
         <button className="primary" onClick={add}>+ Add</button>
       </div>
-      {err && <Banner kind="err">{err}</Banner>}
 
       {list.length === 0 ? (
         <div className="muted" style={{ padding: 20, textAlign: 'center', fontSize: 13 }}>No warm-up subs yet. Add a few that your accounts can post in safely.</div>
@@ -398,7 +395,7 @@ function BackupPoolPanel({ token, activeTeamId }) {
   useEffect(() => { load(); }, [activeTeamId]);
 
   async function mark(id, status) {
-    await window.api.accounts.bulkSetStatus({ token, accountIds: [id], status });
+    await window.api.accounts.bulkSetStatus({ token, accountIds: [id], status, teamId: activeTeamId });
     load();
   }
 

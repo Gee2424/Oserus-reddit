@@ -84,7 +84,7 @@ function register(ipcMain) {
   });
 
   // Import a profile bundle - shows a file picker
-  ipcMain.handle('bundle:import', async (_e, { token, assignedUserId }) => {
+  ipcMain.handle('bundle:import', async (_e, { token, assignedUserId, teamId }) => {
     try {
       requireManagerOrAdmin(token);
 
@@ -109,7 +109,7 @@ function register(ipcMain) {
         // Insert proxies first, build remap of old_id -> new_id
         const proxyRemap = {};
         const proxyInsert = db.prepare(
-          'INSERT INTO proxies (label, kind, host, port, username) VALUES (?,?,?,?,?)'
+          'INSERT INTO proxies (label, kind, host, port, username, team_id) VALUES (?,?,?,?,?,?)'
         );
         for (const p of (bundle.proxies || [])) {
           // De-dupe: if an identical proxy already exists, reuse it
@@ -121,7 +121,7 @@ function register(ipcMain) {
             if (p.password) credentialVaultSet('proxy_password', existing.id, p.password);
           } else {
             const info = proxyInsert.run(
-              p.label, p.kind, p.host, p.port, p.username
+              p.label, p.kind, p.host, p.port, p.username, teamId || null
             );
             proxyRemap[p.id] = info.lastInsertRowid;
             if (p.password) credentialVaultSet('proxy_password', info.lastInsertRowid, p.password);
@@ -130,7 +130,7 @@ function register(ipcMain) {
 
         // Insert profile
         const profInfo = db.prepare(
-          'INSERT INTO model_profiles (name, assigned_user_id, niche, brand_voice, notes, avatar_color) VALUES (?,?,?,?,?,?)'
+          'INSERT INTO model_profiles (name, assigned_user_id, niche, brand_voice, notes, avatar_color, team_id) VALUES (?,?,?,?,?,?,?)'
         ).run(
           bundle.profile.name,
           assignedUserId || null,
@@ -138,14 +138,15 @@ function register(ipcMain) {
           bundle.profile.brand_voice,
           bundle.profile.notes,
           bundle.profile.avatar_color,
+          teamId || null,
         );
         const newProfileId = profInfo.lastInsertRowid;
 
         // Insert accounts
         const acctInsert = db.prepare(
           `INSERT INTO reddit_accounts
-           (profile_id, platform, username, partition_key, email, status, proxy_id, notes)
-           VALUES (?,?,?,?,?,?,?,?)`
+           (profile_id, platform, username, partition_key, email, status, proxy_id, notes, team_id)
+           VALUES (?,?,?,?,?,?,?,?,?)`
         );
         for (const a of (bundle.accounts || [])) {
           const plat = a.platform || 'reddit';
@@ -159,6 +160,7 @@ function register(ipcMain) {
             a.status || 'warming',
             proxyRemap[a.proxy_id] || null,
             a.notes || null,
+            teamId || null,
           );
           if (a.password) credentialVaultSet('account_password', acctInfo.lastInsertRowid, a.password);
           if (a.email_password) credentialVaultSet('email_password', acctInfo.lastInsertRowid, a.email_password);

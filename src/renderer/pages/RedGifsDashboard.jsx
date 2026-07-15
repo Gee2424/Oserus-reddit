@@ -6,7 +6,7 @@ import PopOutButton from '../components/PopOutButton.jsx';
 function fmt(n) { if (n == null) return '—'; if (n >= 1000000) return (n/1000000).toFixed(1)+'M'; if (n >= 1000) return (n/1000).toFixed(1)+'k'; return n.toLocaleString(); }
 
 export default function RedGifsDashboardPage({ navigate }) {
-  const { token } = useAuth();
+  const { token, activeTeamId } = useAuth();
   const [accounts, setAccounts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busyAccount, setBusyAccount] = useState(null);
@@ -15,7 +15,7 @@ export default function RedGifsDashboardPage({ navigate }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const res = await window.api.redgifs.listAccounts({ token });
+    const res = await window.api.redgifs.listAccounts({ token, teamId: activeTeamId });
     setLoading(false);
     if (res.ok) setAccounts(res.accounts || []); else setErr(res.error);
   }, [token]);
@@ -36,7 +36,7 @@ export default function RedGifsDashboardPage({ navigate }) {
 
   async function refreshAll() {
     setLoading(true);
-    const res = await window.api.redgifs.fetchAll({ token });
+    const res = await window.api.redgifs.fetchAll({ token, teamId: activeTeamId });
     setLoading(false);
     if (res.ok) {
       setMsg(`Refreshed ${res.refreshed} account${res.refreshed === 1 ? '' : 's'}.${res.errors?.length ? ` ${res.errors.length} failed.` : ''}`);

@@ -4,7 +4,9 @@ import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
 import { PLATFORMS as SHARED_PLATFORMS } from '../lib/platforms.js';
 import { useCloakManagerLaunch } from '../hooks/useCloakManagerLaunch';
-import { Banner } from '../components/ui.jsx';
+import { Banner, Spinner } from '../components/ui.jsx';
+import { useToast } from '../lib/toast.jsx';
+import { useConfirm } from '../lib/confirm.jsx';
 
 const STATUS_OPTIONS = [
   { v: 'warming', label: 'Warming up' },
@@ -72,6 +74,8 @@ export default function ModelDetailPage({ modelId, navigate }) {
   const [accountOperation, setAccountOperation] = useState(null); // { type: 'creating' | 'launching', accountId: null }
   const [operationMessage, setOperationMessage] = useState(null);
   const canViewActivity = can('activity.view');
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
 
   function blankForm() {
     return {
@@ -189,6 +193,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
         proxyId: form.proxy_id ? Number(form.proxy_id) : null,
         notes: form.notes,
         osProfile: form.os_profile || 'desktop',
+        teamId: activeTeamId,
       });
 
       // Handle browser mode for new accounts
@@ -245,7 +250,8 @@ export default function ModelDetailPage({ modelId, navigate }) {
   }
 
   async function del(accountId) {
-    if (!confirm('Delete this account record? The actual account on the platform is untouched.')) return;
+    const ok = await confirm('Delete this account record? The actual account on the platform is untouched.', { confirmLabel: 'Remove', variant: 'danger' });
+    if (!ok) return;
     await window.api.accounts.delete({ token, accountId });
     await load();
     await refreshActive();
@@ -284,7 +290,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
   const proxyUsageCount = (proxyId) => accounts.filter(a => a.proxy_id === proxyId).length;
 
   if (loading) {
-    return <div className="empty-state">Loading…</div>;
+    return <div className="empty-state"><Spinner label="Loading…" /></div>;
   }
   if (!model) {
     return (
@@ -729,6 +735,14 @@ export default function ModelDetailPage({ modelId, navigate }) {
                     {canManage && (
                       <>
                         <button className="ghost" onClick={() => startEdit(a)}>Edit</button>
+                        {a.cloak_actual_name && (
+                          <button className="ghost" style={{ fontSize: 11, padding: '4px 8px' }} onClick={async () => {
+                            toast('info', 'Testing CDP connection…');
+                            const r = await window.api.cloakmanager.testCDPConnection({ token, accountId: a.id });
+                            if (r.ok) toast('ok', r.message || 'CDP connection OK');
+                            else toast('err', r.error || 'CDP test failed');
+                          }}>Test CDP</button>
+                        )}
                         <button className="danger" onClick={() => del(a.id)}>Remove</button>
                       </>
                     )}
@@ -840,7 +854,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
       )}
 
       {tab === 'analytics' && (
-        <ModelAnalyticsTab token={token} profileId={Number(modelId)} accounts={accounts} />
+        <ModelAnalyticsTab token={token} profileId={Number(modelId)} accounts={accounts} activeTeamId={activeTeamId} />
       )}
 
       {tab === 'activity' && canViewActivity && activityEntries.length > 0 && (
@@ -920,17 +934,17 @@ export default function ModelDetailPage({ modelId, navigate }) {
   );
 }
 
-function ModelAnalyticsTab({ token, profileId, accounts }) {
+function ModelAnalyticsTab({ token, profileId, accounts, activeTeamId }) {
   const [data, setData] = React.useState(null);
   React.useEffect(() => {
     let alive = true;
-    window.api.analytics.summary({ token, profileId }).then(r => {
+    window.api.analytics.summary({ token, profileId, teamId: activeTeamId }).then(r => {
       if (alive && r.ok) setData(r);
     });
     return () => { alive = false; };
-  }, [token, profileId]);
+  }, [token, profileId, activeTeamId]);
 
-  if (!data) return <div className="empty-state">Loading analytics…</div>;
+  if (!data) return <div className="empty-state"><Spinner label="Loading analytics…" /></div>;
 
   const reddit = data.accounts.filter(a => a.platform !== 'redgifs');
   return (

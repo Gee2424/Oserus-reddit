@@ -130,12 +130,14 @@ function register(ipcMain) {
     };
   });
 
-  ipcMain.handle('proxies:test', async (_e, { token, proxyId }) => {
+  ipcMain.handle('proxies:test', async (_e, { token, proxyId, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       ensureProxyMigrations();
-      const row = getDb().prepare('SELECT * FROM proxies WHERE id = ?').get(proxyId);
+      const row = teamId
+        ? getDb().prepare('SELECT * FROM proxies WHERE id = ? AND team_id = ?').get(proxyId, teamId)
+        : getDb().prepare('SELECT * FROM proxies WHERE id = ?').get(proxyId);
       if (!row) throw new Error('Proxy not found');
       const result = await pingProxy(row);
       getDb().prepare(
@@ -147,12 +149,14 @@ function register(ipcMain) {
     }
   });
 
-  ipcMain.handle('proxies:testAll', async (_e, { token }) => {
+  ipcMain.handle('proxies:testAll', async (_e, { token, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       ensureProxyMigrations();
-      const rows = getDb().prepare('SELECT * FROM proxies').all();
+      const rows = teamId
+        ? getDb().prepare('SELECT * FROM proxies WHERE team_id = ?').all(teamId)
+        : getDb().prepare('SELECT * FROM proxies').all();
       const stmt = getDb().prepare(
         "UPDATE proxies SET last_test_ok = ?, last_test_at = datetime('now'), last_test_error = ? WHERE id = ?"
       );
@@ -198,7 +202,7 @@ function register(ipcMain) {
     }
   });
 
-  ipcMain.handle('proxies:update', (_e, { token, proxyId, updates }) => {
+  ipcMain.handle('proxies:update', (_e, { token, proxyId, updates, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
@@ -217,7 +221,12 @@ function register(ipcMain) {
       }
       if (!sets.length) return { ok: true };
       params.push(proxyId);
-      getDb().prepare(`UPDATE proxies SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+      if (teamId) {
+        params.push(teamId);
+        getDb().prepare(`UPDATE proxies SET ${sets.join(', ')} WHERE id = ? AND team_id = ?`).run(...params);
+      } else {
+        getDb().prepare(`UPDATE proxies SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+      }
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -229,12 +238,14 @@ function register(ipcMain) {
   // rotation endpoint itself is the provider's control plane, NOT the
   // proxy tunnel). Returns the HTTP status / response body so the
   // operator can see whether the provider accepted the flip.
-  ipcMain.handle('proxies:rotate', async (_e, { token, proxyId }) => {
+  ipcMain.handle('proxies:rotate', async (_e, { token, proxyId, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'infra.proxies.manage');
-      const row = getDb().prepare('SELECT rotation_url, label FROM proxies WHERE id = ?').get(proxyId);
+      const row = teamId
+        ? getDb().prepare('SELECT rotation_url, label FROM proxies WHERE id = ? AND team_id = ?').get(proxyId, teamId)
+        : getDb().prepare('SELECT rotation_url, label FROM proxies WHERE id = ?').get(proxyId);
       if (!row) throw new Error('Proxy not found');
       if (!row.rotation_url) throw new Error('No rotation URL configured for this proxy');
       const result = await new Promise((resolve) => {
@@ -258,12 +269,15 @@ function register(ipcMain) {
     }
   });
 
-  ipcMain.handle('proxies:delete', (_e, { token, proxyId }) => {
+  ipcMain.handle('proxies:delete', (_e, { token, proxyId, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'infra.proxies.manage');
-      getDb().prepare('DELETE FROM proxies WHERE id = ?').run(proxyId);
+      const deleted = teamId
+        ? getDb().prepare('DELETE FROM proxies WHERE id = ? AND team_id = ?').run(proxyId, teamId).changes
+        : getDb().prepare('DELETE FROM proxies WHERE id = ?').run(proxyId).changes;
+      if (!deleted) throw new Error('Proxy not found');
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };

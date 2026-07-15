@@ -30,7 +30,9 @@ export function AuthProvider({ children }) {
           setUser(u);
           const teamsRes = await window.api.team.listTeams({});
           if (teamsRes.ok && teamsRes.teams && teamsRes.teams.length > 0) {
-            setActiveTeamId(teamsRes.teams[0].id);
+            const teamId = teamsRes.teams[0].id;
+            setActiveTeamId(teamId);
+            window.api.settings.setTeam({ teamId }).catch(() => {});
           }
         } else {
           setUser(null);
@@ -52,6 +54,7 @@ export function AuthProvider({ children }) {
       const teamId = res.defaultTeamId;
       if (teamId) {
         setActiveTeamId(teamId);
+        window.api.settings.setTeam({ teamId }).catch(() => {});
         window.api.team.backfillData({ teamId }).catch(() => {});
         window.api.team.loadTeamKey({ teamId }).catch(() => {});
       }
@@ -73,6 +76,7 @@ export function AuthProvider({ children }) {
       const teamId = res.defaultTeamId;
       if (teamId) {
         setActiveTeamId(teamId);
+        window.api.settings.setTeam({ teamId }).catch(() => {});
         window.api.team.backfillData({ teamId }).catch(() => {});
         window.api.team.loadTeamKey({ teamId }).catch(() => {});
       }
@@ -99,6 +103,7 @@ export function AuthProvider({ children }) {
 
   function setActiveTeam(teamId) {
     setActiveTeamId(teamId);
+    window.api.settings.setTeam({ teamId }).catch(() => {});
   }
 
   useEffect(() => {

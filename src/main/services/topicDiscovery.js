@@ -3,6 +3,7 @@
 // titles in reddit_topic_candidates. postgen pulls from this table when it
 // generates posts so autopilot can pick its own subjects.
 const { getDb } = require('../db');
+const { getSetting } = require('./settings');
 const { partitionFor, request } = require('./redditSession');
 
 async function fetchHot(partition, sub) {
@@ -64,11 +65,17 @@ async function topicTick() {
   const db = getDb();
   let profiles;
   try {
+    const teamId = getSetting('active_team_id');
     profiles = db.prepare(
-      `SELECT DISTINCT mp.id
-         FROM model_profiles mp
-         JOIN promo_subreddits ps ON ps.profile_id = mp.id`
-    ).all();
+      teamId
+        ? `SELECT DISTINCT mp.id
+             FROM model_profiles mp
+             JOIN promo_subreddits ps ON ps.profile_id = mp.id
+            WHERE mp.team_id = ?`
+        : `SELECT DISTINCT mp.id
+             FROM model_profiles mp
+             JOIN promo_subreddits ps ON ps.profile_id = mp.id`
+    ).all(...(teamId ? [teamId] : []));
   } catch { return; }
   for (const p of profiles) {
     try { await discoverForProfile(p.id); } catch {}

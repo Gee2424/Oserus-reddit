@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
+import { useToast } from '../lib/toast.jsx';
+import { useConfirm } from '../lib/confirm.jsx';
 
 const PROXY_KINDS = [
   { v: 'http',   label: 'HTTP' },
@@ -77,6 +79,8 @@ export default function ProxiesPanel() {
   const { token, activeTeamId } = useAuth();
   const can = useCan();
   const canManage = can('infra.proxies.manage');
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
   const [proxies, setProxies] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -152,7 +156,8 @@ export default function ProxiesPanel() {
   }
 
   async function del(id) {
-    if (!confirm('Delete this proxy? Any account using it will fall back to no proxy.')) return;
+    const ok = await confirm('Delete this proxy? Any account using it will fall back to no proxy.', { confirmLabel: 'Delete', variant: 'danger' });
+    if (!ok) return;
     await window.api.proxies.delete({ token, proxyId: id });
     load();
   }
@@ -333,9 +338,9 @@ export default function ProxiesPanel() {
                             title="Hit the provider's change-IP endpoint to rotate the exit IP now"
                             onClick={async () => {
                               const r = await window.api.proxies.rotate({ token, proxyId: p.id });
-                              if (!r.ok) { alert('Rotate failed: ' + r.error); return; }
-                              if (!r.result?.ok) { alert('Provider returned ' + (r.result?.status || r.result?.error)); return; }
-                              alert('Rotated. Status ' + r.result.status);
+                              if (!r.ok) { toast('err', 'Rotate failed: ' + r.error); return; }
+                              if (!r.result?.ok) { toast('err', 'Provider returned ' + (r.result?.status || r.result?.error)); return; }
+                              toast('ok', 'Rotated. Status ' + r.result.status);
                             }}
                           >Rotate</button>
                         )}

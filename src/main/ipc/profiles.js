@@ -140,7 +140,7 @@ function register(ipcMain) {
     }
   });
 
-  ipcMain.handle('profiles:update', (_e, { token, profileId, updates }) => {
+  ipcMain.handle('profiles:update', (_e, { token, profileId, updates, teamId }) => {
     try {
       requireManagerOrAdmin(token);
       const allowed = ['name', 'assigned_user_id', 'niche', 'brand_voice', 'notes', 'avatar_color', 'proxy_id', 'main_email'];
@@ -153,29 +153,44 @@ function register(ipcMain) {
       }
       if (!sets.length) return { ok: true };
       params.push(profileId);
-      getDb().prepare(`UPDATE model_profiles SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+      if (teamId) {
+        params.push(teamId);
+        getDb().prepare(`UPDATE model_profiles SET ${sets.join(', ')} WHERE id = ? AND team_id = ?`).run(...params);
+      } else {
+        getDb().prepare(`UPDATE model_profiles SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+      }
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
     }
   });
 
-  ipcMain.handle('profiles:assign', (_e, { token, profileId, assignedUserId }) => {
+  ipcMain.handle('profiles:assign', (_e, { token, profileId, assignedUserId, teamId }) => {
     try {
       requireManagerOrAdmin(token);
-      getDb()
-        .prepare('UPDATE model_profiles SET assigned_user_id = ? WHERE id = ?')
-        .run(assignedUserId || null, profileId);
+      if (teamId) {
+        const result = getDb()
+          .prepare('UPDATE model_profiles SET assigned_user_id = ? WHERE id = ? AND team_id = ?')
+          .run(assignedUserId || null, profileId, teamId);
+        if (!result.changes) throw new Error('Profile not found');
+      } else {
+        getDb()
+          .prepare('UPDATE model_profiles SET assigned_user_id = ? WHERE id = ?')
+          .run(assignedUserId || null, profileId);
+      }
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };
     }
   });
 
-  ipcMain.handle('profiles:delete', (_e, { token, profileId }) => {
+  ipcMain.handle('profiles:delete', (_e, { token, profileId, teamId }) => {
     try {
       requireManagerOrAdmin(token);
-      getDb().prepare('DELETE FROM model_profiles WHERE id = ?').run(profileId);
+      const result = teamId
+        ? getDb().prepare('DELETE FROM model_profiles WHERE id = ? AND team_id = ?').run(profileId, teamId).changes
+        : getDb().prepare('DELETE FROM model_profiles WHERE id = ?').run(profileId).changes;
+      if (!result) throw new Error('Profile not found');
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message };

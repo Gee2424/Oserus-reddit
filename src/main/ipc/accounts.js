@@ -40,15 +40,17 @@ const ensureStarredColumn = ensureAccountMigrations;
 function register(ipcMain) {
   ensureStarredColumn();
 
-  ipcMain.handle('accounts:bulkSetStatus', (_e, { token, accountIds, status }) => {
+  ipcMain.handle('accounts:bulkSetStatus', (_e, { token, accountIds, status, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       if (!['warming', 'ready', 'paused', 'banned'].includes(status)) throw new Error('Invalid status');
       const ids = (Array.isArray(accountIds) ? accountIds : [accountIds]).map(Number).filter(Boolean);
       if (!ids.length) throw new Error('No accounts selected');
-      const stmt = getDb().prepare('UPDATE reddit_accounts SET status = ? WHERE id = ?');
-      const tx = getDb().transaction(() => { for (const id of ids) stmt.run(status, id); });
+      const stmt = getDb().prepare(teamId
+        ? 'UPDATE reddit_accounts SET status = ? WHERE id = ? AND team_id = ?'
+        : 'UPDATE reddit_accounts SET status = ? WHERE id = ?');
+      const tx = getDb().transaction(() => { for (const id of ids) stmt.run(status, id, ...(teamId ? [teamId] : [])); });
       tx();
       log(user, 'account.bulkSetStatus', 'account', null, `n=${ids.length} status=${status}`);
       return { ok: true, updated: ids.length };
@@ -85,15 +87,17 @@ function register(ipcMain) {
     }
   });
 
-  ipcMain.handle('accounts:bulkSetProxy', (_e, { token, accountIds, proxyId }) => {
+  ipcMain.handle('accounts:bulkSetProxy', (_e, { token, accountIds, proxyId, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       const ids = (Array.isArray(accountIds) ? accountIds : [accountIds]).map(Number).filter(Boolean);
       if (!ids.length) throw new Error('No accounts selected');
       const next = proxyId == null || proxyId === '' ? null : Number(proxyId);
-      const stmt = getDb().prepare('UPDATE reddit_accounts SET proxy_id = ? WHERE id = ?');
-      const tx = getDb().transaction(() => { for (const id of ids) stmt.run(next, id); });
+      const stmt = getDb().prepare(teamId
+        ? 'UPDATE reddit_accounts SET proxy_id = ? WHERE id = ? AND team_id = ?'
+        : 'UPDATE reddit_accounts SET proxy_id = ? WHERE id = ?');
+      const tx = getDb().transaction(() => { for (const id of ids) stmt.run(next, id, ...(teamId ? [teamId] : [])); });
       tx();
       log(user, 'account.bulkSetProxy', 'account', null, `n=${ids.length} proxy=${next || 'none'}`);
       return { ok: true, updated: ids.length };
@@ -102,15 +106,17 @@ function register(ipcMain) {
     }
   });
 
-  ipcMain.handle('accounts:setStarred', (_e, { token, accountIds, starred }) => {
+  ipcMain.handle('accounts:setStarred', (_e, { token, accountIds, starred, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       ensureStarredColumn();
       const ids = (Array.isArray(accountIds) ? accountIds : [accountIds]).map(Number).filter(Boolean);
       if (!ids.length) throw new Error('No accounts selected');
-      const stmt = getDb().prepare('UPDATE reddit_accounts SET starred = ? WHERE id = ?');
-      const tx = getDb().transaction(() => { for (const id of ids) stmt.run(starred ? 1 : 0, id); });
+      const stmt = getDb().prepare(teamId
+        ? 'UPDATE reddit_accounts SET starred = ? WHERE id = ? AND team_id = ?'
+        : 'UPDATE reddit_accounts SET starred = ? WHERE id = ?');
+      const tx = getDb().transaction(() => { for (const id of ids) stmt.run(starred ? 1 : 0, id, ...(teamId ? [teamId] : [])); });
       tx();
       return { ok: true, updated: ids.length };
     } catch (err) {
@@ -143,50 +149,54 @@ function register(ipcMain) {
   });
 
   ipcMain.handle('accounts:listForUser', (_e, { token, statusFilter, platform, teamId }) => {
-    const user = userFromToken(token);
-    if (!user) return { ok: false, error: 'Not authenticated' };
+    try {
+      const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Not authenticated' };
 
-    const where = [];
-    const params = [];
-    // Holders of profiles.manage see everything; everyone else only sees
-    // accounts on profiles they're assigned to.
-    if (!hasPermission(user, 'profiles.manage')) {
-      where.push('p.assigned_user_id = ?');
-      params.push(user.id);
-    }
-    if (statusFilter && statusFilter !== 'all') {
-      where.push('a.status = ?');
-      params.push(statusFilter);
-    }
-    if (platform) {
-      where.push('a.platform = ?');
-      params.push(platform);
-    }
-    if (teamId) {
-      where.push('a.team_id = ?');
-      params.push(teamId);
-    }
-    const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+      const where = [];
+      const params = [];
+      // Holders of profiles.manage see everything; everyone else only sees
+      // accounts on profiles they're assigned to.
+      if (!hasPermission(user, 'profiles.manage')) {
+        where.push('p.assigned_user_id = ?');
+        params.push(user.id);
+      }
+      if (statusFilter && statusFilter !== 'all') {
+        where.push('a.status = ?');
+        params.push(statusFilter);
+      }
+      if (platform) {
+        where.push('a.platform = ?');
+        params.push(platform);
+      }
+      if (teamId) {
+        where.push('a.team_id = ?');
+        params.push(teamId);
+      }
+      const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
-    // Account-level proxy wins; if unset, fall back to the model's proxy so
-    // setting one proxy at the model level lights up every account under it.
-    const accounts = getDb()
-      .prepare(
-        `SELECT a.*, p.name AS profile_name, p.main_email AS profile_main_email,
-                px.label AS proxy_label, px.kind AS proxy_kind,
-                px.last_test_ok AS proxy_test_ok, px.last_test_error AS proxy_test_error,
-                bs.browser_mode, bs.cloak_profile_name,
-                cp.profile_name AS cloak_actual_name, cp.cdp_port, cp.status AS cloak_status
-         FROM reddit_accounts a
-         JOIN model_profiles p ON p.id = a.profile_id
-         LEFT JOIN proxies px ON px.id = COALESCE(a.proxy_id, p.proxy_id)
-         LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
-         LEFT JOIN cloakmanager_profiles cp ON cp.account_id = a.id
-         ${whereClause}
-         ORDER BY p.name, a.platform, a.status, a.username`
-      )
-      .all(...params);
-    return { ok: true, accounts: accounts.map(hydrateAccount) };
+      // Account-level proxy wins; if unset, fall back to the model's proxy so
+      // setting one proxy at the model level lights up every account under it.
+      const accounts = getDb()
+        .prepare(
+          `SELECT a.*, p.name AS profile_name, p.main_email AS profile_main_email,
+                  px.label AS proxy_label, px.kind AS proxy_kind,
+                  px.last_test_ok AS proxy_test_ok, px.last_test_error AS proxy_test_error,
+                  bs.browser_mode, bs.cloak_profile_name,
+                  cp.profile_name AS cloak_actual_name, cp.cdp_port, cp.status AS cloak_status
+           FROM reddit_accounts a
+           JOIN model_profiles p ON p.id = a.profile_id
+           LEFT JOIN proxies px ON px.id = COALESCE(a.proxy_id, p.proxy_id)
+           LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
+           LEFT JOIN cloakmanager_profiles cp ON cp.account_id = a.id
+           ${whereClause}
+           ORDER BY p.name, a.platform, a.status, a.username`
+        )
+        .all(...params);
+      return { ok: true, accounts: accounts.map(hydrateAccount) };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
   });
 
   ipcMain.handle('accounts:create', (_e, args) => {
@@ -280,7 +290,12 @@ function register(ipcMain) {
       params.push(accountId);
 
       if (sets.length > 0) {
-        getDb().prepare(`UPDATE reddit_accounts SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+        if (acct.team_id) {
+          params.push(acct.team_id);
+          getDb().prepare(`UPDATE reddit_accounts SET ${sets.join(', ')} WHERE id = ? AND team_id = ?`).run(...params);
+        } else {
+          getDb().prepare(`UPDATE reddit_accounts SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+        }
       }
 
       // Handle browser_mode and cloak_profile_name separately in account_browser_settings table
@@ -360,13 +375,14 @@ function register(ipcMain) {
     }
   });
 
-  ipcMain.handle('accounts:delete', (_e, { token, accountId }) => {
+  ipcMain.handle('accounts:delete', (_e, { token, accountId, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       const acct = getDb().prepare('SELECT * FROM reddit_accounts WHERE id = ?').get(accountId);
       if (!acct) throw new Error('Account not found');
       if (!canAccessProfile(user, acct.profile_id)) throw new Error('Not authorized');
+      if (teamId && acct.team_id !== teamId) throw new Error('Not authorized');
       getDb().prepare('DELETE FROM reddit_accounts WHERE id = ?').run(accountId);
       log(user, 'account.delete', 'account', accountId, `${acct.platform} u/${acct.username}`);
       return { ok: true };
@@ -379,7 +395,7 @@ function register(ipcMain) {
   //   username:password
   //   username:password:email:emailpassword
   // Blank lines and comments (lines starting with #) are skipped.
-  ipcMain.handle('accounts:bulkCreate', (_e, { token, profileId, platform, proxyId, status, lines, userAgent }) => {
+  ipcMain.handle('accounts:bulkCreate', (_e, { token, profileId, platform, proxyId, status, lines, userAgent, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
@@ -394,8 +410,8 @@ function register(ipcMain) {
 
       const insert = getDb().prepare(
         `INSERT INTO reddit_accounts
-         (profile_id, platform, username, partition_key, email, status, proxy_id, user_agent)
-         VALUES (?,?,?,?,?,?,?,?)`
+         (profile_id, platform, username, partition_key, email, status, proxy_id, user_agent, team_id)
+         VALUES (?,?,?,?,?,?,?,?,?)`
       );
 
       const txn = getDb().transaction(() => {
@@ -416,7 +432,8 @@ function register(ipcMain) {
             const partitionKey = `${plat}-${profileId}-${cleanUser.toLowerCase().replace(/[^a-z0-9_-]/g, '')}-${Date.now()}-${i}`;
             const info = insert.run(
               profileId, plat, cleanUser, partitionKey,
-              e || null, status || 'warming', proxyId || null, userAgent || null
+              e || null, status || 'warming', proxyId || null, userAgent || null,
+              teamId || null
             );
             if (p) credentialVaultSet('account_password', info.lastInsertRowid, p);
             if (ep) credentialVaultSet('email_password', info.lastInsertRowid, ep);

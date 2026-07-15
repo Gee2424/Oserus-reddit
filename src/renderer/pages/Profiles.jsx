@@ -4,7 +4,9 @@ import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
 import { useCloudReload } from '../lib/cloudReload.jsx';
 import { useCloakManagerLaunch } from '../hooks/useCloakManagerLaunch';
-import { Banner } from '../components/ui.jsx';
+import { Banner, Spinner } from '../components/ui.jsx';
+import { useToast } from '../lib/toast.jsx';
+import { useConfirm } from '../lib/confirm.jsx';
 
 const COLORS = ['#c8553d', '#d4a55a', '#7a9a5a', '#5a7a9a', '#9a5a8e', '#8e6a4a'];
 
@@ -12,6 +14,8 @@ export default function ProfilesPage({ navigate }) {
   const { token, user, activeTeamId } = useAuth();
   const { startAccount } = useActiveAccount();
   const { isAvailable, checkAvailability, launchProgress, cloakStatus } = useCloakManagerLaunch();
+  const { toast } = useToast();
+  const { confirm } = useConfirm();
   const [profiles, setProfiles] = useState([]);
   const [launchingProfile, setLaunchingProfile] = useState(null); // profileId
   const [launchResults, setLaunchResults] = useState(null); // { success: 0, failed: 0, total: 0 }
@@ -24,14 +28,14 @@ export default function ProfilesPage({ navigate }) {
       // Get accounts for this profile
       const accounts = await window.api.accounts.listForProfile({ token, profileId, teamId: activeTeamId });
       if (!accounts.ok) {
-        alert(accounts.error || 'Could not load accounts');
+        toast('err', accounts.error || 'Could not load accounts');
         setLaunchingProfile(null);
         return;
       }
 
       const accountList = accounts.accounts || [];
       if (accountList.length === 0) {
-        alert('No accounts on this model yet.');
+        toast('warn', 'No accounts on this model yet.');
         setLaunchingProfile(null);
         return;
       }
@@ -81,7 +85,7 @@ export default function ProfilesPage({ navigate }) {
 
       await Promise.all(launchPromises);
     } catch (err) {
-      alert('Launch failed: ' + err.message);
+      toast('err', 'Launch failed: ' + err.message);
     } finally {
       setLaunchingProfile(null);
     }
@@ -93,8 +97,6 @@ export default function ProfilesPage({ navigate }) {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blank());
   const [error, setError] = useState(null);
-  const [importMsg, setImportMsg] = useState(null);
-
   const can = useCan();
   const canManage = can('profiles.manage');
 
@@ -116,9 +118,9 @@ export default function ProfilesPage({ navigate }) {
   }
 
   async function setModelProxy(profileId, proxyId) {
-    const res = await window.api.profiles.update({ token, profileId, updates: { proxy_id: proxyId ? Number(proxyId) : null } });
+    const res = await window.api.profiles.update({ token, profileId, updates: { proxy_id: proxyId ? Number(proxyId) : null }, teamId: activeTeamId });
     if (!res.ok) {
-      alert(`Failed to update proxy: ${res.error || 'Unknown error'}`);
+      toast('err', `Failed to update proxy: ${res.error || 'Unknown error'}`);
       return;
     }
     load();
@@ -145,19 +147,20 @@ export default function ProfilesPage({ navigate }) {
   }
 
   async function reassign(profileId, userId) {
-    const res = await window.api.profiles.assign({ token, profileId, assignedUserId: userId || null });
+    const res = await window.api.profiles.assign({ token, profileId, assignedUserId: userId || null, teamId: activeTeamId });
     if (!res.ok) {
-      alert(`Failed to reassign profile: ${res.error || 'Unknown error'}`);
+      toast('err', `Failed to reassign profile: ${res.error || 'Unknown error'}`);
       return;
     }
     load();
   }
 
   async function del(id) {
-    if (!confirm('Delete this model profile? All its linked platform accounts will be removed too.')) return;
-    const res = await window.api.profiles.delete({ token, profileId: id });
+    const ok = await confirm('Delete this model profile? All its linked platform accounts will be removed too.', { confirmLabel: 'Delete', variant: 'danger' });
+    if (!ok) return;
+    const res = await window.api.profiles.delete({ token, profileId: id, teamId: activeTeamId });
     if (!res.ok) {
-      alert(`Failed to delete profile: ${res.error || 'Unknown error'}`);
+      toast('err', `Failed to delete profile: ${res.error || 'Unknown error'}`);
       return;
     }
     load();
@@ -165,17 +168,17 @@ export default function ProfilesPage({ navigate }) {
 
   async function exportProfile(profileId) {
     const res = await window.api.bundle.export({ token, profileId });
-    if (!res.ok && res.error !== 'Cancelled') alert('Export failed: ' + res.error);
-    else if (res.ok) setImportMsg({ kind: 'ok', text: `Exported to ${res.path}` });
+    if (!res.ok && res.error !== 'Cancelled') toast('err', 'Export failed: ' + res.error);
+    else if (res.ok) toast('ok', `Exported to ${res.path}`);
   }
 
   async function importProfile() {
     const res = await window.api.bundle.import({ token, assignedUserId: null });
     if (!res.ok) {
-      if (res.error !== 'Cancelled') alert('Import failed: ' + res.error);
+      if (res.error !== 'Cancelled') toast('err', 'Import failed: ' + res.error);
       return;
     }
-    setImportMsg({ kind: 'ok', text: `Imported "${res.profileName}" with ${res.accountCount} account(s)` });
+    toast('ok', `Imported "${res.profileName}" with ${res.accountCount} account(s)`);
     load();
   }
 
@@ -195,12 +198,6 @@ export default function ProfilesPage({ navigate }) {
           </div>
         )}
       </div>
-
-      {importMsg && (
-        <div style={{ background: 'rgba(122,154,90,0.12)', border: '1px solid var(--ok)', color: '#bdd5a3', padding: '10px 14px', borderRadius: 4, marginBottom: 16 }}>
-          {importMsg.text}
-        </div>
-      )}
 
       {/* Launch Results Banner */}
       {launchResults && (
@@ -413,7 +410,7 @@ export default function ProfilesPage({ navigate }) {
                     onBlur={async (e) => {
                       const v = e.target.value.trim() || null;
                       if (v === (p.main_email || null)) return;
-                      await window.api.profiles.update({ token, profileId: p.id, updates: { main_email: v } });
+                      await window.api.profiles.update({ token, profileId: p.id, updates: { main_email: v }, teamId: activeTeamId });
                       load();
                     }}
                   />

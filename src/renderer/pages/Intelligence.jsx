@@ -192,7 +192,7 @@ export default function IntelligencePage() {
           )}
 
           {platform === 'reddit' && tab === 'compatibility' && (
-            <CompatibilityPanel token={token} accountId={sel.accountId} accounts={accounts} />
+            <CompatibilityPanel token={token} accountId={sel.accountId} accounts={accounts} activeTeamId={activeTeamId} />
           )}
         </>
       )}
@@ -538,20 +538,20 @@ function RequirementsPanel({ token, accountId, onMsg, onError }) {
 
 // ─────────────────────────────────────── Reddit-only: account × subreddit gates
 
-function CompatibilityPanel({ token, accountId, accounts }) {
+function CompatibilityPanel({ token, accountId, accounts, activeTeamId }) {
   const [subs, setSubs] = useState([]);
   const [karma, setKarma] = useState({});
 
   useEffect(() => {
     window.api.intel.list({ token }).then((r) => { if (r.ok) setSubs(r.subs || []); });
-    window.api.analytics.summary({ token }).then((r) => {
+    window.api.analytics.summary({ token, teamId: activeTeamId }).then((r) => {
       if (r.ok) {
         const m = {};
         for (const a of r.accounts) m[a.id] = a;
         setKarma(m);
       }
     });
-  }, [token]);
+  }, [token, activeTeamId]);
 
   const acct = useMemo(
     () => accounts.find((a) => a.id === accountId) || null,

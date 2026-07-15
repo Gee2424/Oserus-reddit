@@ -523,10 +523,10 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId }) {
     window.api.intel.list({ token }).then((r) => {
       if (r.ok) setIntelMap(new Map((r.subs || []).map((s) => [s.name.toLowerCase(), s])));
     });
-    window.api.analytics.summary({ token }).then((r) => {
+    window.api.analytics.summary({ token, teamId: activeTeamId }).then((r) => {
       if (r.ok) setKarmaMap(new Map((r.accounts || []).map((a) => [a.id, a])));
     });
-  }, [token]);
+  }, [token, activeTeamId]);
 
   // Pull preferred subs for every profile whose accounts appear in the
   // picker. Caches per profile id so re-selecting doesn't re-fetch.

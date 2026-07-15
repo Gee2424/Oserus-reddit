@@ -183,6 +183,9 @@ input, textarea, select {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%      { opacity: 0.55; transform: scale(0.78); }
 }
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
 /* All buttons get a light press feedback even when not styled by the global
    `button` rule (e.g. inline-styled platform pills). */
 button { transition: background 0.12s, border-color 0.12s, transform 0.08s, box-shadow 0.12s, filter 0.12s; }

@@ -93,18 +93,27 @@ async function fetchProfile(username) {
 }
 
 function register(ipcMain) {
-  ipcMain.handle('redgifs:listAccounts', (_e, { token }) => {
+  ipcMain.handle('redgifs:listAccounts', (_e, { token, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       ensureTable();
-      const accts = getDb().prepare(
-        `SELECT a.id, a.username, a.status, a.notes, a.profile_id, p.name AS profile_name, p.avatar_color AS profile_color
-         FROM reddit_accounts a
-         LEFT JOIN model_profiles p ON p.id = a.profile_id
-         WHERE a.platform = 'redgifs'
-         ORDER BY p.name, a.username`
-      ).all();
+      const accts = (teamId
+        ? getDb().prepare(
+            `SELECT a.id, a.username, a.status, a.notes, a.profile_id, p.name AS profile_name, p.avatar_color AS profile_color
+             FROM reddit_accounts a
+             LEFT JOIN model_profiles p ON p.id = a.profile_id
+             WHERE a.platform = 'redgifs' AND a.team_id = ?
+             ORDER BY p.name, a.username`
+          ).all(teamId)
+        : getDb().prepare(
+            `SELECT a.id, a.username, a.status, a.notes, a.profile_id, p.name AS profile_name, p.avatar_color AS profile_color
+             FROM reddit_accounts a
+             LEFT JOIN model_profiles p ON p.id = a.profile_id
+             WHERE a.platform = 'redgifs'
+             ORDER BY p.name, a.username`
+          ).all()
+      );
       // Attach cached profile data by username.
       const profiles = new Map(getDb().prepare('SELECT * FROM redgifs_profiles').all().map((r) => [r.username, r]));
       return {
@@ -142,14 +151,19 @@ function register(ipcMain) {
     }
   });
 
-  ipcMain.handle('redgifs:fetchAll', async (_e, { token }) => {
+  ipcMain.handle('redgifs:fetchAll', async (_e, { token, teamId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       ensureTable();
-      const usernames = getDb()
-        .prepare("SELECT DISTINCT username FROM reddit_accounts WHERE platform = 'redgifs'")
-        .all().map((r) => r.username);
+      const usernames = (teamId
+        ? getDb()
+            .prepare("SELECT DISTINCT username FROM reddit_accounts WHERE platform = 'redgifs' AND team_id = ?")
+            .all(teamId)
+        : getDb()
+            .prepare("SELECT DISTINCT username FROM reddit_accounts WHERE platform = 'redgifs'")
+            .all()
+      ).map((r) => r.username);
       const errors = []; let ok = 0;
       for (const u of usernames) {
         try { await fetchProfile(u).then((p) => {

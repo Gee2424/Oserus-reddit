@@ -349,6 +349,10 @@ const api = {
     },
     setAccessToken: (data) => ipcRenderer.invoke('cloud:setAccessToken', data),
   },
+  settings: {
+    setTeam: (data) => ipcRenderer.invoke('settings:setTeam', data),
+    getTeam: () => ipcRenderer.invoke('settings:getTeam'),
+  },
   cloakmanager: {
     checkAvailable: (data) => ipcRenderer.invoke('cloakmanager:checkAvailable', data),
     getSettings: (data) => ipcRenderer.invoke('cloakmanager:getSettings', data),
@@ -362,6 +366,10 @@ const api = {
     deleteProfile: (data) => ipcRenderer.invoke('cloakmanager:deleteProfile', data),
     getRunningProfiles: (data) => ipcRenderer.invoke('cloakmanager:getRunningProfiles', data),
     getCDPInfo: (data) => ipcRenderer.invoke('cloakmanager:getCDPInfo', data),
+    testCDPConnection: (data) => ipcRenderer.invoke('cloakmanager:testCDPConnection', data),
+    runCDPTest: (data) => ipcRenderer.invoke('cloakmanager:runCDPTest', data),
+    triggerLaunchScripts: (data) => ipcRenderer.invoke('cloakmanager:triggerLaunchScripts', data),
+    getExecutionHistory: (data) => ipcRenderer.invoke('cloakmanager:getExecutionHistory', data),
     // Binary status and management (NEW)
     getBinaryStatus: (data) => ipcRenderer.invoke('cloakmanager:getBinaryStatus', data),
     startBinary: (data) => ipcRenderer.invoke('cloakmanager:startBinary', data),
@@ -396,6 +404,11 @@ const api = {
       const listener = (_event, data) => callback(data);
       ipcRenderer.on('cloakmanager:cdp_ready', listener);
       return () => ipcRenderer.removeListener('cloakmanager:cdp_ready', listener);
+    },
+    onCDPProgress: (callback) => {
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('cdp:progress', listener);
+      return () => ipcRenderer.removeListener('cdp:progress', listener);
     },
     onWSConnected: (callback) => {
       const listener = () => callback();

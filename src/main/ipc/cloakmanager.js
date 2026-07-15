@@ -764,6 +764,33 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
   });
 
   /**
+   * Get CDP script execution history
+   */
+  ipcMain.handle('cloakmanager:getExecutionHistory', async (event, { token, limit = 50 }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Invalid token' };
+
+      const { getDb } = require('../db');
+      const db = getDb();
+      const rows = db.prepare(`
+        SELECT e.*, a.username, a.platform, p.name AS profile_name
+        FROM cdp_script_executions e
+        LEFT JOIN cloakmanager_profiles cp ON cp.profile_name = e.profile_name
+        LEFT JOIN reddit_accounts a ON a.id = cp.account_id
+        LEFT JOIN model_profiles p ON p.id = a.profile_id
+        ORDER BY e.started_at DESC
+        LIMIT ?
+      `).all(limit);
+
+      return { ok: true, executions: rows || [] };
+    } catch (error) {
+      console.error('[IPC] Failed to get execution history:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  /**
    * Get CloakManager binary status and health
    * Exposes download, spawn, and connection state to UI
    */

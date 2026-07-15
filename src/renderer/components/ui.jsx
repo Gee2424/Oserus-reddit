@@ -139,6 +139,33 @@ export function EmptyState({ icon = '◌', title, hint, action }) {
 
 /* ---------------------------- Table styles ------------------------------ */
 // Importable style objects so every table looks the same. Use as `style={th}`.
+/* ------------------------------ Spinner -------------------------------- */
+export function Spinner({ size = 20, label, overlay }) {
+  const spin = (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 8,
+      color: 'var(--text-2)', fontSize: 13,
+    }}>
+      <span style={{
+        width: size, height: size, borderRadius: '50%', flexShrink: 0,
+        border: '2px solid var(--border-strong)',
+        borderTopColor: 'var(--gold)',
+        animation: 'spinner-rotate 0.7s linear infinite',
+      }} />
+      {label && <span>{label}</span>}
+    </span>
+  );
+  if (overlay) {
+    return (
+      <div style={{
+        position: 'absolute', inset: 0, display: 'grid', placeItems: 'center',
+        background: 'rgba(7,9,10,0.6)', zIndex: 10,
+      }}>{spin}</div>
+    );
+  }
+  return spin;
+}
+
 export const th = {
   textAlign: 'left', padding: '11px 14px', fontSize: 10,
   textTransform: 'uppercase', letterSpacing: '0.08em',

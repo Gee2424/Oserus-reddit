@@ -7,6 +7,7 @@ import ExtensionsPanel from '../components/ExtensionsPanel.jsx';
 import HomepageTilesPanel from '../components/HomepageTilesPanel.jsx';
 import AutopilotAIPanel from '../components/AutopilotAIPanel.jsx';
 import BrowserModeSettings from '../components/BrowserModeSettings.jsx';
+import CDPHistoryPanel from '../components/CDPHistoryPanel.jsx';
 
 // Configuration page.
 //
@@ -233,6 +234,9 @@ export default function SettingsPage() {
           </Subcard>
 
           <BrowserModeSettings />
+          <div style={{ marginTop: 18 }}>
+            <CDPHistoryPanel token={token} />
+          </div>
         </Section>
       )}
 
