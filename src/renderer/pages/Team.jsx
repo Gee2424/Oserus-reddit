@@ -245,16 +245,16 @@ export default function TeamPage({ navigate }) {
           )}
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                <th style={{ padding: '6px 8px', color: 'var(--text-3)' }}>User ID</th>
-                <th style={{ padding: '6px 8px', color: 'var(--text-3)' }}>Role</th>
-                <th style={{ padding: '6px 8px', color: 'var(--text-3)' }}>Joined</th>
-                {canFullManage && <th style={{ padding: '6px 8px', color: 'var(--text-3)' }}>Actions</th>}
+              <tr style={{ background: 'var(--bg-2)', position: 'sticky', top: 0, zIndex: 2 }}>
+                <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>User ID</th>
+                <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Role</th>
+                <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Joined</th>
+                {canFullManage && <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Actions</th>}
               </tr>
             </thead>
             <tbody>
               {members.map(m => (
-                <tr key={m.user_id} style={{ borderBottom: '1px solid var(--border)' }}>
+                <tr key={m.user_id} style={{ borderTop: '1px solid var(--border)' }}>
                   <td style={{ padding: '8px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{m.user_id}</td>
                   <td style={{ padding: '8px' }}>
                     {canManage && m.role !== 'owner' ? (
@@ -291,7 +291,9 @@ export default function TeamPage({ navigate }) {
             </tbody>
           </table>
           {members.length === 0 && (
-            <p className="mono dim" style={{ fontSize: 12 }}>No members found.</p>
+            <div style={{ padding: 24, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', fontSize: 13, color: 'var(--text-3)', marginTop: 8 }}>
+              No members on this team yet.
+            </div>
           )}
         </div>
       )}
@@ -299,16 +301,18 @@ export default function TeamPage({ navigate }) {
       {tab === 'machines' && (
         <div>
           {machines.length === 0 && (
-            <p className="mono dim" style={{ fontSize: 12 }}>No machines connected. They'll appear here when a member signs in on this team.</p>
+            <div style={{ padding: 24, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', fontSize: 13, color: 'var(--text-3)' }}>
+              No machines connected. They'll appear here when a member signs in on this team.
+            </div>
           )}
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                <th style={{ padding: '6px 8px', color: 'var(--text-3)' }}>Machine</th>
-                <th style={{ padding: '6px 8px', color: 'var(--text-3)' }}>User</th>
-                <th style={{ padding: '6px 8px', color: 'var(--text-3)' }}>Last seen</th>
-                <th style={{ padding: '6px 8px', color: 'var(--text-3)' }}>Autopilot</th>
-                {canManage && <th style={{ padding: '6px 8px', color: 'var(--text-3)' }}>Actions</th>}
+              <tr style={{ background: 'var(--bg-2)', position: 'sticky', top: 0, zIndex: 2 }}>
+                <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Machine</th>
+                <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>User</th>
+                <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Last seen</th>
+                <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Autopilot</th>
+                {canManage && <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Actions</th>}
               </tr>
             </thead>
             <tbody>

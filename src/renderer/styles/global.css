@@ -178,6 +178,90 @@ input, textarea, select {
   from { opacity: 0; transform: translateY(2px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* Page transitions — each route change triggers a smooth entrance */
+.page-wrap {
+  animation: page-enter 0.22s ease-out;
+}
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Modal entrance animation */
+@keyframes modal-enter {
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  display: grid; place-items: center; padding: 20px;
+  animation: modal-fade-in 0.15s ease-out;
+}
+@keyframes modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.modal-card {
+  animation: modal-enter 0.2s ease-out;
+  max-width: 95vw; max-height: 90vh; overflow-y: auto;
+  box-shadow: 0 24px 60px -10px rgba(0,0,0,0.7);
+}
+
+/* Shimmer animation for skeleton loading */
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+/* Glow pulse for data refresh */
+@keyframes glow-pulse {
+  0%   { box-shadow: inset 0 0 0 1px transparent; }
+  40%  { box-shadow: inset 0 0 0 1px var(--ok), 0 0 14px var(--green-soft); }
+  100% { box-shadow: inset 0 0 0 1px transparent; }
+}
+
+/* Toast slide-in animation */
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateX(120%); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes toast-slide-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(120%); }
+}
+
+/* Section expand/collapse animation for Settings */
+@keyframes section-expand {
+  from { opacity: 0; transform: translateY(-6px); max-height: 0; }
+  to   { opacity: 1; transform: translateY(0); max-height: 3000px; }
+}
+.section-content {
+  overflow: hidden;
+  animation: section-expand 0.25s ease-out;
+}
+
+/* Empty state entrance */
+@keyframes empty-enter {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.empty-state-modern {
+  animation: empty-enter 0.2s ease-out;
+}
+
+/* Stat value update flash */
+@keyframes stat-flash {
+  0%   { opacity: 0.6; }
+  50%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.stat-updated {
+  animation: stat-flash 0.5s ease-out;
+}
 /* Used by inline-styled status dots (autopilot Run-result spinner etc.). */
 @keyframes pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -195,6 +279,16 @@ input:focus, textarea:focus, select:focus {
   border-color: var(--blue-bright);
   background: var(--bg-2);
   box-shadow: 0 0 0 3px var(--blue-soft);
+}
+
+/* Field-level validation states */
+input.valid, textarea.valid, select.valid {
+  border-color: var(--ok);
+  box-shadow: 0 0 0 3px rgba(79,138,100,0.15);
+}
+input.invalid, textarea.invalid, select.invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px rgba(180,90,90,0.15);
 }
 
 label {

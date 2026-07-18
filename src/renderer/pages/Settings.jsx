@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
@@ -8,24 +8,15 @@ import HomepageTilesPanel from '../components/HomepageTilesPanel.jsx';
 import AutopilotAIPanel from '../components/AutopilotAIPanel.jsx';
 import BrowserModeSettings from '../components/BrowserModeSettings.jsx';
 import CDPHistoryPanel from '../components/CDPHistoryPanel.jsx';
+import { useToast } from '../lib/toast.jsx';
 
 // Configuration page.
 //
-// Three top-level groups, in the order you actually configure things:
-//
-//   1. AI            — Anthropic + Grok + Autopilot's separate key.
-//                      Each card explains exactly what its key powers.
-//   2. Infrastructure — Boost providers (upvote.biz today) + Proxies.
-//   3. Account       — Change password + per-account browser sessions.
-//
-// Removed from the previous version:
-//   • SchedulingConfig — dead component, never rendered.
-//   • cfgTab single-item tab bar — pointless when there's one tab.
-//   • "Connected devices" placeholder — pure marketing surface for a
-//     service that doesn't ship yet. Comes back when there's an
-//     actual USB bridge to configure.
-//   • Side-by-side Anthropic + Grok cards (two near-identical forms) —
-//     replaced by one reusable KeyCard so the layout is uniform.
+// Sections are driven by the SECTIONS array (nav order, admin gating).
+// The nav sidebar + CollapsibleSection wrapper replaced the old flat
+// Section component — each section collapses to a title bar, only one
+// expanded at a time. Nav order: AI → Infrastructure → Account →
+// Cloud Sync → Browser & Devices.
 
 export default function SettingsPage() {
   const { token } = useAuth();
@@ -33,6 +24,55 @@ export default function SettingsPage() {
   const { accounts, refresh } = useActiveAccount();
 
   const isAdmin = can('ai.admin');
+  const { toast } = useToast();
+
+  // ── Section navigation state ──────────────────────────────────────
+  const SECTIONS = useMemo(() => [
+    { id: 'ai',             label: 'AI',                   icon: '◇', admin: true },
+    { id: 'infrastructure', label: 'Infrastructure',       icon: '⚡', admin: true },
+    { id: 'account',        label: 'Account',              icon: '⚑', admin: false },
+    { id: 'cloud',          label: 'Cloud Sync',           icon: '☁', admin: true },
+    { id: 'browser',        label: 'Browser & Devices',    icon: '◐', admin: true },
+  ], []);
+
+  const [expandedSection, setExpandedSection] = useState('ai');
+  const [activeNavSection, setActiveNavSection] = useState('ai');
+
+  // IntersectionObserver — highlights the nav item for the in-view section
+  useEffect(() => {
+    const visibleSections = SECTIONS.filter(s => !s.admin || isAdmin);
+    const observer = new IntersectionObserver((entries) => {
+      let best = null;
+      let bestTop = Infinity;
+      for (const entry of entries) {
+        if (entry.isIntersecting && entry.boundingClientRect.top < bestTop) {
+          bestTop = entry.boundingClientRect.top;
+          best = entry.target.id;
+        }
+      }
+      if (best) setActiveNavSection(best);
+    }, { rootMargin: '-72px 0px -65% 0px', threshold: 0.05 });
+
+    for (const s of visibleSections) {
+      const el = document.getElementById(s.id);
+      if (el) observer.observe(el);
+    }
+    return () => observer.disconnect();
+  }, [SECTIONS, isAdmin]);
+
+  // On first mount, scroll so the expanded section is visible
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      document.getElementById(expandedSection)?.scrollIntoView({ behavior: 'auto', block: 'start' });
+    });
+  }, []);
+
+  const scrollToSection = (id) => {
+    setExpandedSection(id);
+    setTimeout(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 20);
+  };
 
   // ── AI state ──────────────────────────────────────────────────────
   const [providers, setProviders] = useState({
@@ -138,188 +178,270 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {isAdmin && <CloudSyncSection />}
+      <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 24, alignItems: 'start' }}>
+        {/* Settings navigation sidebar */}
+        <nav style={{ position: 'sticky', top: 24, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {SECTIONS.map((s, i) => {
+            const isActive = activeNavSection === s.id;
+            const gated = s.admin && !isAdmin;
+            const showSep = i > 0 && !s.admin && SECTIONS[i - 1]?.admin;
+            return (
+              <React.Fragment key={s.id}>
+                {showSep && (
+                  <div style={{ height: 1, background: 'var(--border)', margin: '4px 10px' }} />
+                )}
+                <button
+                  onClick={() => {
+                    if (gated) { toast('warn', `Admin only — ${s.label} settings`); return; }
+                    scrollToSection(s.id);
+                  }}
+                  title={gated ? `Admin only — ${s.label} settings` : s.label}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    width: '100%', textAlign: 'left',
+                    padding: '8px 12px', borderRadius: 'var(--radius)',
+                    border: 'none', cursor: gated ? 'not-allowed' : 'pointer',
+                    background: isActive && !gated
+                      ? 'linear-gradient(90deg, rgba(212,166,74,0.14) 0%, rgba(58,111,140,0.08) 100%)'
+                      : 'transparent',
+                    color: gated ? 'var(--text-3)' : isActive ? 'var(--gold-bright)' : 'var(--text-1)',
+                    fontWeight: isActive && !gated ? 600 : 400,
+                    fontSize: 13,
+                    boxShadow: isActive && !gated ? 'inset 3px 0 0 var(--gold)' : 'none',
+                    opacity: gated ? 0.45 : 1,
+                    transition: 'background 0.12s, color 0.12s, opacity 0.12s',
+                  }}
+                >
+                  <span style={{
+                    width: 22, height: 22, display: 'grid', placeItems: 'center',
+                    fontSize: 14, flexShrink: 0,
+                    color: isActive && !gated ? 'var(--gold)' : 'var(--text-3)',
+                  }}>{s.icon}</span>
+                  <span style={{ flex: 1 }}>{s.label}</span>
+                  {gated && <span style={{ fontSize: 11, opacity: 0.6 }}>🔒</span>}
+                  {isActive && !gated && (
+                    <span style={{
+                      width: 6, height: 6, borderRadius: '50%',
+                      background: 'var(--gold)',
+                    }} />
+                  )}
+                </button>
+              </React.Fragment>
+            );
+          })}
+        </nav>
 
-      {isAdmin && <BrowserDevicesSection />}
-
-      {/* ═══════════════════════════════════════════════════ AI ═════ */}
-      {isAdmin && (
-        <Section
-          title="AI"
-          subtitle="LLM keys that power composing, research, and autopilot. Each key is encrypted using your OS keychain when saved."
-        >
-          <KeyCard
-            title="Anthropic (Claude)"
-            recommended
-            configured={providers.anthropic?.hasKey}
-            description="Powers the AI composer in Scheduler and the analyze + content-plan flow in Intelligence. Prompt caching cuts the static system prompt cost to about 10% after the first hit, so per-call cost stays small. Get a key at console.anthropic.com → API Keys."
-            placeholder="sk-ant-…"
-            onSave={saveAnthropic}
-            onClear={clearAnthropic}
-          />
-
-          <KeyCard
-            title="OpenAI"
-            configured={providers.openai?.hasKey}
-            description="Optional alternative for autopilot comment generation. The Autopilot page lets you pick which provider each (model, platform) protocol uses; Claude is the default. Get a key at platform.openai.com → API Keys."
-            placeholder="sk-…"
-            onSave={saveOpenAI}
-            onClear={clearOpenAI}
-          />
-
-          <KeyCard
-            title="Grok (xAI)"
-            configured={grokHasKey}
-            description="Alternative LLM for the composer + research flows. Useful if you want a different voice on suggestions. Get a key at console.x.ai → API Keys. Switch the active provider below once both are configured."
-            placeholder="xai-…"
-            onSave={saveGrok}
-            onClear={clearGrok}
-          />
-
-          {bothAIProvidersConfigured && (
-            <Subcard title="Active AI provider"
-              description="Decides which LLM the composer + research routes call into. Autopilot uses its own key (below) regardless of this setting.">
-              <div style={{ display: 'flex', gap: 6 }}>
-                <Toggle
-                  active={providers.provider === 'anthropic'}
-                  label={`Anthropic · ${providers.anthropic?.model?.includes('haiku') ? 'Claude Haiku 4.5' : 'Claude'}`}
-                  onClick={() => switchProvider('anthropic')}
-                />
-                <Toggle
-                  active={providers.provider === 'grok'}
-                  label="Grok"
-                  onClick={() => switchProvider('grok')}
-                />
-              </div>
-            </Subcard>
-          )}
-
-          <Subcard
-            title="Autopilot AI"
-            badge="Separate key"
-            description="A dedicated Anthropic key used only by the autopilot loop and the auto-comment generator. Keeping autopilot spend on its own key makes billing reviews easy and keeps the composer key from being drained by background runs. If this key is not set, autopilot fails closed — it does NOT fall back to the main Anthropic key. The trainer below lets you customize the system prompt per job (SFW post, NSFW post, comment), either globally or per model.">
-            <AutopilotAIPanel token={token} />
-          </Subcard>
-        </Section>
-      )}
-
-      {/* ════════════════════════════════════ Infrastructure ════════ */}
-      {isAdmin && (
-        <Section
-          title="Infrastructure"
-          subtitle="Shared pools every model can pull from. Schedules attach a boost to a post and a proxy to an account from these here."
-        >
-          <KeyCard
-            title="upvote.biz"
-            badge="Reddit upvotes"
-            configured={hasVoteKey}
-            description="Provides paid Reddit upvotes that the Scheduler can attach to a post when it goes live. Drip rate (fast / medium / slow) is configurable per post — slow looks more organic. Without a key the Scheduler still works but boost attachments are disabled."
-            placeholder="upvote.biz API key"
-            onSave={saveVote}
-            onClear={clearVote}
-          />
-
-          <ComingSoonProviders />
-
-          <Subcard
-            title="Proxy pool"
-            description="HTTP / HTTPS / SOCKS5 proxies that can be attached to a model (inherited by its accounts) or to one account. Each Oserus Browser launch routes that account's session through the configured proxy. Health is auto-tested every 30 minutes and the result feeds the PROXY ISSUE pill on the Dashboard. Set a rotation TTL for residential providers to flip exit IPs on a sticky-session interval.">
-            <ProxiesPanel />
-          </Subcard>
-
-          <Subcard
-            title="Chrome extensions"
-            description="Unpacked extensions loaded into every account's session partition. Each profile gets its own extension storage / cookies / badges, so uBlock, MetaMask, etc. behave correctly per-account.">
-            <ExtensionsPanel />
-          </Subcard>
-
-          <BrowserModeSettings />
-          <div style={{ marginTop: 18 }}>
-            <CDPHistoryPanel token={token} />
-          </div>
-        </Section>
-      )}
-
-      {/* ═════════════════════════════════════════════ Account ═════ */}
-      <Section
-        title="Account"
-        subtitle="Your operator login and the per-account browser sessions Oserus Browser uses."
-      >
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-          <Subcard title="Change password">
-            <form onSubmit={changePassword}>
-              {pwMsg && (
-                <div className={pwMsg.kind === 'err' ? 'error-banner' : ''}
-                     style={pwMsg.kind === 'ok' ? styles.ok : { marginBottom: 12 }}>
-                  {pwMsg.text}
+        {/* Content area — order matches nav sidebar */}
+        <div>
+          {/* AI */}
+          <div id="ai" style={{ scrollMarginTop: 56 }}>
+            <CollapsibleSection
+              title="AI"
+              icon="◇"
+              subtitle="LLM keys that power composing, research, and autopilot. Each key is encrypted using your OS keychain when saved."
+              isExpanded={expandedSection === 'ai'}
+              onToggle={() => scrollToSection('ai')}
+              admin
+              isAdmin={isAdmin}
+            >
+              {isAdmin && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <KeyCard
+                    title="Anthropic (Claude)" recommended
+                    configured={providers.anthropic?.hasKey}
+                    description="Powers the AI composer in Scheduler and the analyze + content-plan flow in Intelligence. Prompt caching cuts the static system prompt cost to about 10% after the first hit, so per-call cost stays small. Get a key at console.anthropic.com → API Keys."
+                    placeholder="sk-ant-…" onSave={saveAnthropic} onClear={clearAnthropic} />
+                  <KeyCard
+                    title="OpenAI" configured={providers.openai?.hasKey}
+                    description="Optional alternative for autopilot comment generation. The Autopilot page lets you pick which provider each (model, platform) protocol uses; Claude is the default. Get a key at platform.openai.com → API Keys."
+                    placeholder="sk-…" onSave={saveOpenAI} onClear={clearOpenAI} />
+                  <KeyCard
+                    title="Grok (xAI)" configured={grokHasKey}
+                    description="Alternative LLM for the composer + research flows. Useful if you want a different voice on suggestions. Get a key at console.x.ai → API Keys. Switch the active provider below once both are configured."
+                    placeholder="xai-…" onSave={saveGrok} onClear={clearGrok} />
+                  {bothAIProvidersConfigured && (
+                    <Subcard title="Active AI provider"
+                      description="Decides which LLM the composer + research routes call into. Autopilot uses its own key (below) regardless of this setting.">
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <Toggle active={providers.provider === 'anthropic'} label={`Anthropic · ${providers.anthropic?.model?.includes('haiku') ? 'Claude Haiku 4.5' : 'Claude'}`} onClick={() => switchProvider('anthropic')} />
+                        <Toggle active={providers.provider === 'grok'} label="Grok" onClick={() => switchProvider('grok')} />
+                      </div>
+                    </Subcard>
+                  )}
+                  <Subcard title="Autopilot AI" badge="Separate key"
+                    description="A dedicated Anthropic key used only by the autopilot loop and the auto-comment generator. Keeping autopilot spend on its own key makes billing reviews easy and keeps the composer key from being drained by background runs. If this key is not set, autopilot fails closed — it does NOT fall back to the main Anthropic key. The trainer below lets you customize the system prompt per job (SFW post, NSFW post, comment), either globally or per model.">
+                    <AutopilotAIPanel token={token} />
+                  </Subcard>
                 </div>
               )}
-              <div style={{ marginBottom: 12 }}>
-                <label>Current password</label>
-                <input type="password" value={pw.current}
-                       onChange={(e) => setPw({ ...pw, current: e.target.value })} />
-              </div>
-              <div style={{ marginBottom: 12 }}>
-                <label>New password</label>
-                <input type="password" value={pw.next}
-                       onChange={(e) => setPw({ ...pw, next: e.target.value })} />
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <label>Confirm new password</label>
-                <input type="password" value={pw.confirm}
-                       onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
-              </div>
-              <button type="submit" className="primary">Update password</button>
-            </form>
-          </Subcard>
+            </CollapsibleSection>
+          </div>
 
-          <Subcard
-            title="Account sessions"
-            description="Each linked social account uses its own isolated browser session (cookies, storage, partition). Clearing one logs that account out without affecting the others.">
-            {accounts.length === 0 ? (
-              <div className="empty-state" style={{ padding: 16 }}>No accounts yet.</div>
-            ) : (
-              <div>
-                {accounts.map((a) => (
-                  <div key={a.id} style={sessionRow}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13 }}>
-                        <span style={platformChip}>{a.platform || 'reddit'}</span>
-                        <span className="mono dim">{a.platform === 'redgifs' ? '@' : 'u/'}</span>
-                        {a.username}
-                      </div>
-                      <div className="muted" style={{ fontSize: 11 }}>{a.profile_name}</div>
+          {/* Infrastructure */}
+          <div id="infrastructure" style={{ scrollMarginTop: 56 }}>
+            <CollapsibleSection
+              title="Infrastructure"
+              icon="⚡"
+              subtitle="Shared pools every model can pull from. Schedules attach a boost to a post and a proxy to an account from these here."
+              isExpanded={expandedSection === 'infrastructure'}
+              onToggle={() => scrollToSection('infrastructure')}
+              admin
+              isAdmin={isAdmin}
+            >
+              {isAdmin && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <KeyCard title="upvote.biz" badge="Reddit upvotes" configured={hasVoteKey}
+                    description="Provides paid Reddit upvotes that the Scheduler can attach to a post when it goes live. Drip rate (fast / medium / slow) is configurable per post — slow looks more organic. Without a key the Scheduler still works but boost attachments are disabled."
+                    placeholder="upvote.biz API key" onSave={saveVote} onClear={clearVote} />
+                  <ComingSoonProviders />
+                  <Subcard title="Proxy pool"
+                    description="HTTP / HTTPS / SOCKS5 proxies that can be attached to a model (inherited by its accounts) or to one account. Each Oserus Browser launch routes that account's session through the configured proxy. Health is auto-tested every 30 minutes and the result feeds the PROXY ISSUE pill on the Dashboard. Set a rotation TTL for residential providers to flip exit IPs on a sticky-session interval.">
+                    <ProxiesPanel />
+                  </Subcard>
+                  <Subcard title="Chrome extensions"
+                    description="Unpacked extensions loaded into every account's session partition. Each profile gets its own extension storage / cookies / badges, so uBlock, MetaMask, etc. behave correctly per-account.">
+                    <ExtensionsPanel />
+                  </Subcard>
+                  <BrowserModeSettings />
+                  <div style={{ marginTop: 6 }}><CDPHistoryPanel token={token} /></div>
+                </div>
+              )}
+            </CollapsibleSection>
+          </div>
+
+          {/* Account */}
+          <div id="account" style={{ scrollMarginTop: 56 }}>
+            <CollapsibleSection
+              title="Account"
+              icon="⚑"
+              subtitle="Your operator login and the per-account browser sessions Oserus Browser uses."
+              isExpanded={expandedSection === 'account'}
+              onToggle={() => scrollToSection('account')}
+            >
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+                <Subcard title="Change password">
+                  <form onSubmit={changePassword}>
+                    {pwMsg && (
+                      <div className={pwMsg.kind === 'err' ? 'error-banner' : ''}
+                           style={pwMsg.kind === 'ok' ? styles.ok : { marginBottom: 12 }}>{pwMsg.text}</div>
+                    )}
+                    <div style={{ marginBottom: 12 }}>
+                      <label>Current password</label>
+                      <input type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
                     </div>
-                    <button className="ghost" onClick={() => clearSession(a.partition_key)}>
-                      Clear
-                    </button>
-                  </div>
-                ))}
+                    <div style={{ marginBottom: 12 }}>
+                      <label>New password</label>
+                      <input type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <label>Confirm new password</label>
+                      <input type="password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
+                    </div>
+                    <button type="submit" className="primary">Update password</button>
+                  </form>
+                </Subcard>
+                <Subcard title="Account sessions"
+                  description="Each linked social account uses its own isolated browser session (cookies, storage, partition). Clearing one logs that account out without affecting the others.">
+                  {accounts.length === 0 ? (
+                    <div style={{ padding: 20, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', fontSize: 12, color: 'var(--text-3)' }}>No accounts yet.</div>
+                  ) : (
+                    <div>
+                      {accounts.map((a) => (
+                        <div key={a.id} style={sessionRow}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13 }}>
+                              <span style={platformChip}>{a.platform || 'reddit'}</span>
+                              <span className="mono dim">{a.platform === 'redgifs' ? '@' : 'u/'}</span>
+                              {a.username}
+                            </div>
+                            <div className="muted" style={{ fontSize: 11 }}>{a.profile_name}</div>
+                          </div>
+                          <button className="ghost" onClick={() => clearSession(a.partition_key)}>Clear</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Subcard>
               </div>
-            )}
-          </Subcard>
+            </CollapsibleSection>
+          </div>
+
+          {/* Cloud Sync */}
+          <div id="cloud" style={{ scrollMarginTop: 56 }}>
+            <CollapsibleSection
+              title="Cloud Sync"
+              icon="☁"
+              isExpanded={expandedSection === 'cloud'}
+              onToggle={() => scrollToSection('cloud')}
+              admin
+              isAdmin={isAdmin}
+            >
+              {isAdmin && <CloudSyncSection />}
+            </CollapsibleSection>
+          </div>
+
+          {/* Browser & Devices */}
+          <div id="browser" style={{ scrollMarginTop: 56 }}>
+            <CollapsibleSection
+              title="Browser & Devices"
+              icon="◐"
+              subtitle="Oserus Browser is a custom Chromium build — like Opera GX, it ships with its own features baked in. Also detects connected phones over USB."
+              isExpanded={expandedSection === 'browser'}
+              onToggle={() => scrollToSection('browser')}
+              admin
+              isAdmin={isAdmin}
+            >
+              {isAdmin && <BrowserDevicesSection />}
+            </CollapsibleSection>
+          </div>
         </div>
-      </Section>
+      </div>
     </div>
   );
 }
 
 // ──────────────────────────────────────────────────────────── helpers
 
-function Section({ title, subtitle, children }) {
+// ── Collapsible section wrapper for the nav-driven layout ──────
+function CollapsibleSection({ title, icon, subtitle, isExpanded, onToggle, children, admin, isAdmin }) {
+  const gated = admin && !isAdmin;
   return (
-    <div style={{ marginBottom: 28 }}>
-      <div style={{ marginBottom: 12 }}>
-        <h2 style={{ margin: 0, fontSize: 18, fontFamily: 'var(--font-display)', fontWeight: 600 }}>
+    <div style={{ marginBottom: isExpanded ? 20 : 4 }}>
+      <button
+        onClick={onToggle}
+        disabled={gated}
+        style={{
+          width: '100%', textAlign: 'left', background: 'transparent',
+          border: 'none', cursor: gated ? 'not-allowed' : 'pointer',
+          padding: '8px 4px', display: 'flex', alignItems: 'center', gap: 10,
+          opacity: gated ? 0.4 : 1,
+        }}
+      >
+        <span style={{
+          width: 28, height: 28, borderRadius: 'var(--radius)',
+          background: isExpanded ? 'var(--gold-soft)' : 'var(--bg-2)',
+          color: isExpanded ? 'var(--gold)' : 'var(--text-3)',
+          display: 'grid', placeItems: 'center', fontSize: 14, flexShrink: 0,
+          transition: 'background 0.15s, color 0.15s',
+        }}>{icon}</span>
+        <h2 style={{ margin: 0, fontSize: 17, fontFamily: 'var(--font-display)', fontWeight: 500, flex: 1 }}>
           {title}
         </h2>
-        {subtitle && (
-          <div className="muted" style={{ fontSize: 12, marginTop: 4, maxWidth: 760, lineHeight: 1.5 }}>
-            {subtitle}
-          </div>
-        )}
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>{children}</div>
+        {gated && <span className="mono dim" style={{ fontSize: 10 }}>🔒 Admin</span>}
+        <span style={{ color: 'var(--text-3)', fontSize: 12, fontWeight: 600, transition: 'transform 0.2s' }}>
+          {isExpanded ? '▾' : '▸'}
+        </span>
+      </button>
+      {isExpanded && !gated && (
+        <div className="section-content" style={{ paddingLeft: 4 }}>
+          {subtitle && (
+            <div className="muted" style={{ fontSize: 12, margin: '6px 0 14px', maxWidth: 760, lineHeight: 1.5, paddingLeft: 38 }}>
+              {subtitle}
+            </div>
+          )}
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -511,10 +633,7 @@ function BrowserDevicesSection() {
   }
 
   return (
-    <Section
-      title="Browser & Devices"
-      subtitle="Oserus Browser is a custom Chromium build — like Opera GX, it ships with its own features baked in. Also detects connected phones over USB."
-    >
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <Subcard
         title="Oserus Browser"
         description="A custom Chromium build with operator-grade features wired in: per-account session isolation, antidetect fingerprinting, rotating residential proxies, Chrome extension support, an integrated content sidebar, and a profile picker. One window per account, every tab in real Chromium frames — not a webview wrapper."
@@ -580,8 +699,8 @@ function BrowserDevicesSection() {
 
         {scan && (
           (scan.android.length === 0 && scan.ios.length === 0) ? (
-            <div className="empty-state" style={{ padding: 16, fontSize: 13 }}>
-              No phones connected. Plug one in and click Scan now.
+            <div style={{ padding: 24, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', fontSize: 13, color: 'var(--text-3)' }}>
+              No phones connected. Plug one in and click <strong>Scan now</strong>.
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -617,7 +736,7 @@ function BrowserDevicesSection() {
           )
         )}
       </Subcard>
-    </Section>
+    </div>
   );
 }
 
@@ -683,12 +802,7 @@ function CloudSyncSection() {
     : status.lastError ? 'Error' : 'Disconnected';
 
   return (
-    <Section
-      title="Cloud Sync"
-      subtitle={cfg.source === 'baked'
-        ? "This build ships with a central Supabase backend baked in — every install auto-connects to the same project, so activity, posts, comments, and engagement sessions stay in sync across the whole team without per-machine setup."
-        : "Mirror activity, posts, comments, and engagement sessions to Supabase so multiple computers stay in sync in near-realtime. Paste your project URL + anon key, run the setup SQL once, then save."}
-    >
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <Subcard title="Supabase">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           <span
@@ -854,7 +968,7 @@ function CloudSyncSection() {
       <Subcard title="Per-table sync status">
         <TableSyncDiagnostic />
       </Subcard>
-    </Section>
+    </div>
   );
 }
 

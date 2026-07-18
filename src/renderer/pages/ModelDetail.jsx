@@ -4,7 +4,8 @@ import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
 import { PLATFORMS as SHARED_PLATFORMS } from '../lib/platforms.js';
 import { useCloakManagerLaunch } from '../hooks/useCloakManagerLaunch';
-import { Banner, Spinner } from '../components/ui.jsx';
+import { Banner } from '../components/ui.jsx';
+import { ModelDetailSkeleton } from '../components/Skeletons.jsx';
 import { useToast } from '../lib/toast.jsx';
 import { useConfirm } from '../lib/confirm.jsx';
 
@@ -290,12 +291,14 @@ export default function ModelDetailPage({ modelId, navigate }) {
   const proxyUsageCount = (proxyId) => accounts.filter(a => a.proxy_id === proxyId).length;
 
   if (loading) {
-    return <div className="empty-state"><Spinner label="Loading…" /></div>;
+    return <ModelDetailSkeleton />;
   }
   if (!model) {
     return (
-      <div className="empty-state">
-        <h2 style={{ marginBottom: 8 }}>Model not found</h2>
+      <div style={{ padding: 48, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)' }}>
+        <div style={{ fontSize: 36, marginBottom: 10, color: 'var(--text-3)' }}>◇</div>
+        <h2 style={{ marginBottom: 8, fontSize: 18 }}>Model not found</h2>
+        <div className="muted" style={{ fontSize: 13, marginBottom: 16 }}>The model profile you're looking for doesn't exist or was deleted.</div>
         <button className="primary" onClick={() => navigate('profiles')}>← Back to models</button>
       </div>
     );
@@ -513,16 +516,14 @@ export default function ModelDetailPage({ modelId, navigate }) {
             </div>
 
             {(isAddingThis || isEditingThis) && (
-              <div onClick={cancel} style={{
-                position: 'fixed', inset: 0, zIndex: 1000,
-                background: 'rgba(0,0,0,0.6)',
-                display: 'grid', placeItems: 'center', padding: 20,
-              }}>
-              <form onSubmit={submit} onClick={(e) => e.stopPropagation()} className="card" style={{
-                marginBottom: 0, width: 560, maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto',
-                boxShadow: '0 24px 60px -10px rgba(0,0,0,0.7)',
+              <div className="modal-overlay" onClick={cancel}>
+              <form onSubmit={submit} onClick={(e) => e.stopPropagation()} style={{
+                width: 560, overflow: 'hidden',
+                background: 'var(--bg-elev)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-lg)',
                 borderTop: `3px solid ${plat.color}`,
-              }}>
+              }} className="modal-card">
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
                   <span style={{ width: 10, height: 10, borderRadius: '50%', background: plat.color, marginRight: 8 }} />
                   <h3 style={{ margin: 0, flex: 1 }}>
@@ -654,8 +655,9 @@ export default function ModelDetailPage({ modelId, navigate }) {
             )}
 
             {platAccounts.length === 0 ? (
-              <div className="empty-state" style={{ padding: 28, fontSize: 13 }}>
-                No {plat.label} accounts linked yet.
+              <div style={{ padding: 24, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)' }}>
+                <div style={{ fontSize: 24, marginBottom: 6, color: 'var(--text-3)' }}>{plat.icon}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-2)' }}>No {plat.label} accounts linked yet.</div>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -810,7 +812,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
         )}
 
         {modelProxies.length === 0 ? (
-          <div className="empty-state" style={{ padding: 22, fontSize: 13 }}>
+          <div style={{ padding: 24, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', fontSize: 13, color: 'var(--text-3)' }}>
             No proxies in use by this model's accounts.
             {canManage && proxies.length > 0 && ' Open an account above to assign one of your existing proxies.'}
           </div>
@@ -911,7 +913,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
         </div>
 
         {promoSubs.length === 0 ? (
-          <div className="empty-state" style={{ padding: 22, fontSize: 13 }}>
+          <div style={{ padding: 24, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', fontSize: 13, color: 'var(--text-3)' }}>
             No promo subreddits configured for this model yet.
           </div>
         ) : (
@@ -944,7 +946,18 @@ function ModelAnalyticsTab({ token, profileId, accounts, activeTeamId }) {
     return () => { alive = false; };
   }, [token, profileId, activeTeamId]);
 
-  if (!data) return <div className="empty-state"><Spinner label="Loading analytics…" /></div>;
+  if (!data) return (
+    <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)', fontSize: 12 }}>
+      <div style={{
+        width: 20, height: 20, borderRadius: '50%',
+        border: '2px solid var(--border-strong)',
+        borderTopColor: 'var(--gold)',
+        animation: 'spinner-rotate 0.7s linear infinite',
+        margin: '0 auto 8px',
+      }} />
+      Loading analytics…
+    </div>
+  );
 
   const reddit = data.accounts.filter(a => a.platform !== 'redgifs');
   return (
@@ -975,7 +988,9 @@ function ModelAnalyticsTab({ token, profileId, accounts, activeTeamId }) {
           </div>
         </div>
         {reddit.length === 0 ? (
-          <div className="empty-state" style={{ padding: 30, border: 'none' }}>No Reddit accounts.</div>
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)', fontSize: 12, borderTop: '1px solid var(--border)' }}>
+            No Reddit accounts linked.
+          </div>
         ) : (
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
             <thead>

@@ -303,7 +303,9 @@ export default function ProxiesPanel() {
       )}
 
       {proxies.length === 0 ? (
-        <div className="empty-state">No proxies yet.</div>
+        <div style={{ padding: 24, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', fontSize: 12, color: 'var(--text-3)' }}>
+          No proxies configured yet.
+        </div>
       ) : (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>

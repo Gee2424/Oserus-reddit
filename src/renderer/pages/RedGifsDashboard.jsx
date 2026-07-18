@@ -65,10 +65,12 @@ export default function RedGifsDashboardPage({ navigate }) {
       {msg && <Banner kind="ok">{msg}</Banner>}
 
       {accounts.length === 0 ? (
-        <div className="card" style={{ padding: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>▮</div>
-          <h3 style={{ marginBottom: 6 }}>No RedGIFs accounts yet</h3>
-          <div className="muted" style={{ fontSize: 13, marginBottom: 16 }}>Add a RedGIFs account under Add Accounts to see it here.</div>
+        <div style={{ padding: 48, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)' }}>
+          <div style={{ fontSize: 44, marginBottom: 10, color: 'var(--text-3)' }}>▮</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-1)', marginBottom: 6 }}>No RedGIFs accounts yet</div>
+          <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 16, maxWidth: 360, margin: '0 auto 16px', lineHeight: 1.6 }}>
+            Add a RedGIFs account under <strong>Add Accounts</strong> to see followers, views, and videos at a glance.
+          </div>
           {navigate && <button className="primary" onClick={() => navigate('add-accounts')}>+ Add Accounts</button>}
         </div>
       ) : (

@@ -87,8 +87,9 @@ export default function DocsPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 18, alignItems: 'start' }}>
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           {docs.length === 0 ? (
-            <div className="empty-state" style={{ padding: 22, fontSize: 13, border: 'none' }}>
-              No docs yet. Create the first one.
+            <div style={{ padding: 28, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)' }}>
+              <div style={{ fontSize: 28, marginBottom: 6, color: 'var(--text-3)' }}>◫</div>
+              <div style={{ fontSize: 13, color: 'var(--text-2)' }}>No docs yet. Create the first one.</div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -154,8 +155,11 @@ export default function DocsPage() {
               </div>
             </div>
           ) : (
-            <div className="empty-state" style={{ padding: 60 }}>
-              Pick a doc on the left, or click <strong>+ New doc</strong> to write one.
+            <div style={{ padding: 48, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)' }}>
+              <div style={{ fontSize: 36, marginBottom: 8, color: 'var(--text-3)' }}>◫</div>
+              <div style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.6 }}>
+                Pick a doc on the left, or click <strong>+ New doc</strong> to write one.
+              </div>
             </div>
           )}
         </div>

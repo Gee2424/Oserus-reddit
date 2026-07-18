@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
 import { Banner } from '../components/ui.jsx';
+import { AnalyticsSkeleton } from '../components/Skeletons.jsx';
 
 const STATUS_COLORS = { warming: '#d4a55a', ready: '#7a9a5a', paused: '#968b78', banned: '#b3473a' };
 
@@ -45,8 +46,16 @@ export default function AnalyticsPage() {
     await load();
   }
 
-  if (loading) return <div className="empty-state">Loading…</div>;
-  if (!data) return <div className="empty-state">No data.</div>;
+  if (loading) return <AnalyticsSkeleton />;
+  if (!data) return (
+    <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-2)', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)' }}>
+      <div style={{ fontSize: 40, marginBottom: 10, color: 'var(--text-3)' }}>◧</div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-1)', marginBottom: 6 }}>No analytics data yet</div>
+      <div style={{ fontSize: 13, color: 'var(--text-3)', maxWidth: 380, margin: '0 auto', lineHeight: 1.6 }}>
+        Add accounts and start posting to see performance metrics here.
+      </div>
+    </div>
+  );
 
   const { accounts, totals } = data;
   const safeTotals = totals || {};
@@ -124,11 +133,14 @@ export default function AnalyticsPage() {
           </div>
         </div>
         {redditAccounts.length === 0 ? (
-          <div className="empty-state" style={{ padding: 30, border: 'none' }}>No accounts linked yet.</div>
+          <div style={{ padding: 32, textAlign: 'center', border: '1px dashed var(--border)', background: 'var(--bg-1)' }}>
+            <div style={{ fontSize: 28, marginBottom: 6, color: 'var(--text-3)' }}>◧</div>
+            <div style={{ fontSize: 13, color: 'var(--text-2)' }}>No accounts linked yet.</div>
+          </div>
         ) : (
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase' }}>
+              <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', position: 'sticky', top: 0, zIndex: 2, background: 'var(--bg-elev)' }}>
                 <th style={th}>Account</th>
                 <th style={th}>Model</th>
                 <th style={th}>Status</th>
@@ -167,8 +179,8 @@ export default function AnalyticsPage() {
       </div>
 
       {recordOpen && (
-        <div style={overlay}>
-          <form onSubmit={recordKarma} className="card" style={{ width: 380 }}>
+        <div className="modal-overlay">
+          <form onSubmit={recordKarma} style={{ width: 380 }} className="modal-card card">
             <h3 style={{ marginBottom: 12 }}>Record karma — u/{recordOpen.username}</h3>
             <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>
               Open the Reddit profile (old.reddit.com/user/{recordOpen.username}) and paste the numbers shown there.
@@ -207,7 +219,3 @@ function StatCard({ label, value, accent }) {
 
 const th = { padding: '10px 14px', fontWeight: 500 };
 const td = { padding: '10px 14px', verticalAlign: 'middle' };
-const overlay = {
-  position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-  display: 'grid', placeItems: 'center', zIndex: 100,
-};

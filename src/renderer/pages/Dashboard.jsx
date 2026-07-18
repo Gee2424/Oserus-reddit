@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
+import { DashboardSkeleton } from '../components/Skeletons.jsx';
 
 // ─────────────────────────────────────────────────── Management Hub
 //
@@ -35,6 +36,7 @@ export default function DashboardPage() {
   const canAdminRoles = can('roles.manage');
 
   const [overview, setOverview] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [expanded, setExpanded] = useState(null); // member id
   const [detail, setDetail] = useState(null);
@@ -44,17 +46,43 @@ export default function DashboardPage() {
 
   const [showAdmin, setShowAdmin] = useState(false);
 
+  // Track recently updated stat keys for flash animation
+  const prevTotalsRef = useRef(null);
+  const [updatedKeys, setUpdatedKeys] = useState(new Set());
+  const [lastRefreshTime, setLastRefreshTime] = useState(null);
+
   const refresh = useCallback(async () => {
     try {
+      setLoading(true);
       const [o, a] = await Promise.all([
         window.api.team.overview({ token, teamId: activeTeamId }),
         window.api.activity.list({ token, limit: 200 }),
       ]);
-      if (o.ok) { setOverview(o); setLoadError(null); }
-      else      setLoadError(o.error || 'Could not load team overview');
+      if (o.ok) {
+        // Detect changed stat keys for flash animation
+        const prev = prevTotalsRef.current;
+        const totals = o.totals || EMPTY_TOTALS;
+        if (prev) {
+          const changed = new Set();
+          for (const key of Object.keys(totals)) {
+            if (totals[key] !== prev[key]) changed.add(key);
+          }
+          if (changed.size > 0) {
+            setUpdatedKeys(changed);
+            setTimeout(() => setUpdatedKeys(new Set()), 600);
+          }
+        }
+        prevTotalsRef.current = totals;
+        setOverview(o);
+        setLoadError(null);
+        setLastRefreshTime(Date.now());
+      }
+      else setLoadError(o.error || 'Could not load team overview');
       if (a.ok) setActivity(a.entries || []);
     } catch (err) {
       setLoadError(err.message);
+    } finally {
+      setLoading(false);
     }
   }, [token, activeTeamId]);
 
@@ -100,6 +128,8 @@ export default function DashboardPage() {
   const actionList   = useMemo(() => [...new Set(activity.map((e) => e.action))].sort(),   [activity]);
   const usernameList = useMemo(() => [...new Set(activity.map((e) => e.username).filter(Boolean))].sort(), [activity]);
 
+  if (loading && !overview) return <DashboardSkeleton />;
+
   return (
     <div>
       <div style={topRow}>
@@ -124,7 +154,20 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <OrgStrip totals={totals} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <OrgStrip totals={totals} updatedKeys={updatedKeys} prevTotals={prevTotalsRef.current} />
+        {lastRefreshTime && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text-3)', flexShrink: 0, marginLeft: 'auto' }}>
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: 'var(--ok)',
+              boxShadow: '0 0 6px var(--green-soft)',
+              animation: 'pulse 2s ease-in-out infinite',
+            }} />
+            Live
+          </div>
+        )}
+      </div>
 
       {canSeeTeam ? (
         <>
@@ -163,27 +206,55 @@ export default function DashboardPage() {
 
 // ─────────────────────────────────────────────────────── Org strip
 
-function OrgStrip({ totals }) {
+function OrgStrip({ totals, updatedKeys, prevTotals }) {
   const items = [
-    { label: 'Active now',     value: totals.active_now,                tone: '#7fd99a', sub: `of ${totals.members_total}` },
-    { label: 'Posts today',    value: totals.posts_today,               tone: 'var(--gold-bright)' },
-    { label: 'Comments today', value: totals.comments_today,            tone: '#9fc0ea' },
-    { label: 'Karma · 24h',    value: totals.karma_today,               tone: '#e7c478' },
-    { label: 'Time on task',   value: formatMins(totals.time_on_task_minutes || 0), tone: 'var(--text-0)' },
-    { label: 'Accounts',       value: totals.accounts_active,           tone: 'var(--text-0)', sub: totals.accounts_banned ? `${totals.accounts_banned} banned` : null },
-    { label: 'Models',         value: totals.models_total,              tone: 'var(--text-0)' },
+    { key: 'active_now',      label: 'Active now',     value: totals.active_now,                tone: '#7fd99a', sub: `of ${totals.members_total}`, numKey: 'active_now' },
+    { key: 'posts_today',     label: 'Posts today',    value: totals.posts_today,               tone: 'var(--gold-bright)', numKey: 'posts_today' },
+    { key: 'comments_today',  label: 'Comments today',  value: totals.comments_today,            tone: '#9fc0ea', numKey: 'comments_today' },
+    { key: 'karma_today',     label: 'Karma · 24h',    value: totals.karma_today,               tone: '#e7c478', numKey: 'karma_today' },
+    { key: 'time',            label: 'Time on task',   value: formatMins(totals.time_on_task_minutes || 0), tone: 'var(--text-0)', numKey: 'time_on_task_minutes' },
+    { key: 'accounts_active', label: 'Accounts',       value: totals.accounts_active,           tone: 'var(--text-0)', sub: totals.accounts_banned ? `${totals.accounts_banned} banned` : null, numKey: 'accounts_active' },
+    { key: 'models_total',    label: 'Models',         value: totals.models_total,              tone: 'var(--text-0)', numKey: 'models_total' },
   ];
   return (
-    <div style={orgStripWrap}>
-      {items.map((it) => (
-        <div key={it.label} style={orgCell}>
-          <div style={orgLabel}>{it.label}</div>
-          <div style={{ ...orgValue, color: it.tone }}>
-            {typeof it.value === 'number' ? it.value.toLocaleString() : it.value}
+    <div style={{ ...orgStripWrap, flex: 1 }}>
+      {items.map((it) => {
+        const prev = prevTotals && it.numKey ? prevTotals[it.numKey] : null;
+        const cur = typeof it.value === 'number' ? it.value : (prevTotals && it.numKey ? prevTotals[it.numKey] : null);
+        let trend = null;
+        if (prev != null && cur != null && prev !== cur) {
+          const diff = cur - prev;
+          const pct = prev !== 0 ? Math.round((diff / prev) * 100) : (diff > 0 ? 100 : -100);
+          trend = {
+            dir: diff > 0 ? 'up' : 'down',
+            pct: Math.abs(pct),
+            label: diff > 0 ? `+${diff}` : `${diff}`,
+          };
+        }
+        return (
+          <div key={it.label} style={{
+            ...orgCell,
+            animation: updatedKeys?.has(it.key) ? 'glow-pulse 0.6s ease-out' : 'none',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={orgLabel}>{it.label}</div>
+              {trend && (
+                <span style={{
+                  fontSize: 9, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                  color: trend.dir === 'up' ? 'var(--ok)' : '#e2a3a3',
+                  display: 'inline-flex', alignItems: 'center', gap: 1,
+                }}>
+                  {trend.dir === 'up' ? '↑' : '↓'}{trend.pct > 0 ? `${trend.pct}%` : ''}
+                </span>
+              )}
+            </div>
+            <div style={{ ...orgValue, color: it.tone }}>
+              {typeof it.value === 'number' ? it.value.toLocaleString() : it.value}
+            </div>
+            {it.sub && <div style={orgSub}>{it.sub}</div>}
           </div>
-          {it.sub && <div style={orgSub}>{it.sub}</div>}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -193,11 +264,19 @@ function OrgStrip({ totals }) {
 function TeamTable({ members, expandedId, onExpand, detail }) {
   if (!members.length) {
     return (
-      <div className="card" style={{ padding: 20, marginBottom: 14, color: 'var(--text-3)', fontSize: 13 }}>
-        No team members yet. Add operators under Manage members below.
+      <div style={{ padding: 32, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', marginBottom: 14 }}>
+        <div style={{ fontSize: 32, marginBottom: 8, color: 'var(--text-3)' }}>⚑</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)', marginBottom: 4 }}>No team members yet</div>
+        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Add operators under <strong>Manage members</strong> below.</div>
       </div>
     );
   }
+
+  // Compute max values for inline bar charts
+  const maxPosts = Math.max(...members.map(m => m.posts_today || 0), 1);
+  const maxComments = Math.max(...members.map(m => m.comments_today || 0), 1);
+  const maxKarma = Math.max(...members.map(m => Math.abs(m.karma_today || 0)), 1);
+  const maxTime = Math.max(...members.map(m => m.time_on_task_minutes || 0), 1);
   return (
     <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 14 }}>
       <div style={tablesHead}>
@@ -209,7 +288,7 @@ function TeamTable({ members, expandedId, onExpand, detail }) {
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ background: 'var(--bg-2)' }}>
+            <tr style={{ background: 'var(--bg-2)', position: 'sticky', top: 0, zIndex: 2 }}>
               <th style={th}>Member</th>
               <th style={th}>Role</th>
               <th style={th}>Status</th>
@@ -258,13 +337,45 @@ function TeamTable({ members, expandedId, onExpand, detail }) {
                     {m.accounts_active || 0}
                     {m.accounts_banned > 0 && <span style={bannedTag}>{m.accounts_banned} banned</span>}
                   </td>
-                  <td style={{ ...td, textAlign: 'right' }} className="mono">{m.posts_today || 0}</td>
-                  <td style={{ ...td, textAlign: 'right' }} className="mono">{m.comments_today || 0}</td>
-                  <td style={{ ...td, textAlign: 'right' }} className="mono" title="Karma gained on assigned accounts in the last 24h">
-                    {(m.karma_today || 0) > 0 ? `+${m.karma_today.toLocaleString()}` : (m.karma_today || 0).toLocaleString()}
+                  <td style={{ ...td, textAlign: 'right', position: 'relative' }} className="mono">
+                    <div style={{
+                      position: 'absolute', left: 0, bottom: 0, height: '100%',
+                      width: `${((m.posts_today || 0) / maxPosts) * 100}%`,
+                      background: 'rgba(212,166,74,0.06)',
+                      borderRadius: '0 4px 4px 0',
+                      pointerEvents: 'none',
+                    }} />
+                    <span style={{ position: 'relative' }}>{m.posts_today || 0}</span>
                   </td>
-                  <td style={{ ...td, textAlign: 'right' }} className="mono" title="Active time in the app + Oserus Browser today. Pauses after 5 min of no input.">
-                    {formatMins(m.time_on_task_minutes || 0)}
+                  <td style={{ ...td, textAlign: 'right', position: 'relative' }} className="mono">
+                    <div style={{
+                      position: 'absolute', left: 0, bottom: 0, height: '100%',
+                      width: `${((m.comments_today || 0) / maxComments) * 100}%`,
+                      background: 'rgba(159,192,234,0.06)',
+                      borderRadius: '0 4px 4px 0',
+                      pointerEvents: 'none',
+                    }} />
+                    <span style={{ position: 'relative' }}>{m.comments_today || 0}</span>
+                  </td>
+                  <td style={{ ...td, textAlign: 'right', position: 'relative' }} className="mono" title="Karma gained on assigned accounts in the last 24h">
+                    <div style={{
+                      position: 'absolute', left: 0, bottom: 0, height: '100%',
+                      width: `${(Math.abs(m.karma_today || 0) / maxKarma) * 100}%`,
+                      background: 'rgba(231,196,120,0.06)',
+                      borderRadius: '0 4px 4px 0',
+                      pointerEvents: 'none',
+                    }} />
+                    <span style={{ position: 'relative' }}>{(m.karma_today || 0) > 0 ? `+${m.karma_today.toLocaleString()}` : (m.karma_today || 0).toLocaleString()}</span>
+                  </td>
+                  <td style={{ ...td, textAlign: 'right', position: 'relative' }} className="mono" title="Active time in the app + Oserus Browser today. Pauses after 5 min of no input.">
+                    <div style={{
+                      position: 'absolute', left: 0, bottom: 0, height: '100%',
+                      width: `${((m.time_on_task_minutes || 0) / maxTime) * 100}%`,
+                      background: 'rgba(255,255,255,0.04)',
+                      borderRadius: '0 4px 4px 0',
+                      pointerEvents: 'none',
+                    }} />
+                    <span style={{ position: 'relative' }}>{formatMins(m.time_on_task_minutes || 0)}</span>
                   </td>
                   <td style={{ ...td, textAlign: 'right' }} className="mono dim">
                     {m.last_seen ? formatRelative(m.last_seen) : '—'}
@@ -287,7 +398,18 @@ function TeamTable({ members, expandedId, onExpand, detail }) {
 }
 
 function MemberDetail({ detail, memberId }) {
-  if (!detail) return <div className="muted" style={{ fontSize: 12 }}>Loading…</div>;
+  if (!detail) return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-3)' }}>
+      <span style={{
+        width: 12, height: 12, borderRadius: '50%',
+        border: '2px solid var(--border-strong)',
+        borderTopColor: 'var(--gold)',
+        animation: 'spinner-rotate 0.7s linear infinite',
+        display: 'inline-block',
+      }} />
+      Loading…
+    </div>
+  );
   if (!detail.ok) return <div className="error-banner">{detail.error}</div>;
   const { models, accounts, recent } = detail;
   return (

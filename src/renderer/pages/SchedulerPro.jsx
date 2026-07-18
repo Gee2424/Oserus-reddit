@@ -4,7 +4,7 @@ import { useActiveAccount } from '../lib/activeAccount.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
 import AccountSelector from '../components/AccountSelector.jsx';
 import PlatformExplainer from '../components/PlatformExplainer.jsx';
-import { Banner } from '../components/ui.jsx';
+import { Banner, EmptyState } from '../components/ui.jsx';
 import { useCloudReload } from '../lib/cloudReload.jsx';
 
 const PLATFORM_ICON = { reddit: '◈', redgifs: '▮', x: '𝕏', instagram: '◉', tiktok: '♪' };
@@ -134,9 +134,11 @@ export default function SchedulerProPage() {
       )}
 
       {!sel.accountId ? (
-        <div className="card" style={{ padding: 20, color: 'var(--text-3)', fontSize: 13 }}>
-          Pick a model, platform, and account to compose and view scheduled posts.
-        </div>
+        <EmptyState
+          icon="⟳"
+          title="Select an account to get started"
+          hint="Pick a model and platform above, then choose an account. The composer and schedule queue will appear below for that account."
+        />
       ) : (
         <>
           <Composer
@@ -154,19 +156,7 @@ export default function SchedulerProPage() {
 
           <StatusColumns posts={posts} onCancel={cancel} onDelete={del} />
 
-          {/* AI Settings sits BELOW the kanban now. First-time use is
-              "pick account → composer → schedule → see it in the queue"
-              without scrolling past 200 lines of fine-tuning that 90% of
-              operators never touch. Power users still get to it without
-              leaving the page. */}
-          <details style={{ marginTop: 18, border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', background: 'var(--bg-elev)' }}>
-            <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--text-2)', padding: '4px 0' }}>
-              AI generation settings · persona, tone, length, custom prompt
-            </summary>
-            <div style={{ marginTop: 10 }}>
-              <AISettings token={token} onMsg={setMsg} onError={setErr} />
-            </div>
-          </details>
+          {/* AI Settings moved to a dedicated tab in the Automation page. */}
         </>
       )}
     </div>
@@ -197,6 +187,18 @@ function StatusColumns({ posts, onCancel, onDelete }) {
     return m;
   }, [posts]);
 
+  // Group failed posts by error class for the "Failed" column header
+  const failedGroups = useMemo(() => {
+    const failed = buckets['failed'] || [];
+    const groups = {};
+    for (const p of failed) {
+      const key = p.error ? p.error.split(/[.:]/)[0].trim() : 'unknown';
+      if (!groups[key]) groups[key] = { count: 0, label: key };
+      groups[key].count++;
+    }
+    return Object.values(groups).sort((a, b) => b.count - a.count);
+  }, [buckets]);
+
   return (
     <div style={{ display: 'grid', gridTemplateColumns: `repeat(${STATUS_COLUMNS.length}, minmax(220px, 1fr))`, gap: 10, alignItems: 'start' }}>
       {STATUS_COLUMNS.map((c) => {
@@ -206,12 +208,25 @@ function StatusColumns({ posts, onCancel, onDelete }) {
           <div key={c.key} style={{ background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
             <div style={{
               padding: '10px 12px', borderBottom: '1px solid var(--border)',
-              display: 'flex', alignItems: 'center', gap: 8,
+              display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
               background: sc.bg || 'var(--bg-2)', color: sc.fg || 'var(--text-2)',
               fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
             }}>
               <span>{c.label}</span>
               <span style={{ marginLeft: 'auto', opacity: 0.8 }}>{items.length}</span>
+              {c.key === 'failed' && failedGroups.length > 1 && (
+                <div style={{ width: '100%', marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {failedGroups.map((g) => (
+                    <span key={g.label} style={{
+                      fontSize: 9, padding: '1px 6px', borderRadius: 999,
+                      background: 'rgba(226,163,163,0.18)', color: '#e2a3a3',
+                      fontFamily: 'var(--font-mono)', letterSpacing: 0,
+                    }} title={`${g.label}: ${g.count} failed`}>
+                      {g.label} ×{g.count}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             <div style={{ padding: 8, maxHeight: '60vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
               {items.length === 0 ? (
@@ -262,7 +277,7 @@ function StatusColumns({ posts, onCancel, onDelete }) {
 /* --------------------- Run / Monitor / Replenishment --------------------- */
 
 
-function AISettings({ token, onMsg, onError }) {
+export function AISettings({ token, onMsg, onError }) {
   const [cfg, setCfg] = useState({
     mode: 'assistive', gender: 'female', age: '20', location: '',
     titleMin: 3, titleMax: 8, model: 'grok-2-latest', customPrompt: '',
@@ -487,9 +502,41 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId }) {
   const preselectedAccount = preselectAccountId
     ? accounts.find((a) => a.id === preselectAccountId)
     : null;
-  const [platform, setPlatform] = useState(preselectedAccount?.platform || 'reddit');
-  const [form, setForm] = useState({ subreddit: '', title: '', body: '', kind: 'self', url: '', when: '' });
-  const [targets, setTargets] = useState(preselectAccountId ? [preselectAccountId] : []);
+
+  // Draft auto-save — persist composer state to localStorage for crash recovery
+  const STORAGE_KEY = 'oserus_scheduler_draft';
+  const savedDraft = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }, []);
+  const getInitialForm = () => {
+    if (savedDraft?.form) return savedDraft.form;
+    return { subreddit: '', title: '', body: '', kind: 'self', url: '', when: '' };
+  };
+  const getInitialTargets = () => {
+    if (savedDraft?.targets?.length) return savedDraft.targets;
+    return preselectAccountId ? [preselectAccountId] : [];
+  };
+
+  const [platform, setPlatform] = useState(savedDraft?.platform || preselectedAccount?.platform || 'reddit');
+  const [form, setForm] = useState(getInitialForm);
+  const [targets, setTargets] = useState(getInitialTargets);
+
+  // Persist to localStorage on every state change
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ platform, form, targets }));
+    } catch {}
+  }, [platform, form, targets]);
+
+  // When scheduled successfully, clear saved draft
+  const originalOnDone = onDone;
+  const wrappedOnDone = useCallback(() => {
+    try { localStorage.removeItem(STORAGE_KEY); } catch {}
+    originalOnDone();
+  }, [originalOnDone]);
 
   // Resync when the page swaps which account is selected.
   useEffect(() => {
@@ -618,7 +665,7 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId }) {
     }));
     const res = await window.api.scheduled.bulkCreate({ token, items });
     setBusy(false);
-    if (res.ok) onDone();
+    if (res.ok) wrappedOnDone();
     else onError(res.error);
   }
 
@@ -657,7 +704,7 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId }) {
     if (!items.length) { setBusy(false); onError('No (account × preferred sub) pairs to schedule.'); return; }
     const res = await window.api.scheduled.bulkCreate({ token, items });
     setBusy(false);
-    if (res.ok) onDone();
+    if (res.ok) wrappedOnDone();
     else onError(res.error);
   }
 

@@ -237,8 +237,15 @@ export default function AddAccountsPage({ navigate, initialTab }) {
               <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
                 Format: <span className="mono">username:password</span> · optional email/email-password colon-separated · lines starting with # are skipped.
               </div>
-              <button className="primary" onClick={submitBulk} disabled={busy} style={{ marginTop: 14 }}>
-                {busy ? 'Adding…' : 'Add Accounts'}
+              <button className="primary" onClick={submitBulk} disabled={busy} style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                {busy && <span style={{
+                  width: 14, height: 14, borderRadius: '50%',
+                  border: '2px solid rgba(0,0,0,0.2)',
+                  borderTopColor: 'rgba(0,0,0,0.8)',
+                  animation: 'spinner-rotate 0.7s linear infinite',
+                  display: 'inline-block',
+                }} />}
+                {busy ? 'Adding accounts…' : 'Add Accounts'}
               </button>
 
               {last && last.errors?.length > 0 && (
@@ -273,7 +280,14 @@ export default function AddAccountsPage({ navigate, initialTab }) {
                   <input type="password" value={form.emailPw} onChange={(e) => set('emailPw', e.target.value)} />
                 </div>
               </div>
-              <button className="primary" onClick={submitDirect} disabled={busy} style={{ marginTop: 14 }}>
+              <button className="primary" onClick={submitDirect} disabled={busy} style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                {busy && <span style={{
+                  width: 14, height: 14, borderRadius: '50%',
+                  border: '2px solid rgba(0,0,0,0.2)',
+                  borderTopColor: 'rgba(0,0,0,0.8)',
+                  animation: 'spinner-rotate 0.7s linear infinite',
+                  display: 'inline-block',
+                }} />}
                 {busy ? 'Adding…' : 'Add Account'}
               </button>
             </>

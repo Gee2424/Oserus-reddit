@@ -126,13 +126,35 @@ export function StatTile({ label, value, sub, tone = 'neutral' }) {
 }
 
 /* ----------------------------- EmptyState ------------------------------- */
-export function EmptyState({ icon = '◌', title, hint, action }) {
+export function EmptyState({ icon = '◌', title, hint, action, compact }) {
   return (
-    <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-2)' }}>
-      <div style={{ fontSize: 36, marginBottom: 8, color: 'var(--text-3)' }}>{icon}</div>
-      {title && <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)', marginBottom: 6 }}>{title}</div>}
-      {hint && <div style={{ fontSize: 12, lineHeight: 1.6, maxWidth: 420, margin: '0 auto' }}>{hint}</div>}
-      {action && <div style={{ marginTop: 14 }}>{action}</div>}
+    <div className="empty-state-modern" style={{
+      padding: compact ? 24 : 48,
+      textAlign: 'center', color: 'var(--text-2)',
+      border: '1px dashed var(--border)',
+      borderRadius: 'var(--radius-lg)',
+      background: 'var(--bg-1)',
+    }}>
+      <div style={{
+        fontSize: compact ? 28 : 40,
+        marginBottom: compact ? 4 : 10,
+        color: 'var(--text-3)',
+        lineHeight: 1,
+      }}>{icon}</div>
+      {title && <div style={{
+        fontSize: compact ? 13 : 15,
+        fontWeight: 600,
+        color: 'var(--text-1)',
+        marginBottom: compact ? 4 : 6,
+      }}>{title}</div>}
+      {hint && <div style={{
+        fontSize: compact ? 12 : 13,
+        lineHeight: 1.6,
+        maxWidth: 400,
+        margin: '0 auto',
+        color: 'var(--text-3)',
+      }}>{hint}</div>}
+      {action && <div style={{ marginTop: compact ? 12 : 18 }}>{action}</div>}
     </div>
   );
 }

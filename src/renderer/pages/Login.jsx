@@ -86,8 +86,15 @@ export default function LoginPage() {
               />
             </div>
           )}
-          <button type="submit" className="primary" disabled={busy} style={{ width: '100%' }}>
-            {busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+          <button type="submit" className="primary" disabled={busy} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            {busy && <span style={{
+              width: 14, height: 14, borderRadius: '50%',
+              border: '2px solid rgba(0,0,0,0.2)',
+              borderTopColor: 'rgba(0,0,0,0.8)',
+              animation: 'spinner-rotate 0.7s linear infinite',
+              display: 'inline-block',
+            }} />}
+            {busy ? 'Signing in…' : mode === 'signin' ? 'Sign in' : 'Create account'}
           </button>
 
           <div style={styles.switchMode}>

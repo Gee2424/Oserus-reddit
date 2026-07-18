@@ -284,7 +284,20 @@ export default function ProfilesPage({ navigate }) {
       )}
 
       {profiles.length === 0 ? (
-        <div className="empty-state">No model profiles yet.</div>
+        <div style={{
+          padding: 48, textAlign: 'center', color: 'var(--text-2)',
+          border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)',
+          background: 'var(--bg-1)',
+        }}>
+          <div style={{ fontSize: 40, marginBottom: 10, color: 'var(--text-3)' }}>◇</div>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-1)', marginBottom: 6 }}>No model profiles yet</div>
+          <div style={{ fontSize: 13, color: 'var(--text-3)', maxWidth: 380, margin: '0 auto 16px', lineHeight: 1.6 }}>
+            Create your first model profile to start organizing accounts by brand or persona.
+          </div>
+          {canManage && (
+            <button className="primary" onClick={() => setShowAdd(true)}>+ New model</button>
+          )}
+        </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
           {profiles.map((p) => (

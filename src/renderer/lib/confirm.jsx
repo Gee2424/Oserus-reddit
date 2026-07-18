@@ -37,20 +37,18 @@ export function ConfirmProvider({ children }) {
       {children}
       {state && (
         <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 10000,
-            display: 'grid', placeItems: 'center',
-            background: 'rgba(0,0,0,0.6)',
-          }}
+          className="modal-overlay"
           onClick={() => handle(false)}
           onKeyDown={handleKeyDown}
           tabIndex={-1}
         >
           <div
-            className="card"
+            className="modal-card"
             style={{
-              width: 420, maxWidth: '90vw', padding: 0, overflow: 'hidden',
-              boxShadow: '0 24px 60px -10px rgba(0,0,0,0.7)',
+              width: 420, maxWidth: '90vw', overflow: 'hidden',
+              background: 'var(--bg-elev)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius-lg)',
               borderTop: `3px solid ${state.variant === 'danger' ? 'var(--danger)' : 'var(--gold)'}`,
             }}
             onClick={(e) => e.stopPropagation()}

@@ -24,7 +24,6 @@ import AddAccountsPage from './pages/AddAccounts.jsx';
 import RedGifsDashboardPage from './pages/RedGifsDashboard.jsx';
 import RedditApiPage from './pages/RedditApi.jsx';
 import InboxPage from './pages/Inbox.jsx';
-import { Spinner } from './components/ui.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { installCloudReloadBridge } from './lib/cloudReload.jsx';
@@ -73,17 +72,23 @@ function Inner() {
   const popoutRoute = popoutInfo?.route;
   const popoutParams = popoutInfo?.params || {};
 
-  if (loading) {
-    return <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
-      <Spinner label="Loading…" />
-    </div>;
+  if (loading || route === 'loading') {
+    return (
+      <div style={{ height: '100%', display: 'grid', placeItems: 'center', background: 'var(--bg-0)' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{
+            width: 48, height: 48, borderRadius: '50%',
+            border: '2px solid var(--border-strong)',
+            borderTopColor: 'var(--gold)',
+            animation: 'spinner-rotate 0.7s linear infinite',
+            margin: '0 auto 16px',
+          }} />
+          <div className="mono dim" style={{ fontSize: 12, letterSpacing: '0.1em' }}>Loading Oserus…</div>
+        </div>
+      </div>
+    );
   }
   if (!user) return <LoginPage />;
-  if (route === 'loading') {
-    return <div style={{ height: '100%', display: 'grid', placeItems: 'center' }}>
-      <Spinner label="Loading…" />
-    </div>;
-  }
 
   const navigate = (r, params = {}) => {
     setRoute(r);
@@ -145,7 +150,7 @@ function Inner() {
         <ActiveAccountProvider>
           <ToastProvider>
             <ConfirmProvider>
-              <PopoutShell><ErrorBoundary label={popoutRoute}>{popPage}</ErrorBoundary></PopoutShell>
+              <PopoutShell><ErrorBoundary label={popoutRoute}><div className="page-wrap" key={popoutRoute}>{popPage}</div></ErrorBoundary></PopoutShell>
             </ConfirmProvider>
           </ToastProvider>
         </ActiveAccountProvider>
@@ -160,7 +165,9 @@ function Inner() {
           <ConfirmProvider>
             <InboxLiveProvider>
               <Shell route={route} navigate={navigate}>
-                <ErrorBoundary label={route}>{page}</ErrorBoundary>
+                <ErrorBoundary label={route}>
+                  <div className="page-wrap" key={route}>{page}</div>
+                </ErrorBoundary>
               </Shell>
               <UpdateBanner />
             </InboxLiveProvider>
