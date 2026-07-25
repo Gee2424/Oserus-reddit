@@ -49,6 +49,7 @@ export default function SchedulerProPage() {
   const { accounts } = useActiveAccount();
 
   const [profiles, setProfiles] = useState([]);
+  const [localAccounts, setLocalAccounts] = useState(null);
   const [sel, setSel] = useState({ profileId: null, platform: null, accountId: null });
   const [posts, setPosts] = useState([]);
   const [msg, setMsg] = useState(null);
@@ -57,6 +58,14 @@ export default function SchedulerProPage() {
   useEffect(() => {
     window.api.profiles.list({ token, teamId: activeTeamId }).then((r) => { if (r.ok) setProfiles(r.profiles || []); });
   }, [token, activeTeamId]);
+
+  useEffect(() => {
+    window.api.accounts.listForUser({ token, teamId: activeTeamId }).then(r => {
+      if (r.ok) setLocalAccounts(r.accounts || []);
+    });
+  }, [token, activeTeamId]);
+
+  const schedulerAccounts = localAccounts || accounts;
 
   const load = useCallback(async () => {
     if (!sel.accountId) { setPosts([]); return; }
@@ -91,12 +100,12 @@ export default function SchedulerProPage() {
   // existing Composer component already has its own platform pill row,
   // but we hide it visually by pre-filtering accounts here.
   const composerAccounts = useMemo(() => {
-    if (!sel.profileId) return accounts;
-    return accounts.filter((a) =>
+    if (!sel.profileId) return schedulerAccounts;
+    return schedulerAccounts.filter((a) =>
       a.profile_id === sel.profileId &&
       (!sel.platform || (a.platform || 'reddit') === sel.platform)
     );
-  }, [accounts, sel]);
+  }, [schedulerAccounts, sel]);
 
   const pendingConflicts = posts.filter((p) => p.status === 'pending' && p.conflicts?.length).length;
 
@@ -117,7 +126,7 @@ export default function SchedulerProPage() {
 
       <AccountSelector
         profiles={profiles}
-        accounts={accounts}
+        accounts={schedulerAccounts}
         value={sel}
         onChange={setSel}
         requireAccount={true}
@@ -145,6 +154,7 @@ export default function SchedulerProPage() {
             token={token}
             accounts={composerAccounts}
             preselectAccountId={sel.accountId}
+            activeTeamId={activeTeamId}
             onDone={() => { load(); setMsg('Scheduled.'); }}
             onError={setErr}
           />
@@ -498,7 +508,7 @@ export function AISettings({ token, onMsg, onError }) {
   );
 }
 
-function Composer({ token, accounts, onDone, onError, preselectAccountId }) {
+function Composer({ token, accounts, onDone, onError, preselectAccountId, activeTeamId }) {
   // When the page passes a pre-selected account, snap to its platform
   // and seed targets so the composer drops the operator straight into
   // the form for that account.

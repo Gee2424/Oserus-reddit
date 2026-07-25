@@ -168,8 +168,8 @@ function register(ipcMain) {
       // Holders of profiles.manage see everything; everyone else only sees
       // accounts on profiles they're assigned to.
       if (!hasPermission(user, 'profiles.manage')) {
-        where.push('p.assigned_user_id = ?');
-        params.push(user.id);
+        where.push('(p.assigned_user_id = ? OR EXISTS (SELECT 1 FROM profile_assignments pa WHERE pa.profile_id = p.id AND pa.user_id = ?))');
+        params.push(user.id, user.id);
       }
       if (statusFilter && statusFilter !== 'all') {
         where.push('a.status = ?');
@@ -180,7 +180,7 @@ function register(ipcMain) {
         params.push(platform);
       }
       if (teamId) {
-        where.push('a.team_id = ?');
+        where.push('(a.team_id = ? OR a.team_id IS NULL)');
         params.push(teamId);
       }
       const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';

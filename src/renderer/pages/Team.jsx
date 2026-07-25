@@ -10,6 +10,9 @@ export default function TeamPage({ navigate }) {
   const [activeTeam, setActiveTeam] = useState(null);
   const [members, setMembers] = useState([]);
   const [machines, setMachines] = useState([]);
+  const [myInvitations, setMyInvitations] = useState([]);
+  const [outgoingInvitations, setOutgoingInvitations] = useState([]);
+  const [inviteErr, setInviteErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const [createName, setCreateName] = useState('');
@@ -50,6 +53,7 @@ export default function TeamPage({ navigate }) {
     if (!activeTeam) return;
     loadMembers();
     loadMachines();
+    loadInvitations();
   }, [activeTeam]);
 
   async function loadMembers() {
@@ -64,6 +68,23 @@ export default function TeamPage({ navigate }) {
     if (res.ok) setMachines(res.machines || []);
   }
 
+  async function loadInvitations() {
+    if (!activeTeam) return;
+    setInviteErr(null);
+    const myRes = await window.api.team.listMyInvitations({});
+    if (myRes.ok) {
+      setMyInvitations(myRes.invitations || []);
+    } else {
+      setInviteErr(myRes.error || 'Failed to load your invitations');
+    }
+    const outRes = await window.api.team.listInvitations({ teamId: activeTeam.id });
+    if (outRes.ok) {
+      setOutgoingInvitations(outRes.invitations || []);
+    } else {
+      setInviteErr((prev) => (prev ? prev + '; ' : '') + (outRes.error || 'Failed to load team invitations'));
+    }
+  }
+
   async function addMember() {
     const email = addEmail.trim();
     const role = addRole;
@@ -74,11 +95,12 @@ export default function TeamPage({ navigate }) {
       const res = await window.api.team.addMember({ teamId: activeTeam.id, email, role });
       if (res.ok) {
         if (res.method === 'invitation') {
-          setMsg({ kind: 'ok', text: 'Invitation sent — they will be added when they sign up.' });
+          setMsg({ kind: 'ok', text: res.renewed ? 'Invitation renewed — they will be added when they sign up.' : 'Invitation sent — they will be added when they sign up.' });
         } else {
           setMsg({ kind: 'ok', text: 'Member added to team.' });
         }
         loadMembers();
+        loadInvitations();
         setShowAdd(false);
         setAddEmail('');
         setAddRole('member');
@@ -117,6 +139,60 @@ export default function TeamPage({ navigate }) {
       if (res.ok) {
         setMsg({ kind: 'ok', text: 'Role changed.' });
         loadMembers();
+      } else {
+        setMsg({ kind: 'err', text: res.error });
+      }
+    } catch (e) {
+      setMsg({ kind: 'err', text: e.message });
+    }
+    setBusy(false);
+  }
+
+  async function acceptInvitation(invitationId) {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await window.api.team.acceptInvitation({ invitationId });
+      if (res.ok) {
+        setMsg({ kind: 'ok', text: 'Invitation accepted. You are now a team member.' });
+        loadInvitations();
+        loadMembers();
+        loadTeams();
+      } else {
+        setMsg({ kind: 'err', text: res.error });
+      }
+    } catch (e) {
+      setMsg({ kind: 'err', text: e.message });
+    }
+    setBusy(false);
+  }
+
+  async function declineInvitation(invitationId) {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await window.api.team.declineInvitation({ invitationId });
+      if (res.ok) {
+        setMsg({ kind: 'ok', text: 'Invitation declined.' });
+        loadInvitations();
+      } else {
+        setMsg({ kind: 'err', text: res.error });
+      }
+    } catch (e) {
+      setMsg({ kind: 'err', text: e.message });
+    }
+    setBusy(false);
+  }
+
+  async function cancelInvitation(invitationId) {
+    if (!confirm('Cancel this invitation?')) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await window.api.team.declineInvitation({ invitationId });
+      if (res.ok) {
+        setMsg({ kind: 'ok', text: 'Invitation cancelled.' });
+        loadInvitations();
       } else {
         setMsg({ kind: 'err', text: res.error });
       }
@@ -173,6 +249,9 @@ export default function TeamPage({ navigate }) {
   const canManage = ['owner', 'admin', 'manager'].includes(myRole);
   const canFullManage = ['owner', 'admin'].includes(myRole);
 
+  const tabs = ['members', 'machines', 'invitations'];
+  const pendingCount = myInvitations.filter(i => i.status === 'pending').length;
+
   return (
     <div style={{ padding: 24, maxWidth: 800 }}>
       <h2 style={{ margin: '0 0 4px' }}>{activeTeam.name}</h2>
@@ -182,22 +261,26 @@ export default function TeamPage({ navigate }) {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
-        {['members', 'machines'].map(t => (
-          <button
-            key={t}
-            className={`ghost ${tab === t ? 'active' : ''}`}
-            onClick={() => setTab(t)}
-            style={{
-              padding: '8px 16px', fontSize: 13, fontWeight: tab === t ? 600 : 400,
-              borderBottom: tab === t ? '2px solid var(--gold)' : '2px solid transparent',
-              color: tab === t ? 'var(--gold-bright)' : 'var(--text-2)',
-              background: 'transparent', borderWidth: 0, borderStyle: 'solid',
-              borderColor: 'transparent', cursor: 'pointer',
-            }}
-          >
-            {t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
+        {tabs.map(t => {
+          const label = t.charAt(0).toUpperCase() + t.slice(1);
+          const badge = t === 'invitations' && pendingCount > 0 ? ` (${pendingCount})` : '';
+          return (
+            <button
+              key={t}
+              className={`ghost ${tab === t ? 'active' : ''}`}
+              onClick={() => setTab(t)}
+              style={{
+                padding: '8px 16px', fontSize: 13, fontWeight: tab === t ? 600 : 400,
+                borderBottom: tab === t ? '2px solid var(--gold)' : '2px solid transparent',
+                color: tab === t ? 'var(--gold-bright)' : 'var(--text-2)',
+                background: 'transparent', borderWidth: 0, borderStyle: 'solid',
+                borderColor: 'transparent', cursor: 'pointer',
+              }}
+            >
+              {label}{badge}
+            </button>
+          );
+        })}
       </div>
 
       {msg && (
@@ -349,6 +432,122 @@ export default function TeamPage({ navigate }) {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {tab === 'invitations' && (
+        <div>
+          {inviteErr && (
+            <div className="error-banner" style={{ marginBottom: 14 }}>
+              {inviteErr}
+            </div>
+          )}
+          {myInvitations.filter(i => i.status === 'pending').length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px', color: 'var(--gold-bright)' }}>My Invitations</h3>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-2)' }}>
+                    <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Team</th>
+                    <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Role</th>
+                    <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Invited</th>
+                    <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Expires</th>
+                    <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {myInvitations.filter(i => i.status === 'pending').map(inv => {
+                    const expired = new Date(inv.expires_at) < new Date();
+                    return (
+                      <tr key={inv.id} style={{ borderTop: '1px solid var(--border)', opacity: expired ? 0.5 : 1 }}>
+                        <td style={{ padding: '8px' }}>{inv.teams?.name || inv.team_id}</td>
+                        <td style={{ padding: '8px' }}>
+                          <span className={`pill ${inv.role === 'admin' ? 'admin' : ''}`}>{inv.role}</span>
+                        </td>
+                        <td style={{ padding: '8px', color: 'var(--text-2)', fontSize: 11 }}>
+                          {new Date(inv.created_at).toLocaleDateString()}
+                        </td>
+                        <td style={{ padding: '8px', color: expired ? 'var(--red, #c55)' : 'var(--text-2)', fontSize: 11 }}>
+                          {expired ? 'Expired' : new Date(inv.expires_at).toLocaleDateString()}
+                        </td>
+                        <td style={{ padding: '8px', display: 'flex', gap: 6 }}>
+                          {!expired && (
+                            <button className="primary" onClick={() => acceptInvitation(inv.id)} disabled={busy}
+                                    style={{ fontSize: 11, padding: '3px 10px' }}>
+                              Accept
+                            </button>
+                          )}
+                          <button className="ghost" onClick={() => declineInvitation(inv.id)} disabled={busy}
+                                  style={{ fontSize: 11, color: 'var(--text-2)' }}>
+                            {expired ? 'Dismiss' : 'Decline'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {canManage && (
+            <div>
+              <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 12px', color: 'var(--text-1)' }}>Outgoing Invitations</h3>
+              {outgoingInvitations.filter(i => i.status === 'pending').length === 0 ? (
+                <div style={{ padding: 24, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', fontSize: 13, color: 'var(--text-3)' }}>
+                  No pending outgoing invitations.
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-2)' }}>
+                      <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Email</th>
+                      <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Role</th>
+                      <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Status</th>
+                      <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Sent</th>
+                      <th style={{ padding: '8px 10px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 500, fontFamily: 'var(--font-mono)', textAlign: 'left' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {outgoingInvitations.map(inv => (
+                      <tr key={inv.id} style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: '8px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{inv.email}</td>
+                        <td style={{ padding: '8px' }}>
+                          <span className={`pill ${inv.role === 'admin' ? 'admin' : ''}`}>{inv.role}</span>
+                        </td>
+                        <td style={{ padding: '8px' }}>
+                          <span className={`pill ${inv.status === 'accepted' ? '' : inv.status === 'declined' ? '' : ''}`}
+                                style={{
+                                  background: inv.status === 'accepted' ? 'var(--green)' : inv.status === 'declined' ? 'var(--red, #c55)' : 'var(--gold)',
+                                  color: inv.status === 'accepted' ? '#fff' : '#fff',
+                                }}>
+                            {inv.status}
+                          </span>
+                        </td>
+                        <td style={{ padding: '8px', color: 'var(--text-2)', fontSize: 11 }}>
+                          {new Date(inv.created_at).toLocaleDateString()}
+                        </td>
+                        <td style={{ padding: '8px' }}>
+                          {inv.status === 'pending' && (
+                            <button className="ghost" onClick={() => cancelInvitation(inv.id)} disabled={busy}
+                                    style={{ fontSize: 11, color: 'var(--red, #c55)' }}>
+                              Cancel
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {myInvitations.filter(i => i.status === 'pending').length === 0 && !canManage && (
+            <div style={{ padding: 24, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', fontSize: 13, color: 'var(--text-3)' }}>
+              No pending invitations.
+            </div>
+          )}
         </div>
       )}
     </div>

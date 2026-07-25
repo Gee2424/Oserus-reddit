@@ -51,11 +51,11 @@ export function ActiveAccountProvider({ children }) {
         return next;
       });
     }
-  }, [token]);
+    }, [token, activeTeamId]);
 
   useEffect(() => {
     if (token && user) refresh();
-  }, [token, user, refresh]);
+  }, [token, user, activeTeamId, refresh]);
 
   // Live-refresh when another operator's edits land in our local DB.
   useCloudReload(['reddit_accounts', 'model_profiles', 'proxies'], () => {

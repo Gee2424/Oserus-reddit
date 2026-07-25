@@ -92,21 +92,50 @@ function register(ipcMain) {
       const client = getAuthedClient();
       if (!client) return { ok: false, error: 'Supabase not configured' };
 
-      // Search for existing user by email
       let userId = null;
-      const { data: users } = await client.from('auth.users').select('id').eq('email', email).maybeSingle();
-      if (users) userId = users.id;
+      const adminClient = getAdminClient();
+      if (adminClient) {
+        try {
+          const { data: users } = await adminClient.auth.admin.listUsers();
+          const match = users?.users?.find((u) => u.email && u.email.toLowerCase() === email.toLowerCase());
+          if (match) userId = match.id;
+        } catch (adminErr) {
+          console.warn('[team:createInvitation] Admin API lookup failed:', adminErr.message);
+        }
+      }
 
       if (userId) {
-        // User exists — add directly
         const { error: insertErr } = await client.from('team_members').insert({
           team_id: teamId, user_id: userId, role: role || 'member',
         });
-        if (insertErr) return { ok: false, error: insertErr.message };
+        if (insertErr) {
+          if (insertErr.code === '23505') {
+            return { ok: false, error: 'This user is already a member of the team.' };
+          }
+          return { ok: false, error: insertErr.message };
+        }
         return { ok: true, user_id: userId, method: 'direct' };
       }
 
-      // User doesn't exist — create invitation
+      const { data: existingInv } = await client.from('team_invitations')
+        .select('id, status').eq('team_id', teamId).eq('email', email).maybeSingle();
+
+      if (existingInv) {
+        if (existingInv.status === 'accepted') {
+          return { ok: false, error: 'This user is already on the team.' };
+        }
+        if (existingInv.status === 'declined') {
+          await client.from('team_invitations').delete().eq('id', existingInv.id);
+        } else {
+          await client.from('team_invitations').update({
+            expires_at: new Date(Date.now() + 7 * 86400_000).toISOString(),
+            invited_by: me.id,
+            role: role || 'member',
+          }).eq('id', existingInv.id);
+          return { ok: true, method: 'invitation', renewed: true };
+        }
+      }
+
       const { error: invErr } = await client.from('team_invitations').insert({
         team_id: teamId, email, role: role || 'member', invited_by: me.id, status: 'pending',
       });
@@ -194,6 +223,13 @@ function register(ipcMain) {
       let accepted = 0;
       for (const inv of pending) {
         if (new Date(inv.expires_at) < new Date()) continue;
+        const { data: existing } = await client.from('team_members')
+          .select('user_id').eq('team_id', inv.team_id).eq('user_id', me.id).maybeSingle();
+        if (existing) {
+          await client.from('team_invitations').update({ status: 'accepted' }).eq('id', inv.id);
+          accepted++;
+          continue;
+        }
         const { error: memberErr } = await client.from('team_members').insert({
           team_id: inv.team_id, user_id: me.id, role: inv.role,
         });
@@ -323,6 +359,9 @@ function register(ipcMain) {
       const client = getAuthedClient();
       if (!client) return { ok: false, error: 'Supabase not configured' };
 
+      if (!hasPermission(me, 'users.manage')) {
+        return { ok: false, error: "You don't have permission to manage team members" };
+      }
       if (role === 'admin' && !hasPermission(me, 'users.assign_admin')) {
         return { ok: false, error: "You don't have permission to assign admin role" };
       }
@@ -331,18 +370,38 @@ function register(ipcMain) {
       }
 
       let userId;
-      try {
-        const adminClient = getAdminClient();
-        if (adminClient) {
+      const adminClient = getAdminClient();
+      if (adminClient) {
+        try {
           const { data: users } = await adminClient.auth.admin.listUsers();
           const match = users?.users?.find((u) => u.email && u.email.toLowerCase() === email.toLowerCase());
           if (match) userId = match.id;
+        } catch (adminErr) {
+          console.warn('[team:addMember] Admin API lookup failed:', adminErr.message);
         }
-      } catch {}
+      }
 
       if (!userId) {
         if (!password) {
-          // No password → create pending invitation. Accepted when they sign up.
+          const { data: existingInv } = await client.from('team_invitations')
+            .select('id, status').eq('team_id', teamId).eq('email', email).maybeSingle();
+
+          if (existingInv) {
+            if (existingInv.status === 'accepted') {
+              return { ok: false, error: 'This user is already on the team.' };
+            }
+            if (existingInv.status === 'declined') {
+              await client.from('team_invitations').delete().eq('id', existingInv.id);
+            } else {
+              await client.from('team_invitations').update({
+                expires_at: new Date(Date.now() + 7 * 86400_000).toISOString(),
+                invited_by: me.id,
+                role: role || 'member',
+              }).eq('id', existingInv.id);
+              return { ok: true, method: 'invitation', renewed: true };
+            }
+          }
+
           const { error: invErr } = await client.from('team_invitations').insert({
             team_id: teamId, email, role: role || 'member', invited_by: me.id, status: 'pending',
           });
@@ -357,7 +416,12 @@ function register(ipcMain) {
       const { error: insertErr } = await client.from('team_members').insert({
         team_id: teamId, user_id: userId, role: role || 'member',
       });
-      if (insertErr) return { ok: false, error: insertErr.message };
+      if (insertErr) {
+        if (insertErr.code === '23505') {
+          return { ok: false, error: 'This user is already a member of the team.' };
+        }
+        return { ok: false, error: insertErr.message };
+      }
       return { ok: true, user_id: userId };
     } catch (e) {
       return { ok: false, error: e.message };

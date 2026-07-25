@@ -406,12 +406,26 @@ create table if not exists team_invitations (
   team_id uuid not null references teams(id) on delete cascade,
   email text not null,
   role text not null default 'member' check (role in ('admin', 'manager', 'member')),
-  invited_by uuid not null references auth.users(id),
+  invited_by uuid not null,
   status text not null default 'pending' check (status in ('pending', 'accepted', 'declined')),
   created_at timestamptz not null default now(),
   expires_at timestamptz not null default (now() + interval '7 days'),
   unique(team_id, email)
 );
+
+-- Drop the auth.users FK on invited_by (superseded by auth_user_email()
+-- SECURITY DEFINER pattern — avoids granting broad read on auth.users).
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conrelid = 'team_invitations'::regclass
+          AND contype = 'f'
+          AND conname = 'team_invitations_invited_by_fkey'
+    ) THEN
+        ALTER TABLE team_invitations DROP CONSTRAINT team_invitations_invited_by_fkey;
+    END IF;
+END $$;
 
 -- Shared credentials: login passwords shared across team members
 -- Application-level encrypted with the team's AES-256-GCM key.
@@ -462,9 +476,21 @@ ALTER TABLE IF EXISTS teams             ADD COLUMN IF NOT EXISTS key_version int
 -- needs to check team membership/role goes through one of these instead
 -- of querying team_members directly.
 
--- Needed so authenticated users can insert into team_invitations
--- (foreign key validation on invited_by -> auth.users.id).
-grant select on table auth.users to authenticated;
+-- SECURITY DEFINER helper so RLS policies can read the
+-- authenticated user's email from auth.users without granting
+-- broad SELECT on that table to all authenticated clients.
+-- Supabase best practice: wrap auth.users access in SD functions.
+drop function if exists public.auth_user_email() cascade;
+create function public.auth_user_email()
+returns text
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select email from auth.users where id = auth.uid();
+$$;
+grant execute on function public.auth_user_email() to authenticated;
 
 drop function if exists public.user_team_ids() cascade;
 create function public.user_team_ids()
@@ -621,7 +647,7 @@ drop policy if exists team_invitations_select on team_invitations;
 create policy team_invitations_select on team_invitations
   for select to authenticated
   using (
-    email = (select email from auth.users where id = auth.uid())
+    email = public.auth_user_email()
     or public.user_has_role_on_team(team_invitations.team_id, array['owner', 'admin'])
   );
 
@@ -629,14 +655,14 @@ drop policy if exists team_invitations_insert on team_invitations;
 create policy team_invitations_insert on team_invitations
   for insert to authenticated
   with check (
-    public.user_has_role_on_team(team_invitations.team_id, array['owner', 'admin'])
+    public.user_has_role_on_team(team_invitations.team_id, array['owner', 'admin', 'manager'])
   );
 
 drop policy if exists team_invitations_update on team_invitations;
 create policy team_invitations_update on team_invitations
   for update to authenticated
   using (
-    email = (select email from auth.users where id = auth.uid())
+    email = public.auth_user_email()
   );
 
 -- ─────────────────────────── RLS policies: shared credentials
