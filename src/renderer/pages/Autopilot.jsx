@@ -45,6 +45,9 @@ export default function AutopilotPage() {
   const [err, setErr] = useState(null);
   const [lastRun, setLastRun] = useState(null);   // result of the most recent Run Now
   const [lastPost, setLastPost] = useState(null); // result of the most recent Post Now
+  const [cmEnabled, setCmEnabled] = useState(true);
+  const [cmLoading, setCmLoading] = useState(false);
+  const [cmLaunch, setCmLaunch] = useState(null); // { profileName, stage, message }
 
   // -- bootstrap profile + account lists --
   useEffect(() => {
@@ -74,9 +77,23 @@ export default function AutopilotPage() {
   }, [token]);
   useEffect(() => {
     loadStatus();
+    window.api.autopilot.getCMEnabled({ token }).then(r => {
+      if (r.ok) setCmEnabled(r.enabled);
+    }).catch(() => {});
     const id = setInterval(loadStatus, 5000);
     return () => clearInterval(id);
   }, [loadStatus]);
+
+  // CM launch progress subscription
+  useEffect(() => {
+    const unsub = window.api.autopilot.onCMLaunchProgress((data) => {
+      setCmLaunch(data);
+      if (data.stage === 'ready' || data.stage === 'error') {
+        setTimeout(() => setCmLaunch(null), 8000);
+      }
+    });
+    return unsub;
+  }, []);
 
   // Recent activity narrowed to the current scope.
   const scopedEvents = useMemo(() => {
@@ -202,6 +219,15 @@ export default function AutopilotPage() {
     else setErr(r.error);
   }
 
+  async function toggleCM() {
+    setCmLoading(true);
+    const next = !cmEnabled;
+    const r = await window.api.autopilot.setCMEnabled({ token, enabled: next });
+    if (r.ok) setCmEnabled(r.enabled);
+    else setErr(r.error);
+    setCmLoading(false);
+  }
+
   const masterOn = !!status?.enabled;
   const protoOn  = !!proto?.enabled;
 
@@ -226,6 +252,10 @@ export default function AutopilotPage() {
         status={status}
         canManage={canManage}
         onToggle={toggleAutopilot}
+        cmEnabled={cmEnabled}
+        cmEnabledLoading={cmLoading}
+        onToggleCM={toggleCM}
+        cmLaunch={cmLaunch}
       />
 
       {/* ── 2. Scope selector ──────────────────────────────────── */}
@@ -343,7 +373,7 @@ export default function AutopilotPage() {
 // Big visible state. Most operators look at this first when they open
 // the page; the rest of the UI is meaningless if the master is off.
 
-function MasterBanner({ on, status, canManage, onToggle }) {
+function MasterBanner({ on, status, canManage, onToggle, cmEnabled, cmEnabledLoading, onToggleCM, cmLaunch }) {
   const next = status?.nextRunInSec || {};
   const fmt = (s) => {
     if (s == null) return '—';
@@ -390,7 +420,27 @@ function MasterBanner({ on, status, canManage, onToggle }) {
             {on ? 'Pause' : 'Start'}
           </button>
         )}
+        {canManage && cmEnabled !== undefined && (
+          <button onClick={onToggleCM} disabled={cmEnabledLoading} style={{
+            fontSize: 11, padding: '4px 10px', borderRadius: 999,
+            fontFamily: 'monospace',
+            background: cmEnabled ? 'rgba(155,89,182,0.2)' : 'rgba(255,255,255,0.06)',
+            color: cmEnabled ? '#c9a3d9' : 'var(--text-3)',
+            border: `1px solid ${cmEnabled ? 'rgba(155,89,182,0.3)' : 'var(--border)'}`,
+            cursor: 'pointer',
+          }} title={cmEnabled ? 'CM accounts included in autopilot' : 'CM accounts excluded from autopilot'}>
+            {cmEnabled ? '👻 ON' : '👻 OFF'}
+          </button>
+        )}
       </div>
+      {cmLaunch && (
+        <div style={{ fontSize: 11, marginTop: 6, color: cmLaunch.stage === 'error' ? '#e2a3a3' : 'var(--gold)' }}>
+          {cmLaunch.stage === 'launching' && <span>⏳ {cmLaunch.message}</span>}
+          {cmLaunch.stage === 'waiting' && <span>🔄 {cmLaunch.message}</span>}
+          {cmLaunch.stage === 'ready' && <span>✓ {cmLaunch.message}</span>}
+          {cmLaunch.stage === 'error' && <span>✗ {cmLaunch.message}</span>}
+        </div>
+      )}
     </div>
   );
 }

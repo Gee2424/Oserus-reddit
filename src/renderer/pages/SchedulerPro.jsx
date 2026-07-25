@@ -259,6 +259,9 @@ function StatusColumns({ posts, onCancel, onDelete }) {
                   <div className="muted" style={{ fontSize: 10, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                     {p.profile_color && <span style={{ width: 6, height: 6, borderRadius: 999, background: p.profile_color }} />}
                     {p.profile_name || '—'} · u/{p.account_username}
+                    {p.browser_mode === 'cloakmanager' && (
+                      <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 4px', borderRadius: 3, background: 'rgba(155,89,182,0.2)', color: '#c9a3d9' }}>CM</span>
+                    )}
                     <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
                       {p.status === 'pending' && <button className="ghost" onClick={() => onCancel(p.id)} style={tiny}>Pause</button>}
                       <button className="ghost" onClick={() => onDelete(p.id)} style={tiny} title="Delete">✕</button>

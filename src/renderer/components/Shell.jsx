@@ -255,7 +255,8 @@ const styles = {
   },
   navItem: {
     display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-    textAlign: 'left', background: 'transparent', border: '1px solid transparent',
+    textAlign: 'left', background: 'transparent',
+    border: '1px solid transparent', borderColor: 'transparent',
     color: 'var(--text-1)', padding: '7px 10px',
     borderRadius: 'var(--radius)', fontSize: 13, fontWeight: 400,
     marginBottom: 1, cursor: 'pointer',

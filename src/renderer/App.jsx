@@ -53,7 +53,7 @@ function Inner() {
 
   // After login, check if user has teams — if zero, go to team creation
   useEffect(() => {
-    if (!user) return;
+    if (!user) { setRoute('login'); return; }
     window.api.team.listTeams({}).then(res => {
       if (res.ok && res.teams && res.teams.length > 0) {
         setRoute('dashboard');

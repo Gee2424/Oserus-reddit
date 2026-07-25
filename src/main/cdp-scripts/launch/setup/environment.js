@@ -49,8 +49,8 @@ async function execute(nativeConnection, context) {
 
     console.log('[Environment Setup] First launch detected, configuring environment...');
 
-    // Get account geo preferences from database
-    const { getDb } = require('../../../../db');
+    // Get account geo preferences from database — getDb is already
+    // available from the script-executor.js scope via eval().
     const account = getDb().prepare(`
       SELECT geo_timezone, geo_country
       FROM reddit_accounts

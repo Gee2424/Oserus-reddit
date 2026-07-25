@@ -1,6 +1,7 @@
 const { userFromToken } = require('./auth');
 const { log } = require('./activity');
 const { getDb } = require('../db');
+const { hasPermission } = require('../permissions');
 const { partitionFor, request, modhashFor } = require('../services/redditSession');
 
 const FOLDERS = {
@@ -45,6 +46,19 @@ function normalize(listing) {
   const out = [];
   for (const c of kids) out.push(...flattenMessage(c, null));
   return out;
+}
+
+function canAccessAccount(user, accountId) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  const db = getDb();
+  const acct = db.prepare('SELECT profile_id FROM reddit_accounts WHERE id = ?').get(accountId);
+  if (!acct) return false;
+  if (hasPermission(user, 'profiles.manage')) return true;
+  const row = db.prepare('SELECT assigned_user_id FROM model_profiles WHERE id = ?').get(acct.profile_id);
+  if (row && row.assigned_user_id === user.id) return true;
+  const assign = db.prepare('SELECT 1 FROM profile_assignments WHERE profile_id = ? AND user_id = ? LIMIT 1').get(acct.profile_id, user.id);
+  return !!assign;
 }
 
 // Cupid AI matcher — given the account's freshly-fetched unread messages,
@@ -108,11 +122,46 @@ async function runAutoReplyRules(accountId, messages, acct) {
 }
 
 function register(ipcMain) {
+  // CloakManager account helpers
+  function isCM(accountId) {
+    const row = getDb().prepare(
+      "SELECT browser_mode FROM account_browser_settings WHERE account_id = ?"
+    ).get(accountId);
+    return row && row.browser_mode === 'cloakmanager';
+  }
+  function cmProfileName(accountId) {
+    const row = getDb().prepare(
+      "SELECT cloak_profile_name FROM account_browser_settings WHERE account_id = ?"
+    ).get(accountId);
+    return row?.cloak_profile_name || null;
+  }
+
   ipcMain.handle('inbox:fetch', async (_e, { token, accountId, folder = 'all' }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       if (!accountId) throw new Error('No account selected');
+      if (!canAccessAccount(user, accountId)) {
+        return { ok: false, error: 'Not authorized for this account' };
+      }
+      if (isCM(accountId)) {
+        const profileName = cmProfileName(accountId);
+        if (!profileName) throw new Error('No CloakManager profile for this account');
+        const cdpOrchestrator = require('../cdp/orchestrator');
+        const result = await cdpOrchestrator.executeTask('tasks/reddit/inbox-fetch', {
+          accountId, profileName, folder,
+        }, { autoLaunch: false });
+        if (!result.ok) {
+          if (result.notRunning) {
+            return { ok: false, notRunning: true, error: 'Profile is not running' };
+          }
+          if (result.error && result.error.includes('NOT_LOGGED_IN')) {
+            return { ok: false, notLoggedIn: true, error: 'This account is not logged into Reddit yet.' };
+          }
+          return { ok: false, error: result.error };
+        }
+        return { ok: true, messages: result.result?.messages || [], username: cmProfileName(accountId) || String(accountId) };
+      }
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Account not found');
       const url = FOLDERS[folder] || FOLDERS.all;
@@ -136,6 +185,25 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
+      if (!canAccessAccount(user, accountId)) {
+        return { ok: false, error: 'Not authorized for this account' };
+      }
+      if (isCM(accountId)) {
+        const profileName = cmProfileName(accountId);
+        if (!profileName) throw new Error('No CloakManager profile for this account');
+        const cdpOrchestrator = require('../cdp/orchestrator');
+        const result = await cdpOrchestrator.executeTask('tasks/reddit/inbox-mark-read', {
+          accountId, profileName, fullname, read,
+        }, { autoLaunch: false });
+        if (!result.ok) {
+          if (result.notRunning) throw new Error('Profile is not running');
+          if (result.error?.includes('NOT_LOGGED_IN')) {
+            return { ok: false, notLoggedIn: true, error: 'This account is not logged into Reddit yet.' };
+          }
+          throw new Error(result.error);
+        }
+        return { ok: true };
+      }
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Account not found');
       const modhash = await modhashFor(acct.partition);
@@ -156,9 +224,31 @@ function register(ipcMain) {
   // entire back-and-forth from the root + replies tree.
   ipcMain.handle('inbox:fetchThread', async (_e, { token, accountId, rootFullname }) => {
     try {
-      if (!userFromToken(token)) throw new Error('Not authenticated');
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
       if (!accountId) throw new Error('No account selected');
       if (!rootFullname) throw new Error('rootFullname required');
+      if (!canAccessAccount(user, accountId)) {
+        return { ok: false, error: 'Not authorized for this account' };
+      }
+      if (isCM(accountId)) {
+        const profileName = cmProfileName(accountId);
+        if (!profileName) throw new Error('No CloakManager profile for this account');
+        const cdpOrchestrator = require('../cdp/orchestrator');
+        const result = await cdpOrchestrator.executeTask('tasks/reddit/inbox-fetch', {
+          accountId, profileName, folder: 'thread', rootFullname,
+        }, { autoLaunch: false });
+        if (!result.ok) {
+          if (result.notRunning) {
+            return { ok: false, notRunning: true, error: 'Profile is not running' };
+          }
+          if (result.error && result.error.includes('NOT_LOGGED_IN')) {
+            return { ok: false, notLoggedIn: true, error: 'Not logged in.' };
+          }
+          return { ok: false, error: result.error };
+        }
+        return { ok: true, messages: result.result?.messages || [], username: profileName || String(accountId) };
+      }
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Account not found');
       // Reddit's /message/messages/{id}.json wants the bare id (no t4_ prefix).
@@ -178,6 +268,26 @@ function register(ipcMain) {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       if (!parentFullname || !text) throw new Error('Message and reply text are required');
+      if (!canAccessAccount(user, accountId)) {
+        return { ok: false, error: 'Not authorized for this account' };
+      }
+      if (isCM(accountId)) {
+        const profileName = cmProfileName(accountId);
+        if (!profileName) throw new Error('No CloakManager profile for this account');
+        const cdpOrchestrator = require('../cdp/orchestrator');
+        const result = await cdpOrchestrator.executeTask('tasks/reddit/inbox-reply', {
+          accountId, profileName, parentFullname, text,
+        }, { autoLaunch: false });
+        if (!result.ok) {
+          if (result.notRunning) throw new Error('Profile is not running');
+          if (result.error?.includes('NOT_LOGGED_IN')) {
+            return { ok: false, notLoggedIn: true, error: 'This account is not logged into Reddit yet.' };
+          }
+          throw new Error(result.error);
+        }
+        log(user, 'inbox.reply', 'account', accountId, `to=${parentFullname}`);
+        return { ok: true };
+      }
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Account not found');
       const modhash = await modhashFor(acct.partition);

@@ -64,6 +64,16 @@ function register(ipcMain) {
     }
   });
 
+  ipcMain.handle('autopilot:circuitStatus', (_e, { token }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      return { ok: true, paused: coordinator.getCircuitStatus() };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
   // --- Cloud coordination (Supabase) config ---
   ipcMain.handle('coordination:get', (_e, { token }) => {
     try {
@@ -143,6 +153,24 @@ function register(ipcMain) {
     } catch (err) {
       return { ok: false, error: err.message };
     }
+  });
+
+  ipcMain.handle('autopilot:getCMEnabled', (_e, { token }) => {
+    try {
+      if (!userFromToken(token)) throw new Error('Not authenticated');
+      return { ok: true, enabled: getSetting('autopilot_cm_enabled') !== '0' };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('autopilot:setCMEnabled', (_e, { token, enabled }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'protocols.manage');
+      setSetting('autopilot_cm_enabled', enabled ? '1' : '0');
+      log(user, 'autopilot.cm-toggle', 'system', null, enabled ? 'cm-included' : 'cm-excluded');
+      return { ok: true, enabled: !!enabled };
+    } catch (err) { return { ok: false, error: err.message }; }
   });
 
   ipcMain.handle('autopilot:setInterval', (_e, { token, minutes }) => {
@@ -290,6 +318,7 @@ function register(ipcMain) {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       protocols.ensureTables();
+      const teamId = getSetting('active_team_id');
       const cap = Math.min(Number(limit) || 100, 500);
       const posts = getDb().prepare(
         `SELECT e.id, e.platform, e.account_id, e.profile_id, e.subreddit,
@@ -299,8 +328,9 @@ function register(ipcMain) {
          FROM post_events e
          LEFT JOIN reddit_accounts a ON a.id = e.account_id
          LEFT JOIN model_profiles p ON p.id = e.profile_id
+         ${teamId ? 'WHERE a.team_id = ?' : ''}
          ORDER BY e.id DESC LIMIT ?`
-      ).all(cap);
+      ).all(...(teamId ? [teamId, cap] : [cap]));
       let sessions = [];
       try {
         sessions = getDb().prepare(
@@ -321,8 +351,9 @@ function register(ipcMain) {
            FROM engagement_sessions s
            LEFT JOIN reddit_accounts a ON a.id = s.account_id
            LEFT JOIN model_profiles p ON p.id = a.profile_id
+           ${teamId ? 'WHERE a.team_id = ?' : ''}
            ORDER BY s.id DESC LIMIT ?`
-        ).all(cap);
+        ).all(...(teamId ? [teamId, cap] : [cap]));
       } catch {}
       const events = [...posts, ...sessions]
         .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))

@@ -39,9 +39,10 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   const inboxLive = useInboxLive();
   const [platform, setPlatform] = useState('reddit');
   const ctx = forPlatform(platform);
-  const { active, setActive } = ctx;
   const [localAccounts, setLocalAccounts] = useState(null);
   const platformAccounts = localAccounts || ctx.accounts;
+  const [selectedId, setSelectedId] = useState(null);
+  const active = platformAccounts?.find(a => a.id === selectedId) || null;
 
   const [folder, setFolder] = useState('all');
   const [kindView, setKindView] = useState('messages');
@@ -68,15 +69,27 @@ export default function InboxPage({ embedded, standalone, navigate }) {
     });
   }, [token, activeTeamId]);
 
+  // Auto-select first account when list populates
   useEffect(() => {
-    if (!active && platformAccounts && platformAccounts.length > 0) setActive(platformAccounts[0].id);
-  }, [active, platformAccounts, platform]);
+    if (!selectedId && platformAccounts && platformAccounts.length > 0) {
+      setSelectedId(platformAccounts[0].id);
+    }
+  }, [platformAccounts]);
 
   const isLive = INBOX_LIVE[platform];
 
   const messages = (inboxLive.byAccount?.[active?.id]?.messages) || [];
   const unreadByAccount = inboxLive.unreadByAccount || {};
   const loading = !!inboxLive.loading?.[active?.id];
+  const isCM = (active?.browser_mode || 'electron') === 'cloakmanager';
+  const profileRunning = active?.cloak_actual_name && isAccountRunning(active?.cloak_actual_name);
+
+  // Auto-refresh inbox when CM profile becomes running
+  useEffect(() => {
+    if (profileRunning && active && isLive) {
+      inboxLive.refresh(active.id);
+    }
+  }, [profileRunning]);
   function setMessages(updater) {
     if (!active) return;
     inboxLive.patchMessages(active.id, typeof updater === 'function' ? updater : () => updater);
@@ -277,7 +290,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                     const isCM = mode === 'cloakmanager';
                     const isRunning = a.cloak_actual_name && isAccountRunning(a.cloak_actual_name);
                     return (
-                      <button key={a.id} onClick={() => setActive(a.id)} style={{ ...accountRow, ...(isActive ? accountRowActive : {}) }}>
+                      <button key={a.id} onClick={() => setSelectedId(a.id)} style={{ ...accountRow, ...(isActive ? accountRowActive : {}) }}>
                         <Avatar name={a.username} size={30} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -311,11 +324,13 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: loading ? 'var(--gold)' : 'var(--text-2)' }}>
                   <span style={{
                     width: 8, height: 8, borderRadius: '50%',
-                    background: (active?.cloak_actual_name && isAccountRunning(active?.cloak_actual_name)) ? 'var(--ok)' :
-                               loading ? 'var(--gold)' : 'var(--green-bright)',
+                    background: profileRunning ? 'var(--ok)' :
+                                loading ? 'var(--gold)' :
+                                isCM ? 'var(--text-3)' : 'var(--green-bright)',
                   }} />
-                  {(active?.cloak_actual_name && isAccountRunning(active?.cloak_actual_name)) ? 'Browser running' :
-                   loading ? 'Refreshing…' : 'Connected'}
+                  {profileRunning ? 'Browser running' :
+                   loading ? 'Refreshing…' :
+                   isCM ? 'Not running' : 'Connected'}
                 </div>
               </div>
 
@@ -359,6 +374,34 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                   No JSON inbox adapter for {platform} yet. Use the Browser to read DMs for this account.
                 </div>
               ) : !active ? <EmptyState title="" hint="No account selected." /> :
+                isCM && !profileRunning ? (
+                  <div style={{ padding: 18, textAlign: 'center' }}>
+                    <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>
+                      CloakManager profile is not running.
+                    </div>
+                    {active && (
+                      <button
+                        onClick={async () => {
+                          setLaunchingSignIn(true);
+                          try {
+                            await window.api.oserusBrowser.openAccount({ token, accountId: active.id });
+                          } finally {
+                            setTimeout(() => setLaunchingSignIn(false), 2000);
+                          }
+                        }}
+                        disabled={launchingSignIn}
+                        style={{
+                          ...primaryBtn,
+                          marginTop: 12,
+                          opacity: launchingSignIn ? 0.6 : 1,
+                          cursor: launchingSignIn ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {launchingSignIn ? 'Opening browser…' : 'Launch Browser ↗'}
+                      </button>
+                    )}
+                  </div>
+                ) :
                 notLoggedIn ? (
                   <div style={{ padding: 18, textAlign: 'center' }}>
                     <div style={{ color: 'var(--text-2)', fontSize: 13, lineHeight: 1.6 }}>{active.username} isn't logged into {platform} yet.</div>

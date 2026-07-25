@@ -345,6 +345,19 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
        FROM reddit_accounts WHERE id = ?`
   ).get(accountId);
   if (!acct) return { ok: false, error: 'Account not found' };
+
+  // CloakManager accounts have no Electron session cookies — we
+  // can't use a hidden BrowserWindow because it would load logged-out
+  // from the operator's real IP. Skip politely so the tick doesn't
+  // waste a cycle on a guaranteed failure.
+  const cmMode = db.prepare(
+    "SELECT browser_mode FROM account_browser_settings WHERE account_id = ?"
+  ).get(accountId);
+  if (cmMode && cmMode.browser_mode === 'cloakmanager') {
+    elog.info('[engagement] skipping CM account — use Oserus Browser to engage manually', { accountId, username: acct.username });
+    return { ok: false, error: 'CloakManager mode: open the account in Oserus Browser to run engagement manually' };
+  }
+
   let proto = db.prepare(
     `SELECT * FROM autopilot_protocols WHERE profile_id = ? AND platform = ?`
   ).get(acct.profile_id, acct.platform);
@@ -579,6 +592,7 @@ async function engagementTick() {
     const spacingMs = (24 * 60 * 60 * 1000) / perDay;
     if (!r.last_run_at) return true;
     const lastMs = new Date(r.last_run_at.replace(' ', 'T') + 'Z').getTime();
+    if (isNaN(lastMs)) return true; // unparseable date → treat as never ran
     return (nowMs - lastMs) >= spacingMs * (0.85 + Math.random() * 0.3);
   });
   if (!dueRows.length) return;
@@ -597,6 +611,19 @@ async function engagementTick() {
           ORDER BY RANDOM() LIMIT 1`
       ).get(pick.profile_id, pick.platform);
   if (!acct) return;
+
+  // CloakManager accounts can't run engagement in a hidden
+  // BrowserWindow — skip them so the tick picks an Electron
+  // account on the next cycle.
+  try {
+    const cmCheck = db.prepare(
+      "SELECT browser_mode FROM account_browser_settings WHERE account_id = ?"
+    ).get(acct.id);
+    if (cmCheck && cmCheck.browser_mode === 'cloakmanager') {
+      elog.info('[engagement] tick skipping CM account', { accountId: acct.id });
+      return;
+    }
+  } catch {}
 
   // Daily-cap guard. Comments live in engagement_sessions (DOM-comment
   // path) AND in post_events (Reddit API-comment path) — sum both so

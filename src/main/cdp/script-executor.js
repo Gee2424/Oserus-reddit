@@ -81,12 +81,9 @@ async function loadScript(scriptId) {
     // Load and parse script
     const scriptContent = fs.readFileSync(scriptPath, 'utf8');
 
-    // Script files should export a function: module.exports = { metadata, execute }
-    // We need to evaluate it in a safe context
-    const scriptModule = { exports: null };
-
-    // Evaluate the script (this is safe as we control the script files)
+    const prevExports = module.exports;
     const evalResult = eval(scriptContent);
+    module.exports = prevExports;
 
     if (!evalResult || typeof evalResult.execute !== 'function') {
       throw new Error(`Invalid script format in: ${scriptPath}`);

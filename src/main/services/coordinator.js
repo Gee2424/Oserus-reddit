@@ -18,7 +18,7 @@
 
 const os = require('os');
 const elog = require('electron-log');
-const { getDb } = require('../db');
+const { getDb, getKv, setKv } = require('../db');
 const protocols = require('./protocols');
 const { getAdapter, postablePlatforms } = require('../platforms');
 const { getSetting } = require('./settings');
@@ -30,6 +30,41 @@ let lastRun = null;
 let lastSummary = null;
 
 function isEnabled() { return getSetting('autopilot_enabled') === '1'; }
+
+// Remote machine gate from Supabase. When a team manager sets
+// machine_sessions.autopilot_enabled = false for this machine, the
+// coordinator stops running. Fail-open — if Supabase is unreachable,
+// the local setting alone controls the gate.
+let remoteAutopilotDisabled = false;
+
+async function checkRemoteAutopilot() {
+  try {
+    const { getAnonClient } = require('../supabaseClient');
+    const client = getAnonClient();
+    if (!client) return;
+    const { data, error } = await client
+      .from('machine_sessions')
+      .select('autopilot_enabled')
+      .eq('machine_id', HOLDER)
+      .maybeSingle();
+    if (error) { elog.warn('[autopilot] Remote autopilot check failed:', error.message); return; }
+    if (data && data.autopilot_enabled === false) {
+      if (!remoteAutopilotDisabled) {
+        remoteAutopilotDisabled = true;
+        elog.warn('[autopilot] Remote autopilot DISABLED by team manager');
+      }
+    } else {
+      if (remoteAutopilotDisabled) {
+        remoteAutopilotDisabled = false;
+        elog.info('[autopilot] Remote autopilot RE-ENABLED');
+      }
+    }
+  } catch (e) { /* fail-open */ }
+}
+
+function isEnabledAll() {
+  return isEnabled() && !remoteAutopilotDisabled;
+}
 
 // --------------------------------------------------------------- candidates
 // One query per tick returns every postable account on every configured
@@ -43,14 +78,21 @@ function candidateAccounts() {
   const params = [...platforms];
   let teamClause = '';
   if (teamId) { teamClause = ' AND a.team_id = ?'; params.push(teamId); }
+
+  const cmEnabled = getSetting('autopilot_cm_enabled') !== '0';
+  const cmExcludeClause = cmEnabled ? '' : "AND (bs.browser_mode IS NULL OR bs.browser_mode != 'cloakmanager')";
+
   return getDb().prepare(
     `SELECT a.id, a.username, a.status, a.platform, a.profile_id,
             a.proxy_id, a.partition_key,
             p.name AS profile_name, p.niche, p.brand_voice
        FROM reddit_accounts a
        JOIN model_profiles p ON p.id = a.profile_id
+       LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
       WHERE a.platform IN (${placeholders})
         AND a.status IN ('warming','ready')${teamClause}
+        ${cmExcludeClause}
+        AND (bs.autopilot_skip IS NULL OR bs.autopilot_skip = 0)
       ORDER BY a.platform, a.proxy_id, a.id`
   ).all(...params);
 }
@@ -79,6 +121,12 @@ async function runForAccount(account, summary) {
     return;
   }
 
+  if (isCircuitOpen(account.id)) {
+    summary.skipped++;
+    summary.reasons.circuit_open = (summary.reasons.circuit_open || 0) + 1;
+    return;
+  }
+
   const elig = await protocols.checkEligibilityShared({
     platform: account.platform,
     accountId: account.id,
@@ -98,68 +146,141 @@ async function runForAccount(account, summary) {
   }
 
   try {
-    // Belt-and-suspenders proxy enforcement. Every adapter SHOULD do
-    // this itself, but at process startup before any browser window
-    // has opened, partition.proxy is unconfigured — calling now
-    // guarantees the proxy + antidetect preload + UA are bound to the
-    // session before any net.request fires.
-    try {
-      const { prepareSessionForAccount } = require('./sessionPrep');
-      await prepareSessionForAccount(account.id);
-    } catch (e) {
+    const { prepareSessionForAccount } = require('./sessionPrep');
+    const sessionPrep = await prepareSessionForAccount(account.id).catch((e) => {
       elog.warn('[autopilot] sessionPrep failed', { account: account.id, err: e?.message });
-    }
-
-    const target = adapter.pickTarget ? await adapter.pickTarget(account) : null;
-    const gen = adapter.generateContent
-      ? await adapter.generateContent({ account, target })
-      : { ok: false, error: 'adapter has no generateContent' };
-    if (!gen.ok) {
-      summary.skipped++;
-      summary.reasons[`gen:${gen.error}`.slice(0, 80)] =
-        (summary.reasons[`gen:${gen.error}`.slice(0, 80)] || 0) + 1;
-      return;
-    }
-
-    const submitArgs = {
-      accountId: account.id,
-      // Reddit uses `subreddit`; X / IG / TT use `text` or `caption`.
-      // Pass both; adapters take what they need.
-      subreddit: gen.target,
-      title: gen.title,
-      body: gen.body,
-      kind: gen.kind,
-      url: gen.url,
-      text: gen.title,        // X tweet body
-      caption: gen.title,     // IG/TT caption
-      mediaUrl: gen.url,
-    };
-    const result = await adapter.submitPost(submitArgs);
-
-    await protocols.recordEvent({
-      platform: account.platform,
-      account_id: account.id,
-      profile_id: account.profile_id,
-      subreddit: gen.target,   // legacy column; still useful for non-Reddit as 'target'
-      title: gen.title,
-      remote_id: result.id || null,
-      status: result.ok ? 'posted' : 'failed',
-      source: 'auto',
-      error: result.ok ? null : result.error,
+      return { ok: false, error: e.message };
     });
 
-    if (result.ok) {
-      summary.posted++;
+    if (!sessionPrep.ok) return;
+
+    if (sessionPrep.mode === 'cloakmanager') {
+      if (!sessionPrep.profileName) {
+        elog.warn('[autopilot] CM account missing profileName', { account: account.id, username: account.username });
+        summary.skipped++;
+        summary.reasons.cm_no_profile = (summary.reasons.cm_no_profile || 0) + 1;
+        return;
+      }
+
+      const { recordRun } = require('../ipc/automation');
+      const startedAt = new Date().toISOString();
+
+      const { cdpOrchestrator } = await requireCdpOrchestrator();
+      const gen = adapter.generateContent
+        ? await adapter.generateContent({ account, target: null })
+        : { ok: false, error: 'adapter has no generateContent' };
+      if (!gen.ok) {
+        summary.skipped++;
+        summary.reasons[`gen:${gen.error}`.slice(0, 80)] =
+          (summary.reasons[`gen:${gen.error}`.slice(0, 80)] || 0) + 1;
+        return;
+      }
+
+      const scriptId = account.platform === 'reddit' ? 'tasks/reddit/submit' : 'tasks/x/compose';
+      const result = await cdpOrchestrator.executeTask(scriptId, {
+        accountId: account.id,
+        profileName: sessionPrep.profileName,
+        platform: account.platform,
+        title: gen.title,
+        body: gen.body,
+        subreddit: gen.target,
+        kind: gen.kind,
+        url: gen.url,
+        text: gen.title,
+      });
+
+      const completedAt = new Date().toISOString();
+      const durationMs = Date.now() - new Date(startedAt).getTime();
+      const status = result.ok ? 'completed' : 'failed';
+
+      recordRun(getDb(), {
+        accountId: account.id,
+        platform: account.platform,
+        browserMode: 'cloakmanager',
+        runType: 'autopilot_tick',
+        status,
+        scriptId,
+        resultJson: result.ok ? JSON.stringify(result.result || {}) : null,
+        error: result.ok ? null : result.error,
+        triggeredBy: 'autopilot',
+        durationMs,
+        startedAt,
+        completedAt,
+      });
+
+      await protocols.recordEvent({
+        platform: account.platform,
+        account_id: account.id,
+        profile_id: account.profile_id,
+        subreddit: gen.target,
+        title: gen.title,
+        remote_id: result.ok && result.result ? (result.result.url || result.result.id) : null,
+        status: result.ok ? 'posted' : 'failed',
+        source: 'auto',
+        error: result.ok ? null : result.error,
+      });
+
+      if (result.ok) { summary.posted++; resetFailure(account.id); }
+      else { summary.failed++; summary.errors.push(`${account.platform}/${account.username}: ${result.error}`.slice(0, 200)); trackFailure(account.id, result.error); }
     } else {
-      summary.failed++;
-      summary.errors.push(`${account.platform}/${account.username}: ${result.error}`.slice(0, 200));
+      const target = adapter.pickTarget ? await adapter.pickTarget(account) : null;
+      const gen = adapter.generateContent
+        ? await adapter.generateContent({ account, target })
+        : { ok: false, error: 'adapter has no generateContent' };
+      if (!gen.ok) {
+        summary.skipped++;
+        summary.reasons[`gen:${gen.error}`.slice(0, 80)] =
+          (summary.reasons[`gen:${gen.error}`.slice(0, 80)] || 0) + 1;
+        return;
+      }
+
+      const submitArgs = {
+        accountId: account.id,
+        subreddit: gen.target,
+        title: gen.title,
+        body: gen.body,
+        kind: gen.kind,
+        url: gen.url,
+        text: gen.title,
+        caption: gen.title,
+        mediaUrl: gen.url,
+      };
+      const result = await adapter.submitPost(submitArgs);
+
+      await protocols.recordEvent({
+        platform: account.platform,
+        account_id: account.id,
+        profile_id: account.profile_id,
+        subreddit: gen.target,
+        title: gen.title,
+        remote_id: result.id || null,
+        status: result.ok ? 'posted' : 'failed',
+        source: 'auto',
+        error: result.ok ? null : result.error,
+      });
+
+      if (result.ok) {
+        summary.posted++;
+        resetFailure(account.id);
+      } else {
+        summary.failed++;
+        summary.errors.push(`${account.platform}/${account.username}: ${result.error}`.slice(0, 200));
+        trackFailure(account.id, result.error);
+      }
     }
   } catch (err) {
     summary.failed++;
     summary.errors.push(`${account.platform}/${account.username}: ${err.message}`.slice(0, 200));
+    trackFailure(account.id, err.message);
   } finally {
     await protocols.releaseLock(account.platform, account.id);
   }
+}
+
+let _cdpOrch = null;
+async function requireCdpOrchestrator() {
+  if (!_cdpOrch) _cdpOrch = { cdpOrchestrator: require('../cdp/orchestrator') };
+  return _cdpOrch;
 }
 
 // -------------------------------------------------------------- main pass
@@ -258,18 +379,17 @@ async function runDueScheduled() {
 
   for (const post of due) {
     const platform = post.platform || 'reddit';
+    if (isCircuitOpen(post.account_id)) continue;
     if (!(await protocols.acquireLock(platform, post.account_id, HOLDER, 300))) continue;
+    const schedStartedAt = new Date().toISOString();
     try {
-      // Belt-and-suspenders proxy enforcement. Same as runForAccount —
-      // if Electron restarted and this scheduled tick fires before any
-      // browser window opens, the partition has no proxy yet. Calling
-      // here guarantees proxy + UA + antidetect bind first.
-      try {
-        const { prepareSessionForAccount } = require('./sessionPrep');
-        await prepareSessionForAccount(post.account_id);
-      } catch (e) {
+      const { prepareSessionForAccount } = require('./sessionPrep');
+      const sessionPrep = await prepareSessionForAccount(post.account_id).catch((e) => {
         elog.warn('[scheduler] sessionPrep failed', { post: post.id, err: e?.message });
-      }
+        return { ok: false, error: e.message };
+      });
+
+      if (!sessionPrep.ok) continue;
 
       if (platform === 'reddit') {
         const fail = checkEligibility(db, post);
@@ -283,12 +403,7 @@ async function runDueScheduled() {
           continue;
         }
       }
-      const adapter = getAdapter(platform);
-      if (!adapter || !adapter.configured) {
-        db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?")
-          .run(`No adapter for ${platform}`, post.id);
-        continue;
-      }
+
       let title = post.title || '';
       let body = post.body || '';
       let kind = post.kind || 'self';
@@ -318,41 +433,126 @@ async function runDueScheduled() {
           continue;
         }
       }
-      const result = await adapter.submitPost({
-        accountId: post.account_id, subreddit: post.subreddit,
-        title, body, kind, url: post.url,
-        text: title, caption: title, mediaUrl: post.url,
-      });
-      if (result.ok) {
-        db.prepare("UPDATE scheduled_posts SET status='posted', posted_at=datetime('now') WHERE id=?").run(post.id);
-        await protocols.recordEvent({
-          platform, account_id: post.account_id, profile_id: post.profile_id,
-          subreddit: post.subreddit, title: post.title, remote_id: result.id,
-          status: 'posted', source: 'scheduled',
-        });
-        if (result.url) {
-          db.prepare("UPDATE scheduled_posts SET posted_url=? WHERE id=?").run(result.url, post.id);
+
+      if (sessionPrep.mode === 'cloakmanager') {
+        if (!sessionPrep.profileName) {
+          elog.warn('[scheduler] CM account missing profileName', { account: post.account_id });
+          db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?")
+            .run('No CloakManager profile configured for this account', post.id);
+          continue;
         }
-        if (post.boost_service_id && Number(post.boost_qty) > 0 && result.url) {
-          const delayMin = Math.max(0, Number(post.boost_delay_minutes) || 0);
-          if (delayMin === 0) {
-            await fireBoostOrder(post, result.url);
-          } else {
-            const fireAt = new Date(Date.now() + delayMin * 60000)
-              .toISOString().replace('T', ' ').slice(0, 19);
-            db.prepare("UPDATE scheduled_posts SET boost_status='pending', boost_fire_at=? WHERE id=?")
-              .run(fireAt, post.id);
+
+        const { recordRun } = require('../ipc/automation');
+        const { cdpOrchestrator } = await requireCdpOrchestrator();
+
+        const scriptId = platform === 'reddit' ? 'tasks/reddit/submit' : 'tasks/x/compose';
+        const result = await cdpOrchestrator.executeTask(scriptId, {
+          accountId: post.account_id,
+          profileName: sessionPrep.profileName,
+          platform, title, body,
+          subreddit: post.subreddit,
+          kind, url: post.url,
+          text: title,
+        });
+
+        const sduration = Date.now() - new Date(schedStartedAt).getTime();
+        if (result.ok) {
+          resetFailure(post.account_id);
+          db.prepare("UPDATE scheduled_posts SET status='posted', posted_at=datetime('now') WHERE id=?").run(post.id);
+          const postedUrl = result.result?.url || null;
+          await protocols.recordEvent({
+            platform, account_id: post.account_id, profile_id: post.profile_id,
+            subreddit: post.subreddit, title: post.title,
+            remote_id: postedUrl || result.result?.id,
+            status: 'posted', source: 'scheduled',
+          });
+          if (postedUrl) {
+            db.prepare("UPDATE scheduled_posts SET posted_url=? WHERE id=?").run(postedUrl, post.id);
           }
+          recordRun(db, {
+            accountId: post.account_id, platform,
+            browserMode: 'cloakmanager', runType: 'schedule_fire',
+            status: 'completed', scriptId,
+            resultJson: JSON.stringify(result.result || {}),
+            triggeredBy: 'scheduled',
+            schedulePostId: post.id, durationMs: sduration,
+            startedAt: schedStartedAt, completedAt: new Date().toISOString(),
+          });
+          if (post.boost_service_id && Number(post.boost_qty) > 0 && postedUrl) {
+            const delayMin = Math.max(0, Number(post.boost_delay_minutes) || 0);
+            if (delayMin === 0) {
+              await fireBoostOrder(post, postedUrl);
+            } else {
+              const fireAt = new Date(Date.now() + delayMin * 60000)
+                .toISOString().replace('T', ' ').slice(0, 19);
+              db.prepare("UPDATE scheduled_posts SET boost_status='pending', boost_fire_at=? WHERE id=?")
+                .run(fireAt, post.id);
+            }
+          }
+        } else {
+          trackFailure(post.account_id, result.error);
+          db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?").run(result.error, post.id);
+          await protocols.recordEvent({
+            platform, account_id: post.account_id, profile_id: post.profile_id,
+            subreddit: post.subreddit, title: post.title,
+            status: 'failed', source: 'scheduled', error: result.error,
+          });
+          recordRun(db, {
+            accountId: post.account_id, platform,
+            browserMode: 'cloakmanager', runType: 'schedule_fire',
+            status: 'failed', scriptId,
+            error: result.error,
+            triggeredBy: 'scheduled',
+            schedulePostId: post.id, durationMs: sduration,
+            startedAt: schedStartedAt, completedAt: new Date().toISOString(),
+          });
         }
       } else {
-        db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?").run(result.error, post.id);
-        await protocols.recordEvent({
-          platform, account_id: post.account_id, profile_id: post.profile_id,
-          subreddit: post.subreddit, title: post.title,
-          status: 'failed', source: 'scheduled', error: result.error,
+        const adapter = getAdapter(platform);
+        if (!adapter || !adapter.configured) {
+          db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?")
+            .run(`No adapter for ${platform}`, post.id);
+          continue;
+        }
+        const result = await adapter.submitPost({
+          accountId: post.account_id, subreddit: post.subreddit,
+          title, body, kind, url: post.url,
+          text: title, caption: title, mediaUrl: post.url,
         });
+        if (result.ok) {
+          resetFailure(post.account_id);
+          db.prepare("UPDATE scheduled_posts SET status='posted', posted_at=datetime('now') WHERE id=?").run(post.id);
+          await protocols.recordEvent({
+            platform, account_id: post.account_id, profile_id: post.profile_id,
+            subreddit: post.subreddit, title: post.title, remote_id: result.id,
+            status: 'posted', source: 'scheduled',
+          });
+          if (result.url) {
+            db.prepare("UPDATE scheduled_posts SET posted_url=? WHERE id=?").run(result.url, post.id);
+          }
+          if (post.boost_service_id && Number(post.boost_qty) > 0 && result.url) {
+            const delayMin = Math.max(0, Number(post.boost_delay_minutes) || 0);
+            if (delayMin === 0) {
+              await fireBoostOrder(post, result.url);
+            } else {
+              const fireAt = new Date(Date.now() + delayMin * 60000)
+                .toISOString().replace('T', ' ').slice(0, 19);
+              db.prepare("UPDATE scheduled_posts SET boost_status='pending', boost_fire_at=? WHERE id=?")
+                .run(fireAt, post.id);
+            }
+          }
+        } else {
+          trackFailure(post.account_id, result.error);
+          db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?").run(result.error, post.id);
+          await protocols.recordEvent({
+            platform, account_id: post.account_id, profile_id: post.profile_id,
+            subreddit: post.subreddit, title: post.title,
+            status: 'failed', source: 'scheduled', error: result.error,
+          });
+        }
       }
     } catch (err) {
+      trackFailure(post.account_id, err.message);
       db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?").run(err.message, post.id);
     } finally {
       await protocols.releaseLock(platform, post.account_id);
@@ -368,7 +568,10 @@ function checkEligibility(db, post) {
   let intel;
   try {
     intel = db.prepare('SELECT * FROM subreddit_intel WHERE name = ? COLLATE NOCASE').get(post.subreddit);
-  } catch { return null; }
+  } catch (e) {
+    elog.warn('[coordinator] checkEligibility intel lookup failed', { subreddit: post.subreddit, err: e?.message });
+    return null;
+  }
   if (!intel) return null;
   const acct = db.prepare('SELECT created_at FROM reddit_accounts WHERE id = ?').get(post.account_id);
   const karma = (() => {
@@ -377,7 +580,9 @@ function checkEligibility(db, post) {
   })();
   if (intel.min_account_age_days && acct?.created_at) {
     try {
-      const ageDays = Math.floor((Date.now() - new Date(acct.created_at.replace(' ', 'T') + 'Z').getTime()) / 86400000);
+      const createdMs = new Date(acct.created_at.replace(' ', 'T') + 'Z').getTime();
+      if (isNaN(createdMs)) return null;
+      const ageDays = Math.floor((Date.now() - createdMs) / 86400000);
       if (ageDays < intel.min_account_age_days) {
         return `Account too young for r/${post.subreddit} (${ageDays}d < ${intel.min_account_age_days}d required)`;
       }
@@ -426,7 +631,8 @@ async function fireBoostOrder(post, url) {
     } else {
       db.prepare("UPDATE scheduled_posts SET boost_status='failed' WHERE id=?").run(post.id);
     }
-  } catch {
+  } catch (err) {
+    elog.warn('[coordinator] fireBoostOrder failed', { post: post?.id, err: err?.message });
     db.prepare("UPDATE scheduled_posts SET boost_status='failed' WHERE id=?").run(post.id);
   }
 }
@@ -481,7 +687,9 @@ async function autoTestProxies() {
         "UPDATE proxies SET last_test_ok = ?, last_test_at = datetime('now'), last_test_error = ? WHERE id = ?"
       ).run(result.ok ? 1 : 0, result.ok ? null : (result.error || 'unknown'), p.id);
     }
-  } catch { /* never let proxy testing crash the coordinator */ }
+  } catch (e) {
+    elog.warn('[coordinator] autoTestProxies failed', e?.message);
+  }
 }
 
 // ---------------------------------------------- karma + star-user refresh
@@ -520,7 +728,7 @@ async function refreshKarmaSnapshots() {
 
 // -------------------------------------------------------------- tick wiring
 function tick() {
-  if (!isEnabled()) return;
+  if (!isEnabledAll()) return;
   runOnce().catch((e) => elog.warn('[autopilot] tick failed:', e?.message));
 }
 
@@ -567,9 +775,12 @@ function start() {
   addJob('karma',         6 * 60 * 60_000,             5 * 60_000, 3 * 60_000, () => refreshKarmaSnapshots());
   addJob('engagement',    4 * 60_000,                  30_000,    2 * 60_000, () => engagementTick());
   addJob('topic',         4 * 60 * 60_000,             10 * 60_000, 5 * 60_000, () => topicTick());
+  addJob('remote-gate',   5 * 60_000,                  30_000,        10_000, () => checkRemoteAutopilot());
+
+  loadCircuitState();
 
   timer = setInterval(() => {
-    if (!isEnabled()) return;
+    if (!isEnabledAll()) return;
     const now = Date.now();
     for (const j of jobs) {
       if (!j.running && now >= j.nextRun) runJob(j);
@@ -603,4 +814,77 @@ function status() {
   };
 }
 
-module.exports = { start, stop, runOnce, runForAccount, status, HOLDER };
+// -------------------------------------------------------- circuit breaker
+const failureCounters = new Map();
+const CIRCUIT_BREAK_LIMIT = 5;
+const CIRCUIT_COOLDOWN_MS = 30 * 60 * 1000;
+
+function trackFailure(accountId, error) {
+  const entry = failureCounters.get(accountId) || { count: 0, firstFailure: Date.now(), paused: false };
+  entry.count++;
+  entry.lastError = error;
+  failureCounters.set(accountId, entry);
+
+  if (entry.count >= CIRCUIT_BREAK_LIMIT && !entry.paused) {
+    entry.paused = true;
+
+    entry.pausedUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
+    elog.warn('[coordinator] Circuit breaker tripped', { accountId, failures: entry.count, cooldown: CIRCUIT_COOLDOWN_MS });
+    try { setKv(`circuit_${accountId}`, JSON.stringify({ pausedUntil: entry.pausedUntil, lastError: entry.lastError, count: entry.count })); } catch {}
+  }
+}
+
+function resetFailure(accountId) {
+  failureCounters.delete(accountId);
+  try { setKv(`circuit_${accountId}`, ''); } catch {}
+}
+
+function isCircuitOpen(accountId) {
+  const entry = failureCounters.get(accountId);
+  if (!entry || !entry.paused) return false;
+  if (Date.now() >= entry.pausedUntil) {
+    entry.count = 0;
+    entry.paused = false;
+    entry.pausedUntil = null;
+    failureCounters.set(accountId, entry);
+    return false;
+  }
+  return true;
+}
+
+function loadCircuitState() {
+  try {
+    const db = getDb();
+    const rows = db.prepare(
+      "SELECT key, value FROM app_kv WHERE key LIKE 'circuit_%'"
+    ).all();
+    for (const r of rows) {
+      try {
+        const accountId = Number(r.key.replace('circuit_', ''));
+        if (isNaN(accountId)) continue;
+        const data = JSON.parse(r.value);
+        if (!data || !data.pausedUntil) continue;
+        if (Date.now() >= data.pausedUntil) {
+          try { setKv(r.key, ''); } catch {}
+          continue;
+        }
+        failureCounters.set(accountId, {
+          count: data.count || CIRCUIT_BREAK_LIMIT,
+          paused: true,
+          pausedUntil: data.pausedUntil,
+          lastError: data.lastError || null,
+        });
+      } catch {}
+    }
+  } catch {}
+}
+
+function getCircuitStatus() {
+  const result = [];
+  for (const [id, entry] of failureCounters.entries()) {
+    if (entry.paused) result.push({ accountId: id, failures: entry.count, pausedUntil: entry.pausedUntil, lastError: entry.lastError });
+  }
+  return result;
+}
+
+module.exports = { start, stop, runOnce, runForAccount, status, HOLDER, trackFailure, resetFailure, isCircuitOpen, getCircuitStatus };

@@ -5,6 +5,7 @@ import AutopilotPage from './Autopilot.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { Banner } from '../components/ui.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
+import RunHistory from '../components/RunHistory.jsx';
 
 // Automation = Scheduler + Autopilot + AI Settings under one sidebar entry.
 // AI Settings was moved out of the Scheduler's hidden <details> into its
@@ -14,12 +15,16 @@ function StatsBar() {
   const { token } = useAuth();
   const [stats, setStats] = useState({ scheduledToday: 0, totalPending: 0, totalFailed: 0, failedWithErr: 0 });
   const [apStatus, setApStatus] = useState(null);
+  const [runStats, setRunStats] = useState({ todayCompleted: 0, todayFailed: 0, cmRuns: 0 });
+  const [circuits, setCircuits] = useState([]);
 
   const load = useCallback(async () => {
     try {
-      const [allRes, statusRes] = await Promise.all([
+      const [allRes, statusRes, runRes, circuitRes] = await Promise.all([
         window.api.scheduled.list({ token }),
         window.api.autopilot.status({ token }).catch(() => ({ ok: false })),
+        window.api.automation.runStats({ token }).catch(() => ({ ok: false })),
+        window.api.autopilot.circuitStatus({ token }).catch(() => ({ ok: false })),
       ]);
       if (allRes.ok && allRes.posts) {
         const posts = allRes.posts;
@@ -34,6 +39,8 @@ function StatsBar() {
         });
       }
       if (statusRes.ok) setApStatus(statusRes);
+      if (runRes.ok && runRes.stats) setRunStats(runRes.stats);
+      if (circuitRes.ok && circuitRes.paused) setCircuits(circuitRes.paused);
     } catch {}
   }, [token]);
 
@@ -46,35 +53,50 @@ function StatsBar() {
     { label: 'Scheduled today', value: stats.scheduledToday, tone: 'gold' },
     { label: 'Total pending', value: stats.totalPending, tone: 'blue' },
     { label: 'Failed', value: stats.totalFailed, tone: 'red', sub: stats.failedWithErr > 0 ? `${stats.failedWithErr} with errors` : null },
+    { label: 'Auto runs today', value: runStats.todayCompleted + runStats.todayFailed, tone: 'green',
+      sub: `${runStats.todayCompleted} ok · ${runStats.todayFailed} fail · ${runStats.cmRuns} CM` },
     { label: 'Autopilot', value: masterOn ? 'Running' : 'Paused', tone: masterOn ? 'green' : 'neutral', sub: apLast ? `Last run ${apLast}` : null },
   ];
 
   return (
-    <div style={{ display: 'flex', gap: 10, marginBottom: 18 }}>
-      {items.map((it) => (
-        <div key={it.label} style={{
-          flex: 1, minWidth: 100,
-          border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-lg)',
-          padding: '12px 14px',
-          background: 'var(--bg-elev)',
-        }}>
-          <div className="muted" style={{
-            fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em',
-            fontWeight: 600, marginBottom: 4,
-          }}>{it.label}</div>
-          <div style={{
-            fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 600,
-            color: it.tone === 'gold' ? 'var(--gold-bright)' :
-                   it.tone === 'red' ? '#e2a3a3' :
-                   it.tone === 'green' ? 'var(--green-bright)' :
-                   'var(--text-0)',
+    <div>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
+        {items.map((it) => (
+          <div key={it.label} style={{
+            flex: 1, minWidth: 100,
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-lg)',
+            padding: '12px 14px',
+            background: 'var(--bg-elev)',
           }}>
-            {it.value}
+            <div className="muted" style={{
+              fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em',
+              fontWeight: 600, marginBottom: 4,
+            }}>{it.label}</div>
+            <div style={{
+              fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 600,
+              color: it.tone === 'gold' ? 'var(--gold-bright)' :
+                     it.tone === 'red' ? '#e2a3a3' :
+                     it.tone === 'green' ? 'var(--green-bright)' :
+                     'var(--text-0)',
+            }}>
+              {it.value}
+            </div>
+            {it.sub && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{it.sub}</div>}
           </div>
-          {it.sub && <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{it.sub}</div>}
+        ))}
+      </div>
+      {circuits.length > 0 && (
+        <div style={{ marginBottom: 18, padding: '10px 14px', background: 'rgba(180,90,90,0.1)', border: '1px solid rgba(180,90,90,0.25)', borderRadius: 'var(--radius-lg)', fontSize: 12 }}>
+          <span style={{ color: '#e2a3a3', fontWeight: 700 }}>Circuit breaker active: </span>
+          {circuits.map((c, i) => (
+            <span key={c.accountId}>
+              Account {c.accountId} paused ({c.failures} consecutive failures{', '}
+              until {new Date(c.pausedUntil).toLocaleTimeString()}){i < circuits.length - 1 ? ' · ' : ''}
+            </span>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }
@@ -95,6 +117,7 @@ export default function AutomationPage({ navigate, initialSection }) {
     { k: 'scheduler', l: 'Scheduler', d: 'Compose posts, schedule, monitor queue' },
     { k: 'autopilot', l: 'Autopilot', d: 'Engagement rules, run controls, activity' },
     { k: 'ai',        l: 'AI Settings', d: 'Persona, tone, length, provider, system prompt' },
+    { k: 'history',   l: 'Run History', d: 'Automation execution log across all platforms' },
   ];
 
   return (
@@ -105,7 +128,7 @@ export default function AutomationPage({ navigate, initialSection }) {
           <h1>Automation</h1>
           <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
             One workspace for everything that runs while the app is open —
-            scheduled posts, autopilot rules, and AI generation settings.
+            scheduled posts, autopilot rules, AI settings, and run history.
           </div>
         </div>
         <div style={{ marginLeft: 'auto' }}>
@@ -138,6 +161,11 @@ export default function AutomationPage({ navigate, initialSection }) {
           {aiErr && <Banner kind="err">{aiErr}</Banner>}
           {aiMsg && <Banner kind="ok">{aiMsg}</Banner>}
           <AISettings token={token} onMsg={setAiMsg} onError={setAiErr} />
+        </ErrorBoundary>
+      )}
+      {section === 'history' && (
+        <ErrorBoundary label="Run History">
+          <RunHistory />
         </ErrorBoundary>
       )}
     </div>

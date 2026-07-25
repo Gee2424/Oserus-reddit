@@ -1064,13 +1064,51 @@ function initDatabase() {
       console.log('[db] cdp_script_executions table created.');
     }
 
+    // Create automation_runs table for unified automation execution logging
+    if (!tableNames.includes('automation_runs')) {
+      console.log('[db] Creating automation_runs table...');
+      db.exec(`
+        CREATE TABLE automation_runs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+          platform TEXT NOT NULL,
+          browser_mode TEXT NOT NULL CHECK(browser_mode IN ('electron','cloakmanager')),
+          run_type TEXT NOT NULL CHECK(run_type IN ('post','comment','engagement','inbox','schedule_fire','autopilot_tick')),
+          status TEXT NOT NULL CHECK(status IN ('queued','running','completed','failed','skipped')) DEFAULT 'queued',
+          script_id TEXT,
+          result_json TEXT,
+          error TEXT,
+          triggered_by TEXT NOT NULL CHECK(triggered_by IN ('autopilot','scheduled','manual','template')),
+          schedule_post_id INTEGER REFERENCES scheduled_posts(id) ON DELETE SET NULL,
+          duration_ms INTEGER,
+          started_at TEXT,
+          completed_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      console.log('[db] automation_runs table created.');
+    }
+
+    // Migration: add autopilot_skip column to account_browser_settings
+    try {
+      const absCols = db.prepare("PRAGMA table_info(account_browser_settings)").all();
+      if (!absCols.some(c => c.name === 'autopilot_skip')) {
+        db.exec("ALTER TABLE account_browser_settings ADD COLUMN autopilot_skip INTEGER DEFAULT 0");
+        console.log('[db] autopilot_skip column added to account_browser_settings');
+      }
+    } catch (e) { console.warn('[db] autopilot_skip migration failed:', e?.message); }
     // Create indexes for better performance
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_user_browser_settings_user_id ON user_browser_settings(user_id);
       CREATE INDEX IF NOT EXISTS idx_account_browser_settings_account_id ON account_browser_settings(account_id);
       CREATE INDEX IF NOT EXISTS idx_cloakmanager_profiles_account_id ON cloakmanager_profiles(account_id);
       CREATE INDEX IF NOT EXISTS idx_cloakmanager_profiles_profile_name ON cloakmanager_profiles(profile_name);
+      CREATE INDEX IF NOT EXISTS idx_automation_runs_account ON automation_runs(account_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs(status, created_at);
     `);
+    // Ensure account_browser_settings has a UNIQUE constraint on account_id
+    // for ON CONFLICT(account_id) upserts in autopilot skip handler.
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_account_browser_settings_account_unique ON account_browser_settings(account_id)`);
     console.log('[db] CloakManager integration migration complete.');
   } catch (e) {
     console.error('[db] CloakManager migration failed:', e.message);

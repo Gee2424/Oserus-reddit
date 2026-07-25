@@ -32,6 +32,7 @@ const taskQueue = [];
  * Queue is being processed
  */
 let queueProcessing = false;
+const activeTasks = new Set();
 
 /**
  * Initialize the orchestrator with CloakManager event handlers
@@ -258,34 +259,95 @@ async function handleBrowserCrashed(data) {
 }
 
 /**
- * Execute a task script on-demand
+ * Execute a task script on-demand, ensuring the CM profile is running first.
  *
  * @param {string} scriptId - Task script identifier
  * @param {Object} context - Execution context
  * @returns {Promise<Object>} Execution result
  */
-async function executeTask(scriptId, context) {
+async function executeTask(scriptId, context, { autoLaunch = true } = {}) {
   try {
     console.log('[CDP Orchestrator] Executing task:', scriptId, 'for account:', context.accountId);
 
-    // Add to task queue
-    const task = { scriptId, context };
-    taskQueue.push(task);
-
-    // Start queue processor if not running
-    if (!queueProcessing) {
-      startQueueProcessor();
+    const profileName = context.profileName || await getProfileNameForAccount(context.accountId);
+    if (!profileName) {
+      return { ok: false, error: 'No CloakManager profile found for account', scriptId };
     }
 
-    // Wait for task to complete
-    // (In production, this could use a proper task queue system)
-    // For now, we'll execute immediately
-    return await executeTaskNow(task);
+    const client = getCloakManagerClient();
+
+    if (activeTasks.has(profileName)) {
+      return { ok: false, error: 'Another task is already executing for this profile', scriptId };
+    }
+    activeTasks.add(profileName);
+
+    try {
+      const running = await client.getRunningProfiles();
+      const isRunning = running.running && running.running[profileName];
+
+      if (!isRunning) {
+        if (!autoLaunch) {
+          return { ok: false, error: 'Profile is not running', scriptId, notRunning: true };
+        }
+        broadcastLaunchProgress(context.accountId, profileName, 'launching', `Auto-launching ${profileName}...`);
+        try {
+          const launchResult = await client.launchProfile(profileName);
+          if (!launchResult.ok) {
+            broadcastLaunchProgress(context.accountId, profileName, 'error', launchResult.error || 'Launch failed');
+            return { ok: false, error: 'Failed to launch profile: ' + (launchResult.error || 'unknown'), scriptId };
+          }
+
+          broadcastLaunchProgress(context.accountId, profileName, 'waiting', `Waiting for ${profileName} to be ready...`);
+          await waitForCDPReady(profileName, 120000);
+          await sleep(3000);
+
+          const launched = await client.getRunningProfiles();
+          const nowRunning = launched.running && launched.running[profileName];
+          if (!nowRunning) {
+            broadcastLaunchProgress(context.accountId, profileName, 'error', 'Profile did not become ready');
+            return { ok: false, error: 'Profile did not become ready after launch', scriptId };
+          }
+          broadcastLaunchProgress(context.accountId, profileName, 'ready', `${profileName} ready`);
+        } catch (launchErr) {
+          broadcastLaunchProgress(context.accountId, profileName, 'error', launchErr.message);
+          return { ok: false, error: 'Auto-launch failed: ' + launchErr.message, scriptId };
+        }
+      }
+
+      const task = { scriptId, context: { ...context, profileName } };
+      return await executeTaskNow(task);
+
+    } finally {
+      activeTasks.delete(profileName);
+    }
 
   } catch (error) {
     console.error('[CDP Orchestrator] Task execution failed:', error.message);
     return { ok: false, error: error.message, scriptId };
   }
+}
+
+/**
+ * Wait for CDP ready event from CloakManager via WebSocket
+ */
+function waitForCDPReady(profileName, timeoutMs = 120000) {
+  return new Promise((resolve, reject) => {
+    const client = getCloakManagerClient();
+    const timer = setTimeout(() => {
+      client.off('cdp_ready', handler);
+      reject(new Error(`Timeout waiting for CDP ready on ${profileName}`));
+    }, timeoutMs);
+
+    function handler(data) {
+      if (data.profile === profileName) {
+        clearTimeout(timer);
+        client.off('cdp_ready', handler);
+        resolve(data);
+      }
+    }
+
+    client.on('cdp_ready', handler);
+  });
 }
 
 /**
@@ -368,6 +430,15 @@ function broadcastProgress(mainWindow, progressData) {
   } catch (error) {
     console.error('[CDP Orchestrator] Failed to broadcast progress:', error.message);
   }
+}
+
+function broadcastLaunchProgress(accountId, profileName, stage, message) {
+  try {
+    const win = global.cdpMainWindow;
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('autopilot:cmLaunchProgress', { accountId, profileName, stage, message });
+    }
+  } catch {}
 }
 
 /**
@@ -585,6 +656,8 @@ module.exports = {
 
   // Task execution
   executeTask,
+  executeTaskNow,
+  waitForCDPReady,
 
   // Status checks
   hasCDPAvailable,
@@ -600,5 +673,6 @@ module.exports = {
   getProfileNameForAccount,
   recordExecution,
   getExecutionHistory,
+  broadcastLaunchProgress,
   sleep
 };

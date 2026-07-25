@@ -107,10 +107,12 @@ function register(ipcMain) {
       ensureTable();
       let sql = `
         SELECT s.*, a.username AS account_username, a.platform AS platform,
-               a.profile_id AS profile_id, p.name AS profile_name, p.avatar_color AS profile_color
+               a.profile_id AS profile_id, p.name AS profile_name, p.avatar_color AS profile_color,
+               COALESCE(bs.browser_mode, 'electron') AS browser_mode
         FROM scheduled_posts s
         LEFT JOIN reddit_accounts a ON a.id = s.account_id
         LEFT JOIN model_profiles p ON p.id = a.profile_id
+        LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
       `;
       const params = [];
       const wheres = [];

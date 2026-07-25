@@ -11,10 +11,32 @@
 const { getCloakManagerClient } = require('../cloakmanager');
 const { userFromToken } = require('./auth');
 const { getDb, decryptSecret, credentialVaultGet } = require('../db');
+const { hasPermission } = require('../permissions');
 const cdpOrchestrator = require('../cdp/orchestrator');
 
 // Phase 2: Configurable CDP launch delay for development
 const CDP_LAUNCH_DELAY = process.env.CDP_LAUNCH_DELAY || 95000; // Default 95s, configurable via env
+const handledProfiles = new Set();
+
+function canAccessAccount(user, accountId) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (hasPermission(user, 'profiles.manage')) return true;
+  if (!accountId) return false;
+  const db = getDb();
+  const acct = db.prepare('SELECT profile_id FROM reddit_accounts WHERE id = ?').get(accountId);
+  if (!acct) return false;
+  const row = db.prepare('SELECT assigned_user_id FROM model_profiles WHERE id = ?').get(acct.profile_id);
+  if (row && row.assigned_user_id === user.id) return true;
+  const assign = db.prepare('SELECT 1 FROM profile_assignments WHERE profile_id = ? AND user_id = ? LIMIT 1').get(acct.profile_id, user.id);
+  return !!assign;
+}
+
+function accountIdForProfile(profileName) {
+  if (!profileName) return null;
+  const row = getDb().prepare('SELECT account_id FROM cloakmanager_profiles WHERE profile_name = ?').get(profileName);
+  return row ? row.account_id : null;
+}
 
 /**
  * Register all CloakManager IPC handlers
@@ -44,6 +66,8 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
       // CRITICAL: CloakManager launch takes 90+ seconds due to Google navigation timeout
       // Delay CDP script execution to allow browser to fully launch and CDP to be ready
       setTimeout(async () => {
+        if (handledProfiles.has(data.profile)) return;
+        handledProfiles.add(data.profile);
         console.log('[IPC] 🔔 setTimeout callback FIRED for profile:', data.profile);
         console.log('[IPC] 🔔 Timestamp:', new Date().toISOString());
         console.log('[IPC] 🔔 cdpOrchestrator type:', typeof cdpOrchestrator);
@@ -116,6 +140,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
     // Phase 3: Use cdp_ready event as immediate trigger for launch scripts
     // This bypasses the 95-second delay and triggers scripts as soon as CDP is ready
     try {
+      handledProfiles.add(data.profile);
       console.log('[IPC] 🚀 cdp_ready event received, launching scripts immediately');
       console.log('[IPC] 🚀 Calling cdpOrchestrator.handleProfileLaunched from cdp_ready');
       cdpOrchestrator.handleProfileLaunched(data);
@@ -285,6 +310,10 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
         return { ok: false, error: 'Invalid token' };
       }
 
+      if (!canAccessAccount(user, accountId)) {
+        return { ok: false, error: 'Not authorized for this profile' };
+      }
+
       // getDb() is imported at top of file
 
       // Get account settings
@@ -407,6 +436,10 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
         return { ok: false, error: 'Chatters cannot create profiles' };
       }
 
+      if (!canAccessAccount(user, accountId)) {
+        return { ok: false, error: 'Not authorized for this profile' };
+      }
+
       // getDb() is imported at top of file
 
       // Get account details
@@ -505,6 +538,10 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
         return { ok: false, error: 'Invalid token' };
       }
 
+      if (!canAccessAccount(user, accountId)) {
+        return { ok: false, error: 'Not authorized for this profile' };
+      }
+
       console.log('[IPC] Calling client.launchProfile with:', profileName);
       const client = getCloakManagerClient();
       const result = await client.launchProfile(profileName);
@@ -550,6 +587,10 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
         return { ok: false, error: 'Invalid token' };
       }
 
+      if (!canAccessAccount(user, accountIdForProfile(profileName))) {
+        return { ok: false, error: 'Not authorized for this profile' };
+      }
+
       const client = getCloakManagerClient();
       const result = await client.stopProfile(profileName);
 
@@ -580,6 +621,10 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
 
       if (!user) {
         return { ok: false, error: 'Invalid token' };
+      }
+
+      if (!canAccessAccount(user, accountIdForProfile(profileName))) {
+        return { ok: false, error: 'Not authorized for this profile' };
       }
 
       const client = getCloakManagerClient();
@@ -658,6 +703,10 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
 
       if (!user) {
         return { ok: false, error: 'Invalid token' };
+      }
+
+      if (!canAccessAccount(user, accountIdForProfile(profileName))) {
+        return { ok: false, error: 'Not authorized for this profile' };
       }
 
       const client = getCloakManagerClient();

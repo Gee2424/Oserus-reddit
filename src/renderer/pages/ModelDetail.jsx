@@ -74,6 +74,7 @@ export default function ModelDetailPage({ modelId, navigate }) {
   const { isAvailable, checkAvailability, launchProgress, cloakStatus, isAccountRunning } = useCloakManagerLaunch();
   const [accountOperation, setAccountOperation] = useState(null); // { type: 'creating' | 'launching', accountId: null }
   const [operationMessage, setOperationMessage] = useState(null);
+  const [launchingId, setLaunchingId] = useState(null);
   const canViewActivity = can('activity.view');
   const { toast } = useToast();
   const { confirm } = useConfirm();
@@ -259,10 +260,15 @@ export default function ModelDetailPage({ modelId, navigate }) {
   }
 
   async function start(accountId) {
-    await startAccount(accountId);
-    // Browsing happens in a dedicated Oserus Browser window now, not an
-    // in-app page.
-    await window.api.oserusBrowser.openAccount({ token, accountId });
+    setLaunchingId(accountId);
+    try {
+      await startAccount(accountId);
+      // Browsing happens in a dedicated Oserus Browser window now, not an
+      // in-app page.
+      await window.api.oserusBrowser.openAccount({ token, accountId });
+    } finally {
+      setLaunchingId(null);
+    }
   }
 
   async function addProxy(e) {
@@ -664,14 +670,25 @@ export default function ModelDetailPage({ modelId, navigate }) {
                 {platAccounts.map(a => {
                   const browserMode = getBrowserMode(a);
                   const modeConfig = BROWSER_MODES[browserMode] || BROWSER_MODES.electron;
+                  const isRunning = a.cloak_actual_name && cloakStatus[a.cloak_actual_name] === 'running';
+                  const isLaunching = launchingId === a.id;
+                  const launchPct = a.cloak_actual_name && launchProgress[a.cloak_actual_name];
                   return (
                   <div key={a.id} style={styles.accountRow}>
                     <button
                       className="primary"
+                      disabled={isLaunching}
                       onClick={() => start(a.id)}
-                      style={styles.startBtn}
-                      title={`Open ${plat.label} as ${a.username} (${modeConfig.label})`}
-                    >▶</button>
+                      style={{
+                        ...styles.startBtn,
+                        opacity: isLaunching ? 0.6 : 1,
+                        cursor: isLaunching ? 'not-allowed' : 'pointer',
+                      }}
+                      title={isRunning ? 'Browser is running' : `Open ${plat.label} as ${a.username} (${modeConfig.label})`}
+                    >
+                      {isRunning ? '●' : isLaunching && launchPct ?
+                        `${Math.round(launchPct.progress * 100)}%` : isLaunching ? '⏳' : '▶'}
+                    </button>
                     <span style={{ ...styles.dot, background: STATUS_COLORS[a.status] }} title={a.status} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 500 }}>
@@ -703,6 +720,29 @@ export default function ModelDetailPage({ modelId, navigate }) {
                             RUNNING
                           </span>
                         )}
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            const next = !a.autopilot_skip;
+                            try {
+                              const setRes = await window.api.accounts.setAutopilotSkip({ token, accountId: a.id, skip: next });
+                              if (!setRes.ok) throw new Error(setRes.error);
+                              const r = await window.api.accounts.listForProfile({ token, profileId: modelId });
+                              if (r.ok) setAccounts(r.accounts || []);
+                            } catch (err) {
+                              toast('err', err.message || 'Failed to update autopilot skip');
+                            }
+                          }}
+                          title={a.autopilot_skip ? 'Excluded from autopilot' : 'Included in autopilot (when master is running)'}
+                          style={{
+                            fontSize: 8, padding: '2px 6px', borderRadius: 999,
+                            fontFamily: 'monospace', fontWeight: 700,
+                            background: a.autopilot_skip ? 'rgba(180,90,90,0.2)' : 'rgba(122,154,90,0.2)',
+                            color: a.autopilot_skip ? '#e2a3a3' : '#bdd5a3',
+                            border: 'none', cursor: 'pointer', marginLeft: 4,
+                          }}
+                        >{a.autopilot_skip ? 'SKIP' : 'AUTO'}</button>
                         {/* Account launch progress badge */}
                         {a.cloak_actual_name && launchProgress[a.cloak_actual_name] && launchProgress[a.cloak_actual_name].progress < 1 && (
                           <span style={{

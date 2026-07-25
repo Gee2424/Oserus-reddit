@@ -1,4 +1,11 @@
 const { getDb } = require('./db');
+const { BUILTIN_ROLES } = require('../shared/permissions');
+
+// Pre-compute built-in role permission sets (static, never changes)
+const builtinPerms = {};
+for (const r of BUILTIN_ROLES) {
+  builtinPerms[r.key] = new Set(r.permissions);
+}
 
 let cache = null;
 let cacheStamp = 0;
@@ -24,6 +31,10 @@ function invalidate() {
 
 function hasPermission(user, key) {
   if (!user || !user.role) return false;
+  // Built-in roles always have their configured permissions
+  const b = builtinPerms[user.role];
+  if (b && b.has(key)) return true;
+  // Fall back to database (custom roles)
   const byRole = loadAll();
   const set = byRole[user.role];
   return !!(set && set.has(key));

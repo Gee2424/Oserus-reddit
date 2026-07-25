@@ -60,6 +60,8 @@ const api = {
     bulkSetStatus: (data) => ipcRenderer.invoke('accounts:bulkSetStatus', data),
     getCredentials: (data) => ipcRenderer.invoke('accounts:getCredentials', data),
     delete: (data) => ipcRenderer.invoke('accounts:delete', data),
+    getAutopilotSkip: (data) => ipcRenderer.invoke('accounts:getAutopilotSkip', data),
+    setAutopilotSkip: (data) => ipcRenderer.invoke('accounts:setAutopilotSkip', data),
   },
   activity: {
     list: (data) => ipcRenderer.invoke('activity:list', data),
@@ -231,6 +233,14 @@ const api = {
     listForProfile: (data) => ipcRenderer.invoke('autopilot:listForProfile', data),
     get:            (data) => ipcRenderer.invoke('autopilot:get', data),
     set:            (data) => ipcRenderer.invoke('autopilot:set', data),
+    circuitStatus:  (data) => ipcRenderer.invoke('autopilot:circuitStatus', data),
+    getCMEnabled:   (data) => ipcRenderer.invoke('autopilot:getCMEnabled', data),
+    setCMEnabled:   (data) => ipcRenderer.invoke('autopilot:setCMEnabled', data),
+    onCMLaunchProgress: (callback) => {
+      const listener = (_event, data) => callback(data);
+      ipcRenderer.on('autopilot:cmLaunchProgress', listener);
+      return () => ipcRenderer.removeListener('autopilot:cmLaunchProgress', listener);
+    },
   },
   coordination: {
     get: (data) => ipcRenderer.invoke('coordination:get', data),
@@ -300,6 +310,10 @@ const api = {
     set:    (data) => ipcRenderer.invoke('autoComment:set', data),
     runNow: (data) => ipcRenderer.invoke('autoComment:runNow', data),
     runs:   (data) => ipcRenderer.invoke('autoComment:runs', data),
+  },
+  automation: {
+    listRuns: (data) => ipcRenderer.invoke('automation:listRuns', data),
+    runStats: (data) => ipcRenderer.invoke('automation:runStats', data),
   },
   windows: {
     openPopout: (data) => ipcRenderer.invoke('window:openPopout', data),

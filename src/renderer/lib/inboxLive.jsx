@@ -26,8 +26,11 @@ export function InboxLiveProvider({ children }) {
   const accountsRef = useRef([]);
   useEffect(() => { accountsRef.current = accounts; }, [accounts]);
 
-  async function fetchAccount(a, folder = 'all') {
+  async function fetchAccount(a, folder = 'all', force = false) {
     if (!a || a.status === 'banned' || (a.platform || 'reddit') !== 'reddit') return;
+    // CM accounts need their browser profile running — skip auto-poll;
+    // allow manual refreshes (force=true) and explicit fetch calls.
+    if (!force && a.browser_mode === 'cloakmanager') return;
     setLoading((m) => ({ ...m, [a.id]: true }));
     try {
       await window.api.session.prepareForAccount({ accountId: a.id });
@@ -76,7 +79,7 @@ export function InboxLiveProvider({ children }) {
 
   function refresh(accountId, folder = 'all') {
     const a = (accountsRef.current || []).find((x) => x.id === accountId);
-    if (a) return fetchAccount(a, folder);
+    if (a) return fetchAccount(a, folder, true);
   }
 
   // Patch a single account's messages from the page (e.g. optimistic reply

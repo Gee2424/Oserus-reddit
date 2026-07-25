@@ -69,6 +69,7 @@ const registerExamplesHandlers = require('./ipc/examples');
 const registerEngagementHandlers = require('./ipc/engagement');
 const registerAutoCommentHandlers = require('./ipc/autoComment');
 const registerAutopilotProtocolHandlers = require('./ipc/autopilotProtocol');
+const registerAutomationHandlers = require('./ipc/automation').register;
 const registerCloudHandlers = require('./ipc/cloud');
 const registerDeviceHandlers = require('./ipc/devices');
 const coordinator = require('./services/coordinator');
@@ -473,6 +474,7 @@ app.whenReady().then(async () => {
   registerEngagementHandlers(ipcMain);
   registerAutoCommentHandlers(ipcMain);
   registerAutopilotProtocolHandlers(ipcMain);
+  registerAutomationHandlers(ipcMain);
   registerCloudHandlers(ipcMain);
   registerDeviceHandlers(ipcMain);
 

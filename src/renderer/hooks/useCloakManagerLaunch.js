@@ -1,157 +1,128 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
 
 /**
  * Custom hook for CloakManager WebSocket event handling and launch state management.
- * Provides consistent WebSocket integration across all components that handle profile launching.
  *
- * Features:
- * - WebSocket event subscriptions (profile_launched, profile_stopped, browser_crashed, etc.)
- * - Launch progress tracking with percentage updates
- * - Running profile status management
- * - CloakManager availability checking
- * - WebSocket connection status monitoring
+ * Module-level state persists across component mounts/unmounts so WebSocket
+ * events are never lost when routes change or React re-renders the tree.
  *
- * @returns {Object} Hook state and helper functions
+ * Uses useSyncExternalStore to properly integrate external (WebSocket-driven)
+ * state with React's render cycle. The cached snapshot prevents infinite
+ * re-renders by returning the same object reference unless state changed.
  */
-export function useCloakManagerLaunch() {
-  const [cloakStatus, setCloakStatus] = useState({}); // { accountId: 'running' | 'stopped' | 'error' }
-  const [launchProgress, setLaunchProgress] = useState({}); // { accountId: { progress: 0.5, stage: 'launching', message: '' } }
-  const [runningProfiles, setRunningProfiles] = useState(new Set());
-  const [isAvailable, setIsAvailable] = useState(null);
-  const [wsConnected, setWsConnected] = useState(false);
 
-  /**
-   * Check if CloakManager backend is available
-   * @param {string} token - User authentication token
-   * @returns {Promise<boolean>} true if CloakManager is available
-   */
+// Module-level cached snapshot — replaced only on state change
+let _storeSnapshot = {
+  cloakStatus: {},
+  launchProgress: {},
+  runningProfiles: new Set(),
+  isAvailable: null,
+  wsConnected: false,
+};
+const _listeners = new Set(); // onStoreChange callbacks
+
+function _updateSnapshot(partial) {
+  _storeSnapshot = { ..._storeSnapshot, ...partial };
+  for (const fn of _listeners) fn();
+}
+
+// One-time WebSocket subscription — never cleaned up while the app is open
+let _wsInitDone = false;
+function _ensureWS() {
+  if (_wsInitDone) return;
+  _wsInitDone = true;
+
+  window.api.cloakmanager.onProfileLaunched((data) => {
+    if (data && data.profile) {
+      const nextProfiles = new Set(_storeSnapshot.runningProfiles);
+      nextProfiles.add(data.profile);
+      _updateSnapshot({
+        cloakStatus: { ..._storeSnapshot.cloakStatus, [data.profile]: 'running' },
+        launchProgress: { ..._storeSnapshot.launchProgress, [data.profile]: null },
+        runningProfiles: nextProfiles,
+      });
+    }
+  });
+
+  window.api.cloakmanager.onProfileStopped((data) => {
+    if (data && data.profile) {
+      const nextProfiles = new Set(_storeSnapshot.runningProfiles);
+      nextProfiles.delete(data.profile);
+      _updateSnapshot({
+        cloakStatus: { ..._storeSnapshot.cloakStatus, [data.profile]: 'stopped' },
+        runningProfiles: nextProfiles,
+      });
+    }
+  });
+
+  window.api.cloakmanager.onBrowserCrashed((data) => {
+    if (data && data.profile) {
+      _updateSnapshot({
+        launchProgress: { ..._storeSnapshot.launchProgress, [data.profile]: null },
+        cloakStatus: { ..._storeSnapshot.cloakStatus, [data.profile]: 'error' },
+      });
+    }
+  });
+
+  window.api.cloakmanager.onLaunchProgress((data) => {
+    if (data && data.profile) {
+      _updateSnapshot({
+        launchProgress: {
+          ..._storeSnapshot.launchProgress,
+          [data.profile]: {
+            progress: data.data?.percent ? data.data.percent / 100 : (data.progress || 0),
+            stage: data.stage || 'launching',
+            message: data.message || ''
+          }
+        }
+      });
+    }
+  });
+
+  window.api.cloakmanager.onWSConnected(() => {
+    _updateSnapshot({ wsConnected: true });
+  });
+
+  window.api.cloakmanager.onWSDisconnected(() => {
+    _updateSnapshot({ wsConnected: false });
+  });
+}
+
+export function useCloakManagerLaunch() {
+  _ensureWS();
+
+  const state = useSyncExternalStore(
+    (onStoreChange) => {
+      _listeners.add(onStoreChange);
+      return () => { _listeners.delete(onStoreChange); };
+    },
+    () => _storeSnapshot
+  );
+
+  const { cloakStatus, launchProgress, runningProfiles, isAvailable, wsConnected } = state;
+
   const checkAvailability = useCallback(async (token) => {
     try {
       const res = await window.api.cloakmanager.checkAvailable({ token });
-      setIsAvailable(res.available);
-      console.log('[useCloakManagerLaunch] CloakManager availability:', res.available);
+      _updateSnapshot({ isAvailable: res.available });
       return res.available;
     } catch (err) {
-      console.error('[useCloakManagerLaunch] Availability check failed:', err);
-      setIsAvailable(false);
+      _updateSnapshot({ isAvailable: false });
       return false;
     }
   }, []);
 
-  /**
-   * Setup WebSocket event listeners for CloakManager events
-   * Handles: profile_launched, profile_stopped, browser_crashed, launch_progress, ws_connected, ws_disconnected
-   */
-  useEffect(() => {
-    console.log('[useCloakManagerLaunch] Setting up WebSocket listeners');
-    const unsubscribers = [];
-
-    // Profile launched event
-    unsubscribers.push(
-      window.api.cloakmanager.onProfileLaunched((data) => {
-        console.log('[useCloakManagerLaunch] Profile launched:', data);
-        if (data && data.profile) {
-          // Store by profile name since that's what CloakManager sends
-          // We'll map this to accountId later when needed
-          setRunningProfiles(prev => new Set([...prev, data.profile]));
-          setCloakStatus(prev => ({ ...prev, [data.profile]: 'running' }));
-          setLaunchProgress(prev => ({ ...prev, [data.profile]: null }));
-        }
-      })
-    );
-
-    // Profile stopped event
-    unsubscribers.push(
-      window.api.cloakmanager.onProfileStopped((data) => {
-        console.log('[useCloakManagerLaunch] Profile stopped:', data);
-        if (data && data.profile) {
-          setRunningProfiles(prev => {
-            const next = new Set(prev);
-            next.delete(data.profile);
-            return next;
-          });
-          setCloakStatus(prev => ({ ...prev, [data.profile]: 'stopped' }));
-        }
-      })
-    );
-
-    // Browser crashed event
-    unsubscribers.push(
-      window.api.cloakmanager.onBrowserCrashed((data) => {
-        console.log('[useCloakManagerLaunch] Browser crashed:', data);
-        if (data && data.profile) {
-          setLaunchProgress(prev => ({ ...prev, [data.profile]: null }));
-          setCloakStatus(prev => ({ ...prev, [data.profile]: 'error' }));
-        }
-      })
-    );
-
-    // Launch progress event
-    unsubscribers.push(
-      window.api.cloakmanager.onLaunchProgress((data) => {
-        console.log('[useCloakManagerLaunch] Launch progress:', data);
-        if (data && data.profile) {
-          setLaunchProgress(prev => ({
-            ...prev,
-            [data.profile]: {
-              progress: data.data?.percent ? data.data.percent / 100 : (data.progress || 0),
-              stage: data.stage || 'launching',
-              message: data.message || ''
-            }
-          }));
-        }
-      })
-    );
-
-    // WebSocket connection established
-    unsubscribers.push(
-      window.api.cloakmanager.onWSConnected(() => {
-        console.log('[useCloakManagerLaunch] WebSocket connected');
-        setWsConnected(true);
-      })
-    );
-
-    // WebSocket connection lost
-    unsubscribers.push(
-      window.api.cloakmanager.onWSDisconnected(() => {
-        console.log('[useCloakManagerLaunch] WebSocket disconnected');
-        setWsConnected(false);
-      })
-    );
-
-    // Cleanup: unsubscribe from all events
-    return () => {
-      console.log('[useCloakManagerLaunch] Cleaning up WebSocket listeners');
-      unsubscribers.forEach(unsub => unsub());
-    };
-  }, []);
-
-  /**
-   * Check if an account is currently running
-   * @param {string} profileName - Profile name to check
-   * @returns {boolean} true if profile is running
-   */
   const isAccountRunning = useCallback((profileName) => {
-    return runningProfiles.has(profileName) && cloakStatus[profileName] === 'running';
-  }, [runningProfiles, cloakStatus]);
+    return state.runningProfiles.has(profileName) && state.cloakStatus[profileName] === 'running';
+  }, [state]);
 
-  /**
-   * Get launch progress for an account
-   * @param {string} profileName - Profile name to get progress for
-   * @returns {Object|null} Progress object { progress, stage, message } or null
-   */
   const getAccountProgress = useCallback((profileName) => {
-    return launchProgress[profileName] || null;
-  }, [launchProgress]);
+    return state.launchProgress[profileName] || null;
+  }, [state]);
 
-  /**
-   * Get status for an account
-   * @param {string} profileName - Profile name to get status for
-   * @returns {string|null} Status string ('running' | 'stopped' | 'error') or null
-   */
   const getAccountStatus = useCallback((profileName) => {
-    return cloakStatus[profileName] || null;
-  }, [cloakStatus]);
+    return state.cloakStatus[profileName] || null;
+  }, [state]);
 
   return {
     isAvailable,

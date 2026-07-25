@@ -2,15 +2,21 @@ const { getDb, encryptSecret, decryptSecret, credentialVaultGet, credentialVault
 const { userFromToken } = require('./auth');
 const { log } = require('./activity');
 const { hasPermission } = require('../permissions');
-const { getSharedCredential, setSharedCredential } = require('../sharedCredentials');
+const { getSharedCredential, setSharedCredential, deleteSharedCredential } = require('../sharedCredentials');
 
 
 function canAccessProfile(user, profileId) {
   if (hasPermission(user, 'profiles.manage')) return true;
+  // Check direct assignment on model_profiles (legacy single-user ownership)
   const row = getDb()
     .prepare('SELECT assigned_user_id FROM model_profiles WHERE id = ?')
     .get(profileId);
-  return row && row.assigned_user_id === user.id;
+  if (row && row.assigned_user_id === user.id) return true;
+  // Check multi-user profile_assignments table
+  const assign = getDb()
+    .prepare('SELECT 1 FROM profile_assignments WHERE profile_id = ? AND user_id = ? LIMIT 1')
+    .get(profileId, user.id);
+  return !!assign;
 }
 
 function hydrateAccount(a) {
@@ -137,10 +143,14 @@ function register(ipcMain) {
 
     const accounts = getDb()
       .prepare(
-        `SELECT a.*, p.label AS proxy_label, p.kind AS proxy_kind
+        `SELECT a.*, p.label AS proxy_label, p.kind AS proxy_kind,
+                bs.browser_mode, bs.cloak_profile_name, bs.autopilot_skip,
+                cp.profile_name AS cloak_actual_name, cp.cdp_port, cp.status AS cloak_status
          FROM reddit_accounts a
          LEFT JOIN model_profiles mp ON mp.id = a.profile_id
          LEFT JOIN proxies p ON p.id = COALESCE(a.proxy_id, mp.proxy_id)
+         LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
+         LEFT JOIN cloakmanager_profiles cp ON cp.account_id = a.id
          WHERE a.profile_id = ? ${platformClause}
          ORDER BY a.platform, a.status, a.username`
       )
@@ -454,6 +464,34 @@ function register(ipcMain) {
     } catch (err) {
       return { ok: false, error: err.message };
     }
+  });
+
+  ipcMain.handle('accounts:getAutopilotSkip', (_e, { token, accountId }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      const row = getDb().prepare(
+        "SELECT autopilot_skip FROM account_browser_settings WHERE account_id = ?"
+      ).get(accountId);
+      return { ok: true, skip: row ? !!row.autopilot_skip : false };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('accounts:setAutopilotSkip', (_e, { token, accountId, skip }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      if (user.role === 'chatter') throw new Error('Chatters cannot change account settings');
+      const acct = getDb().prepare('SELECT profile_id FROM reddit_accounts WHERE id = ?').get(accountId);
+      if (!acct) throw new Error('Account not found');
+      if (!canAccessProfile(user, acct.profile_id)) throw new Error('Not authorized for this account');
+      getDb().prepare(
+        `INSERT INTO account_browser_settings (account_id, browser_mode, autopilot_skip, created_at)
+         VALUES (?, 'inherit', ?, datetime('now'))
+         ON CONFLICT(account_id) DO UPDATE SET autopilot_skip = excluded.autopilot_skip`
+      ).run(accountId, skip ? 1 : 0);
+      return { ok: true, skip: !!skip };
+    } catch (err) { return { ok: false, error: err.message }; }
   });
 }
 
