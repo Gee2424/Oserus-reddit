@@ -41,14 +41,14 @@ jobs:
           gh release download $tag `
             --repo Gee2424/ctrldlogin `
             --pattern "ctrldlogin-x86_64-pc-windows-msvc.exe" `
-            --dir build
+            --dir build --clobber
 
-          if (-not (Test-Path "build\backend-x86_64-pc-windows-msvc.exe")) {
+          if (-not (Test-Path "build\ctrldlogin-x86_64-pc-windows-msvc.exe")) {
             Write-Error "Download failed -- binary not found"
             exit 1
           }
 
-          Rename-Item "build\backend-x86_64-pc-windows-msvc.exe" "build\backend.exe"
+          Rename-Item "build\ctrldlogin-x86_64-pc-windows-msvc.exe" "build\backend.exe"
 
           @{ backendVersion = $tag } | ConvertTo-Json | Out-File -Encoding ascii "build\bundled-version.json"
           Write-Host "Manifest written: build\bundled-version.json"
