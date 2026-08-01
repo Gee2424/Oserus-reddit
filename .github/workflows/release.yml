@@ -48,7 +48,7 @@ jobs:
             exit 1
           }
 
-          Rename-Item "build\ctrldlogin-x86_64-pc-windows-msvc.exe" "build\backend.exe"
+          Move-Item "build\ctrldlogin-x86_64-pc-windows-msvc.exe" "build\backend.exe" -Force
 
           @{ backendVersion = $tag } | ConvertTo-Json | Out-File -Encoding ascii "build\bundled-version.json"
           Write-Host "Manifest written: build\bundled-version.json"
