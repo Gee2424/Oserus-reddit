@@ -20,9 +20,9 @@ class CloakManagerBinary {
 
     // GitHub configuration
     this.githubConfig = {
-      owner: 'arkdemiatop',
+      owner: 'Gee2424',
       repo: 'ctrldlogin',
-      assetName: 'backend-x86_64-pc-windows-msvc.exe',
+      assetName: 'ctrldlogin-x86_64-pc-windows-msvc.exe',
       // Only re-check GitHub this often (ms)
       checkIntervalMs: 24 * 60 * 60 * 1000, // 24 hours (daily)
     };
@@ -55,11 +55,74 @@ class CloakManagerBinary {
   }
 
   /**
+   * Get the path to the bundled binary shipped with the installer
+   * Only relevant in production (app.isPackaged)
+   * @returns {string|null} Path to bundled binary or null
+   */
+  getBundledBinaryPath() {
+    if (!this.app || !this.app.isPackaged) return null;
+    return path.join(process.resourcesPath, 'backend.exe');
+  }
+
+  /**
+   * Read the bundled version manifest shipped with the installer
+   * Returns { backendVersion: "v1.2.3" } or null
+   * @returns {object|null} Manifest or null
+   */
+  getBundledManifest() {
+    if (!this.app || !this.app.isPackaged) return null;
+    try {
+      const manifestPath = path.join(process.resourcesPath, 'bundled-version.json');
+      if (fs.existsSync(manifestPath)) {
+        return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      }
+    } catch (e) {
+      console.error('[CloakManager] Failed to read bundled manifest:', e.message);
+    }
+    return null;
+  }
+
+  /**
    * Get the path to version information file
    * @returns {string} Path to version.json
    */
   getVersionPath() {
     return path.join(this.getStorageDir(), 'version.json');
+  }
+
+  /**
+   * Get the path to the persisted port file
+   * @returns {string} Path to port.json
+   */
+  getPortPath() {
+    return path.join(this.getStorageDir(), 'port.json');
+  }
+
+  /**
+   * Get the saved port from a previous session
+   * @returns {number|null} Port number or null if not available
+   */
+  getSavedPort() {
+    try {
+      const p = this.getPortPath();
+      if (fs.existsSync(p)) {
+        const data = JSON.parse(fs.readFileSync(p, 'utf8'));
+        return typeof data.port === 'number' ? data.port : null;
+      }
+    } catch {}
+    return null;
+  }
+
+  /**
+   * Persist the current port to disk for reconnection on next launch
+   * @param {number} port - The port to save
+   */
+  savePort(port) {
+    fs.writeFileSync(this.getPortPath(), JSON.stringify({
+      port,
+      pid: this.process?.pid || null,
+      savedAt: Date.now(),
+    }));
   }
 
   /**
@@ -279,16 +342,27 @@ class CloakManagerBinary {
 
   /**
    * Check if Cloak Manager is already running locally
-   * Scans common ports or uses configured port
+   * Checks saved port from previous session first, then scans common ports
    * @returns {Promise<number|null>} Port if running, null otherwise
    */
   async checkAlreadyRunning() {
-    // Check default port first
-    const defaultPorts = [7331, 8765];
+    // Check saved port from previous session first
+    const savedPort = this.getSavedPort();
+    if (savedPort) {
+      if (await this.checkPort(savedPort)) {
+        console.log(`[CloakManager] Reconnected to backend on port ${savedPort}`);
+        return savedPort;
+      }
+      // Stale port file — backend died since last session
+      try { fs.unlinkSync(this.getPortPath()); } catch {}
+    }
 
+    // Check default ports
+    const defaultPorts = [7331, 8765];
     for (const port of defaultPorts) {
       if (await this.checkPort(port)) {
         console.log(`[CloakManager] Found existing instance on port ${port}`);
+        this.savePort(port);
         return port;
       }
     }
@@ -339,7 +413,7 @@ class CloakManagerBinary {
 
     // Verify binary exists
     if (!fs.existsSync(binaryPath)) {
-      throw new Error('Cloak Manager binary not found. Run downloadBinary() first.');
+      throw new Error('Cloak Manager binary not found. Run ensureRunning() first.');
     }
 
     // Find available port
@@ -393,47 +467,52 @@ class CloakManagerBinary {
     await this.waitForHealth(port);
 
     this.currentPort = port;
+    this.savePort(port);
     return port;
   }
 
   /**
-   * Stop the spawned Cloak Manager process
+   * Stop the spawned Cloak Manager process (including any child processes)
+   * Uses taskkill /T /F on Windows for guaranteed tree-kill
    * @returns {Promise<void>}
    */
   async stop() {
-    if (this.process) {
-      console.log('[CloakManager] Stopping spawned backend...');
+    if (!this.process || !this.process.pid) return;
 
-      // Try graceful shutdown first
-      this.process.kill('SIGTERM');
+    const pid = this.process.pid;
+    console.log('[CloakManager] Stopping backend (pid ' + pid + ')...');
 
-      // Wait for process to exit
+    if (process.platform === 'win32') {
       await new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          // Force kill if doesn't exit gracefully
-          if (this.process) {
-            this.process.kill('SIGKILL');
-          }
-          resolve();
-        }, 5000);
-
-        this.process.once('exit', () => {
-          clearTimeout(timeout);
-          resolve();
-        });
+        const { execFile } = require('child_process');
+        execFile('taskkill', ['/pid', String(pid), '/t', '/f'],
+          { windowsHide: true },
+          (err) => {
+            if (err) {
+              const msg = (err.message || '').toLowerCase();
+              if (!msg.includes('not found')) {
+                console.warn('[CloakManager] taskkill warning:', err.message);
+              }
+            }
+            resolve();
+          });
       });
-
-      this.process = null;
-      this.currentPort = null;
-      console.log('[CloakManager] Backend stopped');
+    } else {
+      this.process.kill('SIGKILL');
     }
+
+    this.process = null;
+    this.currentPort = null;
+
+    try { fs.unlinkSync(this.getPortPath()); } catch {}
+
+    console.log('[CloakManager] Backend stopped');
   }
 
   /**
    * Main entry point: Ensure Cloak Manager is running
-   * - Checks if already running
-   * - Downloads if needed
-   * - Spawns if not running
+   * In production: seeds from bundled binary if needed (no GitHub calls)
+   * In development: requires developer-provided binary
    * @returns {Promise<number>} The port Cloak Manager is running on
    */
   async ensureRunning() {
@@ -445,15 +524,48 @@ class CloakManagerBinary {
       return existingPort;
     }
 
-    // Check if binary exists, download if needed
     const binaryPath = this.getBinaryPath();
-    if (!fs.existsSync(binaryPath)) {
-      console.log('[CloakManager] Binary not found, downloading...');
-      const latest = await this.fetchLatestRelease();
-      await this.downloadBinary(latest.downloadUrl, latest.version);
+    const userVersion = this.getCurrentVersion();
+
+    // Production: seed from bundled binary if needed
+    if (this.app.isPackaged) {
+      const bundledPath = this.getBundledBinaryPath();
+      const bundledManifest = this.getBundledManifest();
+
+      const needsSeed =
+        !fs.existsSync(binaryPath) ||
+        (bundledManifest && (!userVersion || userVersion.backendVersion !== bundledManifest.backendVersion));
+
+      if (needsSeed) {
+        if (!bundledPath || !fs.existsSync(bundledPath)) {
+          throw new Error(
+            'CloakManager binary is missing from the application bundle. ' +
+            'Please reinstall Oserus Management.'
+          );
+        }
+
+        const storageDir = this.getStorageDir();
+        fs.mkdirSync(storageDir, { recursive: true });
+        fs.copyFileSync(bundledPath, binaryPath);
+
+        const versionInfo = {
+          backendVersion: bundledManifest?.backendVersion || 'unknown',
+          seededAt: Date.now(),
+          lastCheck: Date.now(),
+          bundled: true,
+        };
+        fs.writeFileSync(this.getVersionPath(), JSON.stringify(versionInfo, null, 2));
+
+        console.log(`[CloakManager] Seeded bundled binary (v${versionInfo.backendVersion})`);
+      }
     } else {
-      // Check for updates (respects check interval)
-      await this.checkForUpdates();
+      // Development mode: binary must be provided by developer
+      if (!fs.existsSync(binaryPath)) {
+        throw new Error(
+          'CloakManager binary not found. ' +
+          'In development mode, place backend.exe in the cloak-manager directory or run CloakManager separately.'
+        );
+      }
     }
 
     // Spawn the binary
@@ -467,12 +579,15 @@ class CloakManagerBinary {
    * @returns {object} Status information
    */
   getStatus() {
+    const manifest = this.getBundledManifest();
     return {
       isRunning: this.process !== null,
       port: this.currentPort,
       version: this.version,
       binaryExists: fs.existsSync(this.getBinaryPath()),
       currentVersion: this.getCurrentVersion(),
+      bundledBackendVersion: manifest?.backendVersion || null,
+      isBundled: this.app?.isPackaged || false,
     };
   }
 

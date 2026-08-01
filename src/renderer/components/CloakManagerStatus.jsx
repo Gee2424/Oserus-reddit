@@ -256,7 +256,7 @@ export default function CloakManagerStatus() {
           CloakManager Not Installed
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
-          CloakManager binary needs to be downloaded (one-time setup).
+          Run one-time setup to install CloakManager from the bundled application.
         </div>
       </div>
       <button
@@ -274,7 +274,7 @@ export default function CloakManagerStatus() {
           opacity: starting ? 0.6 : 1
         }}
       >
-        {starting ? 'Starting...' : 'Download CloakManager'}
+        {starting ? 'Installing...' : 'Install CloakManager'}
       </button>
     </div>
   );
@@ -319,7 +319,7 @@ export default function CloakManagerStatus() {
           CloakManager Ready
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
-          Running on port {status?.port} • Version {status?.currentVersion?.version || 'unknown'}
+          Running on port {status?.port} • Version {status?.currentVersion?.backendVersion || status?.currentVersion?.version || 'unknown'}
         </div>
       </div>
       <button
@@ -480,11 +480,16 @@ export default function CloakManagerStatus() {
         {displayState === 'error' && renderError()}
       </div>
 
-      {/* Last update check info */}
+      {/* Version info */}
+      {status?.bundledBackendVersion && (
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 8 }}>
+          Bundled version: {status.bundledBackendVersion}
+        </div>
+      )}
       {status?.currentVersion && (
         <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 8 }}>
           Last update check: {status.currentVersion.lastCheck ? new Date(status.currentVersion.lastCheck).toLocaleString() : 'Never'}
-          {' '}• Version: {status.currentVersion.version || 'unknown'}
+          {' '}• Version: {status.currentVersion.backendVersion || status.currentVersion.version || 'unknown'}
         </div>
       )}
 

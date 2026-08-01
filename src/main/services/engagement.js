@@ -21,6 +21,7 @@ const { BrowserWindow, ipcMain } = require('electron');
 const elog = require('electron-log');
 const { getDb } = require('../db');
 const { getSetting } = require('./settings');
+const { resolveBrowserMode } = require('../lib/browserMode');
 const { selectorsFor, urlFor } = require('./engagementSelectors');
 
 function pickRandom(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
@@ -350,10 +351,8 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
   // can't use a hidden BrowserWindow because it would load logged-out
   // from the operator's real IP. Skip politely so the tick doesn't
   // waste a cycle on a guaranteed failure.
-  const cmMode = db.prepare(
-    "SELECT browser_mode FROM account_browser_settings WHERE account_id = ?"
-  ).get(accountId);
-  if (cmMode && cmMode.browser_mode === 'cloakmanager') {
+  const { mode } = resolveBrowserMode(accountId);
+  if (mode === 'cloakmanager') {
     elog.info('[engagement] skipping CM account — use Oserus Browser to engage manually', { accountId, username: acct.username });
     return { ok: false, error: 'CloakManager mode: open the account in Oserus Browser to run engagement manually' };
   }
@@ -616,10 +615,8 @@ async function engagementTick() {
   // BrowserWindow — skip them so the tick picks an Electron
   // account on the next cycle.
   try {
-    const cmCheck = db.prepare(
-      "SELECT browser_mode FROM account_browser_settings WHERE account_id = ?"
-    ).get(acct.id);
-    if (cmCheck && cmCheck.browser_mode === 'cloakmanager') {
+    const { mode } = resolveBrowserMode(acct.id);
+    if (mode === 'cloakmanager') {
       elog.info('[engagement] tick skipping CM account', { accountId: acct.id });
       return;
     }

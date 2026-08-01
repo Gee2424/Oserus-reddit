@@ -314,31 +314,9 @@ function registerOserusBrowserHandlers() {
     const account = db.prepare('SELECT username FROM reddit_accounts WHERE id = ?').get(accountId);
     if (!account) return { ok: false, error: 'Account not found' };
 
-    const modeSettings = db.prepare(`
-      SELECT browser_mode, cloak_profile_name
-      FROM account_browser_settings
-      WHERE account_id = ?
-    `).get(accountId);
-
-    let finalMode = 'electron';
-    let profileName = null;
-
-    if (modeSettings?.browser_mode === 'cloakmanager') {
-      finalMode = 'cloakmanager';
-      profileName = modeSettings.cloak_profile_name; // Always set by account creation/update
-    } else if (modeSettings?.browser_mode === 'inherit') {
-      // Check user default
-      const user = userFromToken(token);
-      const userSettings = db.prepare(`
-        SELECT default_browser_mode FROM user_browser_settings WHERE user_id = ?
-      `).get(user.id);
-      finalMode = userSettings?.default_browser_mode || 'electron';
-
-      // Inherit mode always uses Electron - CloakManager is only for explicit cloakmanager mode
-      if (finalMode === 'cloakmanager') {
-        finalMode = 'electron';
-      }
-    }
+    const { resolveBrowserMode } = require('./lib/browserMode');
+    const user = userFromToken(token);
+    const { mode: finalMode, profileName } = resolveBrowserMode(accountId, user.id);
 
     // If CloakManager mode, launch CloakManager profile instead of Electron browser
     if (finalMode === 'cloakmanager') {
@@ -571,27 +549,20 @@ app.whenReady().then(async () => {
   function getActionableError(error) {
     const message = error?.message || error?.toString() || 'Unknown error';
 
-    if (message.includes('rate limit')) {
-      return 'GitHub download limit reached. Please wait 10 minutes and restart the app.';
-    }
-    if (message.includes('network') || message.includes('ECONNREFUSED') || message.includes('ENOTFOUND')) {
-      return 'Cannot reach GitHub. Check your internet connection.';
+    if (message.includes('missing from the application bundle') || message.includes('reinstall')) {
+      return 'CloakManager binary is missing from the application. Please reinstall Oserus Management.';
     }
     if (message.includes('health check') || message.includes('timeout')) {
       return 'CloakManager service started but is not responding. It may be initializing slowly - try restarting the app in 30 seconds.';
     }
-    if (message.includes('Failed to fetch release')) {
-      return 'Cannot fetch CloakManager release info. Check your internet connection.';
-    }
     if (message.includes('binary not found') || message.includes('not found')) {
-      return 'CloakManager binary not found. Click "Download CloakManager" to install it.';
+      return 'CloakManager binary not found. Click "Install CloakManager" to set it up from the bundled installer.';
     }
     if (message.includes('Cannot find available port')) {
       return 'Cannot find an available port for CloakManager. Close other applications and try again.';
     }
 
-    // Default generic error
-    return `CloakManager failed to start: ${message}. Try clicking "Download CloakManager" to fix the issue.`;
+    return `CloakManager failed to start: ${message}. Try clicking "Install CloakManager" to fix the issue.`;
   }
 
   // Autopilot coordinator — only acts when an admin has enabled it AND a
@@ -632,33 +603,43 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => {
-  markQuitting();
-  stopAutoUpdater();
-  destroyTray();
-  // Close local proxy-chain bridges + IPv4 SOCKS5 bridges so we don't
-  // leak open ports across an autoupdate restart.
-  try {
-    const { shutdownProxyBridges } = require('./services/sessionPrep');
-    shutdownProxyBridges().catch(() => {});
-  } catch {}
-  try {
-    const { shutdownAll } = require('./services/ipv4Bridge');
-    shutdownAll().catch(() => {});
-  } catch {}
-  // Cleanup spawned Cloak Manager backend (if we auto-started it)
-  if (global.cloakManagerBinary) {
+let quitting = false;
+
+app.on('before-quit', (event) => {
+  if (quitting) return;
+  event.preventDefault();
+  quitting = true;
+
+  (async () => {
+    markQuitting();
+    stopAutoUpdater();
+    destroyTray();
+    // Close local proxy-chain bridges + IPv4 SOCKS5 bridges so we don't
+    // leak open ports across an autoupdate restart.
     try {
-      global.cloakManagerBinary.stop().catch((e) => elog.warn('[CloakManager] cleanup error:', e));
-      elog.info('[CloakManager] Stopping spawned binary...');
-    } catch (e) {
-      elog.warn('[CloakManager] cleanup error:', e);
+      const { shutdownProxyBridges } = require('./services/sessionPrep');
+      shutdownProxyBridges().catch(() => {});
+    } catch {}
+    try {
+      const { shutdownAll } = require('./services/ipv4Bridge');
+      shutdownAll().catch(() => {});
+    } catch {}
+    // Cleanup spawned Cloak Manager backend (if we auto-started it)
+    if (global.cloakManagerBinary) {
+      try {
+        await global.cloakManagerBinary.stop();
+        elog.info('[CloakManager] Backend stopped');
+      } catch (e) {
+        elog.warn('[CloakManager] cleanup error:', e?.message);
+      }
     }
-  }
-  // Cleanup CloakManager WebSocket connection
-  try {
-    const { getCloakManagerClient } = require('./cloakmanager');
-    const cloakManager = getCloakManagerClient();
-    cloakManager.disconnectWebSocket();
-  } catch {}
+    // Cleanup CloakManager WebSocket connection
+    try {
+      const { getCloakManagerClient } = require('./cloakmanager');
+      const cloakManager = getCloakManagerClient();
+      cloakManager.disconnectWebSocket();
+    } catch {}
+
+    app.quit();
+  })();
 });

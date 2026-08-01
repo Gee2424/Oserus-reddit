@@ -318,34 +318,10 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
 
       // Get account settings
       console.log('[IPC] Querying account_browser_settings for accountId:', accountId);
-      const accountSettings = getDb().prepare(`
-        SELECT browser_mode, cloak_profile_name
-        FROM account_browser_settings
-        WHERE account_id = ?
-      `).get(accountId);
-      console.log('[IPC] Account settings:', accountSettings);
 
-      let mode = 'electron';
-      let profileName = accountSettings?.cloak_profile_name || null;
-
-      if (accountSettings) {
-        if (accountSettings.browser_mode === 'inherit') {
-          // Get user default
-          const userSettings = getDb().prepare(`
-            SELECT default_browser_mode FROM user_browser_settings WHERE user_id = ?
-          `).get(user.id);
-          mode = userSettings?.default_browser_mode || 'electron';
-        } else {
-          mode = accountSettings.browser_mode;
-          profileName = accountSettings.cloak_profile_name; // ← Added this line!
-        }
-      } else {
-        // No account settings, check user default
-        const userSettings = getDb().prepare(`
-          SELECT default_browser_mode FROM user_browser_settings WHERE user_id = ?
-        `).get(user.id);
-        mode = userSettings?.default_browser_mode || 'electron';
-      }
+      const { resolveBrowserMode } = require('../lib/browserMode');
+      const { mode, profileName } = resolveBrowserMode(accountId, user.id);
+      console.log('[IPC] Account mode:', mode, 'profile:', profileName);
 
       return {
         ok: true,
@@ -921,29 +897,61 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
       try {
         emitProgress('starting', 'Initializing CloakManager binary...');
 
-        // Step 1: Ensure binary exists
-        const binaryPath = cmBinary.getBinaryPath();
         const fs = require('fs');
-        if (!fs.existsSync(binaryPath)) {
-          emitProgress('downloading', 'Downloading CloakManager binary...', 0);
 
-          const latest = await cmBinary.fetchLatestRelease();
-          emitProgress('downloading', `Downloading version ${latest.version}...`, 10);
+        if (cmBinary.app.isPackaged) {
+          // Production: seed from bundled binary
+          const bundledPath = cmBinary.getBundledBinaryPath();
+          const bundledManifest = cmBinary.getBundledManifest();
 
-          // Download with progress tracking
-          await cmBinary.downloadBinary(latest.downloadUrl, latest.version);
-          emitProgress('downloading', 'Download complete', 100);
+          if (!bundledPath || !fs.existsSync(bundledPath)) {
+            emitProgress('error', 'Binary missing from app bundle — reinstall required');
+            return {
+              ok: false,
+              error: 'CloakManager binary is missing from the application bundle. Please reinstall Oserus Management.'
+            };
+          }
+
+          const binaryPath = cmBinary.getBinaryPath();
+          const userVersion = cmBinary.getCurrentVersion();
+          const needsSeed =
+            !fs.existsSync(binaryPath) ||
+            (bundledManifest && (!userVersion || userVersion.backendVersion !== bundledManifest.backendVersion));
+
+          if (needsSeed) {
+            emitProgress('installing', 'Installing CloakManager from bundle...', 50);
+
+            const storageDir = cmBinary.getStorageDir();
+            fs.mkdirSync(storageDir, { recursive: true });
+            fs.copyFileSync(bundledPath, binaryPath);
+
+            const versionInfo = {
+              backendVersion: bundledManifest?.backendVersion || 'unknown',
+              seededAt: Date.now(),
+              lastCheck: Date.now(),
+              bundled: true,
+            };
+            fs.writeFileSync(cmBinary.getVersionPath(), JSON.stringify(versionInfo));
+
+            emitProgress('installing', 'Install complete', 100);
+          }
+        } else {
+          // Dev mode: binary must be provided by developer
+          const binaryPath = cmBinary.getBinaryPath();
+          if (!fs.existsSync(binaryPath)) {
+            emitProgress('error', 'Binary not found — install manually in development mode');
+            return {
+              ok: false,
+              error: 'CloakManager binary not found. In development mode, place backend.exe in the cloak-manager directory or run CloakManager separately.'
+            };
+          }
         }
 
-        // Step 2: Check for updates
-        emitProgress('updating', 'Checking for updates...');
-        await cmBinary.checkForUpdates();
-
-        // Step 3: Spawn the binary
+        // Spawn the binary
         emitProgress('spawning', 'Starting CloakManager service...');
         const port = await cmBinary.spawn();
 
-        // Step 4: Update CloakManager client
+        // Update CloakManager client
         emitProgress('connecting', 'Connecting to CloakManager...');
         const client = getCloakManagerClient();
         client.updateBaseUrl(`http://127.0.0.1:${port}`);
@@ -959,14 +967,11 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
       } catch (spawnError) {
         emitProgress('error', `Failed: ${spawnError.message}`);
 
-        // Provide actionable error messages
         let actionableError = spawnError.message;
-        if (spawnError.message.includes('rate limit')) {
-          actionableError = 'GitHub rate limit exceeded. Please wait a few minutes and try again.';
-        } else if (spawnError.message.includes('network')) {
-          actionableError = 'Network error. Check your internet connection.';
-        } else if (spawnError.message.includes('health check')) {
+        if (spawnError.message.includes('health check')) {
           actionableError = 'Service started but failed health check. Try again in 30 seconds.';
+        } else if (spawnError.message.includes('missing from the application bundle') || spawnError.message.includes('reinstall')) {
+          actionableError = 'CloakManager binary is missing. Please reinstall Oserus Management.';
         }
 
         return {

@@ -66,6 +66,14 @@
       {
         "from": "build/icon.ico",
         "to": "build/icon.ico"
+      },
+      {
+        "from": "build/backend.exe",
+        "to": "backend.exe"
+      },
+      {
+        "from": "build/bundled-version.json",
+        "to": "bundled-version.json"
       }
     ],
     "win": {

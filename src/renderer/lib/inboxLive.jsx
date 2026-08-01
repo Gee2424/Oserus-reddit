@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from './auth.jsx';
 import { useActiveAccount } from './activeAccount.jsx';
+import { useCloakManagerLaunch } from '../hooks/useCloakManagerLaunch';
 
 // Root-level inbox polling. Mounted once at the app root; keeps fetching
 // inbox + unread counts for every Reddit account every 60s even when the
@@ -17,6 +18,7 @@ const InboxLiveCtx = createContext({
 export function InboxLiveProvider({ children }) {
   const { token, user } = useAuth();
   const { accounts } = useActiveAccount();
+  const { isAccountRunning } = useCloakManagerLaunch();
   // byAccount[id] = { messages, fetchedAt }
   const [byAccount, setByAccount] = useState({});
   const [unreadByAccount, setUnreadByAccount] = useState({});
@@ -28,9 +30,13 @@ export function InboxLiveProvider({ children }) {
 
   async function fetchAccount(a, folder = 'all', force = false) {
     if (!a || a.status === 'banned' || (a.platform || 'reddit') !== 'reddit') return;
-    // CM accounts need their browser profile running — skip auto-poll;
-    // allow manual refreshes (force=true) and explicit fetch calls.
-    if (!force && a.browser_mode === 'cloakmanager') return;
+    // CM accounts need their browser profile running — skip auto-poll
+    // unless the profile happens to be running (opportunistic polling).
+    // resolved_browser_mode correctly resolves inherit→cloakmanager
+    // when the user's default is CloakManager.
+    if (!force && a.resolved_browser_mode === 'cloakmanager') {
+      if (!a.cloak_actual_name || !isAccountRunning(a.cloak_actual_name)) return;
+    }
     setLoading((m) => ({ ...m, [a.id]: true }));
     try {
       await window.api.session.prepareForAccount({ accountId: a.id });
@@ -64,6 +70,11 @@ export function InboxLiveProvider({ children }) {
       for (const a of list) {
         if (cancelled) return;
         if (a.id === focus?.id) continue;
+        // Skip CM accounts whose profile isn't running — inbox fetch
+        // would fail with 'not running'. Running CM profiles get
+        // opportunistically polled here.
+        if (a.resolved_browser_mode === 'cloakmanager' &&
+            (!a.cloak_actual_name || !isAccountRunning(a.cloak_actual_name))) continue;
         try {
           await window.api.session.prepareForAccount({ accountId: a.id });
           const r = await window.api.inbox.fetch({ token, accountId: a.id, folder: 'unread' });

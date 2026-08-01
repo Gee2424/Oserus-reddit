@@ -145,11 +145,13 @@ function register(ipcMain) {
       .prepare(
         `SELECT a.*, p.label AS proxy_label, p.kind AS proxy_kind,
                 bs.browser_mode, bs.cloak_profile_name, bs.autopilot_skip,
+                COALESCE(NULLIF(bs.browser_mode, 'inherit'), ubs.default_browser_mode, 'electron') AS resolved_browser_mode,
                 cp.profile_name AS cloak_actual_name, cp.cdp_port, cp.status AS cloak_status
          FROM reddit_accounts a
          LEFT JOIN model_profiles mp ON mp.id = a.profile_id
          LEFT JOIN proxies p ON p.id = COALESCE(a.proxy_id, mp.proxy_id)
          LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
+         LEFT JOIN user_browser_settings ubs ON ubs.user_id = mp.assigned_user_id
          LEFT JOIN cloakmanager_profiles cp ON cp.account_id = a.id
          WHERE a.profile_id = ? ${platformClause}
          ORDER BY a.platform, a.status, a.username`
@@ -187,22 +189,26 @@ function register(ipcMain) {
 
       // Account-level proxy wins; if unset, fall back to the model's proxy so
       // setting one proxy at the model level lights up every account under it.
+      const userJoinParam = [user.id];
+      const allParams = userJoinParam.concat(params);
       const accounts = getDb()
         .prepare(
           `SELECT a.*, p.name AS profile_name, p.main_email AS profile_main_email,
                   px.label AS proxy_label, px.kind AS proxy_kind,
                   px.last_test_ok AS proxy_test_ok, px.last_test_error AS proxy_test_error,
                   bs.browser_mode, bs.cloak_profile_name,
+                  COALESCE(NULLIF(bs.browser_mode, 'inherit'), ubs.default_browser_mode, 'electron') AS resolved_browser_mode,
                   cp.profile_name AS cloak_actual_name, cp.cdp_port, cp.status AS cloak_status
            FROM reddit_accounts a
            JOIN model_profiles p ON p.id = a.profile_id
            LEFT JOIN proxies px ON px.id = COALESCE(a.proxy_id, p.proxy_id)
            LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
+           LEFT JOIN user_browser_settings ubs ON ubs.user_id = ?
            LEFT JOIN cloakmanager_profiles cp ON cp.account_id = a.id
            ${whereClause}
            ORDER BY p.name, a.platform, a.status, a.username`
         )
-        .all(...params);
+        .all(...allParams);
       return { ok: true, accounts: accounts.map(hydrateAccount) };
     } catch (err) {
       return { ok: false, error: err.message };

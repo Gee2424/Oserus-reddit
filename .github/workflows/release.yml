@@ -22,6 +22,37 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Download and stage CloakManager binary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Write-Host "Fetching latest release from Gee2424/ctrldlogin..."
+          $release = gh api repos/Gee2424/ctrldlogin/releases/latest | ConvertFrom-Json
+          $tag = $release.tag_name
+          Write-Host "Release tag: $tag"
+
+          $asset = $release.assets | Where-Object { $_.name -eq "ctrldlogin-x86_64-pc-windows-msvc.exe" }
+          if (-not $asset) {
+            Write-Error "Asset ctrldlogin-x86_64-pc-windows-msvc.exe not found in release $tag"
+            exit 1
+          }
+
+          Write-Host "Downloading $($asset.name) ($([math]::Round($asset.size/1MB, 1)) MB)..."
+          gh release download $tag `
+            --repo Gee2424/ctrldlogin `
+            --pattern "ctrldlogin-x86_64-pc-windows-msvc.exe" `
+            --dir build
+
+          if (-not (Test-Path "build\backend-x86_64-pc-windows-msvc.exe")) {
+            Write-Error "Download failed -- binary not found"
+            exit 1
+          }
+
+          Rename-Item "build\backend-x86_64-pc-windows-msvc.exe" "build\backend.exe"
+
+          @{ backendVersion = $tag } | ConvertTo-Json | Out-File -Encoding ascii "build\bundled-version.json"
+          Write-Host "Manifest written: build\bundled-version.json"
+
       - name: Build & publish to GitHub Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

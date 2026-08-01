@@ -15,6 +15,7 @@ const { session, net } = require('electron');
 const elog = require('electron-log');
 const fs = require('fs');
 const { getDb, decryptSecret, credentialVaultGet } = require('../db');
+const { resolveBrowserMode } = require('../lib/browserMode');
 const fingerprintMod = require('../fingerprint');
 const { writePreloadFor } = require('../antidetectPreload');
 const proxyChain = require('proxy-chain');
@@ -183,9 +184,7 @@ async function prepareSessionForAccount(accountId) {
     finalMode = 'cloakmanager';
     profileName = modeSettings.cloak_profile_name || null;
   } else if (modeSettings?.browser_mode === 'inherit') {
-    // Check user default - we'll need userId passed in future or check session
-    // For now, default to electron
-    finalMode = 'electron';
+    finalMode = resolveBrowserMode(accountId).mode;
   }
 
   // If CloakManager mode, return mode info without creating Electron session

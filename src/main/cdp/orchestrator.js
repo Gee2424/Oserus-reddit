@@ -13,6 +13,7 @@
 
 const { getCloakManagerClient } = require('../cloakmanager');
 const { getDb } = require('../db');
+const { resolveBrowserMode } = require('../lib/browserMode');
 const connectionManager = require('./connection-manager');
 const scriptExecutor = require('./script-executor');
 
@@ -474,14 +475,9 @@ async function getProfileNameForAccount(accountId) {
 async function hasCDPAvailable(accountId) {
   try {
     // Check if account is in CloakManager mode
-    const account = getDb().prepare(`
-      SELECT a.username, a.platform, bs.cloak_profile_name, bs.browser_mode
-      FROM reddit_accounts a
-      LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
-      WHERE a.id = ?
-    `).get(accountId);
+    const { mode, profileName } = resolveBrowserMode(accountId);
 
-    if (!account || account.browser_mode !== 'cloakmanager' || !account.cloak_profile_name) {
+    if (mode !== 'cloakmanager' || !profileName) {
       return false;
     }
 
@@ -495,7 +491,7 @@ async function hasCDPAvailable(accountId) {
 
     // Check if profile is running
     const running = await client.getRunningProfiles();
-    const profileRunning = running.running && running.running[account.cloak_profile_name];
+    const profileRunning = running.running && running.running[profileName];
 
     return !!profileRunning;
 

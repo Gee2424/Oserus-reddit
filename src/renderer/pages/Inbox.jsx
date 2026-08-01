@@ -81,7 +81,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   const messages = (inboxLive.byAccount?.[active?.id]?.messages) || [];
   const unreadByAccount = inboxLive.unreadByAccount || {};
   const loading = !!inboxLive.loading?.[active?.id];
-  const isCM = (active?.browser_mode || 'electron') === 'cloakmanager';
+  const isCM = active?.resolved_browser_mode === 'cloakmanager';
   const profileRunning = active?.cloak_actual_name && isAccountRunning(active?.cloak_actual_name);
 
   // Auto-refresh inbox when CM profile becomes running
@@ -286,7 +286,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                   {byProfile[profileName].map((a) => {
                     const isActive = a.id === active?.id;
                     const unreadN = unreadByAccount[a.id] || 0;
-                    const mode = a.browser_mode || 'electron';
+                    const mode = a.resolved_browser_mode || 'electron';
                     const isCM = mode === 'cloakmanager';
                     const isRunning = a.cloak_actual_name && isAccountRunning(a.cloak_actual_name);
                     return (

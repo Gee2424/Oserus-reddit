@@ -80,7 +80,8 @@ function candidateAccounts() {
   if (teamId) { teamClause = ' AND a.team_id = ?'; params.push(teamId); }
 
   const cmEnabled = getSetting('autopilot_cm_enabled') !== '0';
-  const cmExcludeClause = cmEnabled ? '' : "AND (bs.browser_mode IS NULL OR bs.browser_mode != 'cloakmanager')";
+  const cmExcludeClause = cmEnabled ? '' :
+    "AND COALESCE(NULLIF(bs.browser_mode, 'inherit'), ubs.default_browser_mode, 'electron') != 'cloakmanager'";
 
   return getDb().prepare(
     `SELECT a.id, a.username, a.status, a.platform, a.profile_id,
@@ -89,11 +90,12 @@ function candidateAccounts() {
        FROM reddit_accounts a
        JOIN model_profiles p ON p.id = a.profile_id
        LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
-      WHERE a.platform IN (${placeholders})
-        AND a.status IN ('warming','ready')${teamClause}
-        ${cmExcludeClause}
-        AND (bs.autopilot_skip IS NULL OR bs.autopilot_skip = 0)
-      ORDER BY a.platform, a.proxy_id, a.id`
+       LEFT JOIN user_browser_settings ubs ON ubs.user_id = p.assigned_user_id
+       WHERE a.platform IN (${placeholders})
+         AND a.status IN ('warming','ready')${teamClause}
+         ${cmExcludeClause}
+         AND (bs.autopilot_skip IS NULL OR bs.autopilot_skip = 0)
+       ORDER BY a.platform, a.proxy_id, a.id`
   ).all(...params);
 }
 
