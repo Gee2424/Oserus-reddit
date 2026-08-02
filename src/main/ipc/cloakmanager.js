@@ -165,13 +165,6 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
     }
   });
 
-  client.on('fallback_to_polling', () => {
-    console.log('[IPC] CloakManager falling back to HTTP polling');
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('cloakmanager:ws_fallback');
-    }
-  });
-
   /**
    * Check if CloakManager backend is available
    */

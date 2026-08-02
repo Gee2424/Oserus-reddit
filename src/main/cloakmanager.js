@@ -23,7 +23,6 @@ class CloakManagerClient {
     this.ws = null;
     this.wsConnected = false;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
     this.eventHandlers = new Map(); // event listeners
     this.clientId = 'osertus_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   }
@@ -62,9 +61,18 @@ class CloakManagerClient {
         timeout: 2000 // 2 second timeout
       });
 
+      const wasUnavailable = !this.available;
       this.available = response.status === 200;
       this._lastCheck = Date.now();
       console.log('[CloakManager] ✅ Available:', this.available);
+
+      // Backend just came online — reconnect WebSocket if disconnected
+      if (this.available && wasUnavailable && !this.wsConnected) {
+        console.log('[CloakManager] Backend became available, reconnecting WebSocket...');
+        this.reconnectAttempts = 0;
+        this.connectWebSocket();
+      }
+
       return this.available;
     } catch (error) {
       console.log('[CloakManager] ❌ Unavailable:', error.message);
@@ -560,23 +568,15 @@ class CloakManagerClient {
   }
 
   /**
-   * Schedule WebSocket reconnection with exponential backoff
+   * Schedule WebSocket reconnection with exponential backoff.
+   * Retries forever — the CM backend may be started later.
    */
   _scheduleReconnect() {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('[CloakManager WS] Max reconnect attempts reached, falling back to HTTP polling');
-      this._emit('fallback_to_polling');
-      return;
-    }
-
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 16000);
+    // Cap backoff at 30s but retry indefinitely
+    const delay = Math.min(1000 * Math.pow(2, Math.min(this.reconnectAttempts, 6)), 30000);
     this.reconnectAttempts++;
-
-    console.log(`[CloakManager WS] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-
-    setTimeout(() => {
-      this.connectWebSocket();
-    }, delay);
+    console.log(`[CloakManager WS] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    setTimeout(() => this.connectWebSocket(), delay);
   }
 
   /**
