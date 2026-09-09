@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Banner, EmptyState, Spinner } from './ui.jsx';
+import { Banner, EmptyState, Spinner, th, td } from './ui.jsx';
 
 export default function CDPHistoryPanel({ token }) {
   const [executions, setExecutions] = useState([]);
@@ -66,7 +66,7 @@ export default function CDPHistoryPanel({ token }) {
                   </td>
                   <td style={td}>
                     <span style={{
-                      display: 'inline-block', padding: '2px 8px', borderRadius: 999,
+                      display: 'inline-block', padding: '2px 8px', borderRadius: 'var(--radius-pill)',
                       fontSize: 10, fontWeight: 700,
                       background: e.status === 'success' ? 'rgba(122,154,90,0.15)' :
                                  e.status === 'failed' ? 'rgba(180,90,90,0.15)' :
@@ -89,5 +89,3 @@ export default function CDPHistoryPanel({ token }) {
   );
 }
 
-const th = { textAlign: 'left', padding: '8px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-3)', fontWeight: 500 };
-const td = { padding: '8px 12px', verticalAlign: 'middle' };

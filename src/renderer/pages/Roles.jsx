@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { usePermissions } from '../lib/permissions.jsx';
+import { useConfirm } from '../lib/confirm.jsx';
 
 const blankRole = { key: '', label: '', description: '', permissions: [] };
 
 export default function RolesPage() {
   const { token } = useAuth();
   const { previewAs, previewing, effectiveRole, reload } = usePermissions();
+  const { confirm } = useConfirm();
   const [roles, setRoles] = useState([]);
   const [permissions, setPermissions] = useState([]);
   const [editing, setEditing] = useState(null); // role key being edited
@@ -102,7 +104,10 @@ export default function RolesPage() {
   }
 
   async function remove(role) {
-    if (!confirm(`Delete role "${role.label}"? This can't be undone.`)) return;
+    const ok = await confirm(`Delete role "${role.label}"? This can't be undone.`, {
+      title: 'Delete role', confirmLabel: 'Delete', variant: 'danger',
+    });
+    if (!ok) return;
     try {
       const res = await window.api.roles.delete({ token, key: role.key });
       if (!res.ok) throw new Error('delete failed');
@@ -110,7 +115,7 @@ export default function RolesPage() {
       setTimeout(() => setFlash(null), 2500);
       await load();
     } catch (e) {
-      alert(e.message || 'Failed to delete');
+      setError(e.message || 'Failed to delete');
     }
   }
 
@@ -239,9 +244,9 @@ const styles = {
   ok: {
     background: 'rgba(122,154,90,0.12)',
     border: '1px solid var(--ok)',
-    color: '#bdd5a3',
+    color: 'var(--success-fg)',
     padding: '10px 14px',
-    borderRadius: 4,
+    borderRadius: 'var(--radius-sm)',
     marginBottom: 12,
   },
   permGroup: {

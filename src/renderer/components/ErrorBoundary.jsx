@@ -16,7 +16,7 @@ export default class ErrorBoundary extends React.Component {
     const stack = this.state.info?.componentStack || '';
     return (
       <div style={{ padding: 24 }}>
-        <div style={{ background: 'rgba(180,90,90,0.1)', border: '1px solid rgba(180,90,90,0.4)', borderRadius: 8, padding: 16, color: '#e2a3a3' }}>
+        <div style={{ background: 'rgba(180,90,90,0.1)', border: '1px solid rgba(180,90,90,0.4)', borderRadius: 'var(--radius-lg)', padding: 16, color: 'var(--danger-fg)' }}>
           <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
             {this.props.label || 'Page'} crashed
           </div>

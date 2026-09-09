@@ -10,8 +10,8 @@ const TOAST_ICONS = {
 };
 
 const TOAST_STYLES = {
-  ok:   { bg: 'rgba(79,138,100,0.15)', border: 'var(--ok)',       fg: '#bdd5a3', iconFg: '#7fd99a' },
-  err:  { bg: 'rgba(180,90,90,0.15)',  border: 'var(--danger)',   fg: '#e2a3a3', iconFg: '#e2a3a3' },
+  ok:   { bg: 'rgba(79,138,100,0.15)', border: 'var(--ok)',       fg: 'var(--success-fg)', iconFg: 'var(--online-green)' },
+  err:  { bg: 'rgba(180,90,90,0.15)',  border: 'var(--danger)',   fg: 'var(--danger-fg)',  iconFg: 'var(--danger-fg)' },
   info: { bg: 'rgba(58,111,140,0.12)', border: 'var(--blue)',     fg: 'var(--blue-bright)', iconFg: '#7aa8e0' },
   warn: { bg: 'rgba(212,166,74,0.12)', border: 'var(--gold)',     fg: 'var(--gold-bright)', iconFg: '#e8c068' },
 };

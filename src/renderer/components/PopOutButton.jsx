@@ -13,7 +13,7 @@ export default function PopOutButton({ route, title, width = 1180, height = 760 
       title="Open in its own pinnable window"
       style={{
         background: 'transparent', border: '1px solid var(--border-strong)',
-        color: 'var(--text-1)', borderRadius: 6, padding: '4px 10px',
+        color: 'var(--text-1)', borderRadius: 'var(--radius)', padding: '4px 10px',
         fontSize: 12, cursor: 'pointer',
       }}
     >

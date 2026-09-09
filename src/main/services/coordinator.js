@@ -29,6 +29,17 @@ let running = false;
 let lastRun = null;
 let lastSummary = null;
 
+// Push a background-work notification to the renderer's activity drawer.
+// Best-effort — no window, no problem.
+function emitEvent(kind, data = {}) {
+  try {
+    const win = global.cdpMainWindow;
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('coordinator:event', { kind, at: Date.now(), ...data });
+    }
+  } catch { /* ignore */ }
+}
+
 function isEnabled() { return getSetting('autopilot_enabled') === '1'; }
 
 // Remote machine gate from Supabase. When a team manager sets
@@ -81,20 +92,20 @@ function candidateAccounts() {
 
   const cmEnabled = getSetting('autopilot_cm_enabled') !== '0';
   const cmExcludeClause = cmEnabled ? '' :
-    "AND COALESCE(NULLIF(bs.browser_mode, 'inherit'), ubs.default_browser_mode, 'electron') != 'cloakmanager'";
+    "AND mp.browser_mode != 'cloakmanager'";
 
   return getDb().prepare(
     `SELECT a.id, a.username, a.status, a.platform, a.profile_id,
             a.proxy_id, a.partition_key,
-            p.name AS profile_name, p.niche, p.brand_voice
+            mp.name AS profile_name, mp.niche, mp.brand_voice
        FROM reddit_accounts a
-       JOIN model_profiles p ON p.id = a.profile_id
+       JOIN model_profiles mp ON mp.id = a.profile_id
        LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
-       LEFT JOIN user_browser_settings ubs ON ubs.user_id = p.assigned_user_id
        WHERE a.platform IN (${placeholders})
          AND a.status IN ('warming','ready')${teamClause}
          ${cmExcludeClause}
          AND (bs.autopilot_skip IS NULL OR bs.autopilot_skip = 0)
+         AND (a.needs_attention IS NULL OR a.needs_attention = 0)
        ORDER BY a.platform, a.proxy_id, a.id`
   ).all(...params);
 }
@@ -369,6 +380,7 @@ async function runDueScheduled() {
          JOIN reddit_accounts a ON a.id = s.account_id
         WHERE s.status = 'pending'
           AND s.scheduled_for <= datetime('now')${teamClause}
+          AND (a.needs_attention IS NULL OR a.needs_attention = 0)
         ORDER BY s.scheduled_for ASC LIMIT 25`
     ).all(...params);
   } catch (e) {
@@ -461,6 +473,7 @@ async function runDueScheduled() {
         if (result.ok) {
           resetFailure(post.account_id);
           db.prepare("UPDATE scheduled_posts SET status='posted', posted_at=datetime('now') WHERE id=?").run(post.id);
+          emitEvent('post_fired', { accountId: post.account_id, platform, subreddit: post.subreddit, title: post.title, postId: post.id });
           const postedUrl = result.result?.url || null;
           await protocols.recordEvent({
             platform, account_id: post.account_id, profile_id: post.profile_id,
@@ -494,6 +507,7 @@ async function runDueScheduled() {
         } else {
           trackFailure(post.account_id, result.error);
           db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?").run(result.error, post.id);
+          emitEvent('post_failed', { accountId: post.account_id, platform, subreddit: post.subreddit, title: post.title, postId: post.id, error: result.error });
           await protocols.recordEvent({
             platform, account_id: post.account_id, profile_id: post.profile_id,
             subreddit: post.subreddit, title: post.title,
@@ -524,6 +538,7 @@ async function runDueScheduled() {
         if (result.ok) {
           resetFailure(post.account_id);
           db.prepare("UPDATE scheduled_posts SET status='posted', posted_at=datetime('now') WHERE id=?").run(post.id);
+          emitEvent('post_fired', { accountId: post.account_id, platform, subreddit: post.subreddit, title: post.title, postId: post.id });
           await protocols.recordEvent({
             platform, account_id: post.account_id, profile_id: post.profile_id,
             subreddit: post.subreddit, title: post.title, remote_id: result.id,
@@ -546,6 +561,7 @@ async function runDueScheduled() {
         } else {
           trackFailure(post.account_id, result.error);
           db.prepare("UPDATE scheduled_posts SET status='failed', error=? WHERE id=?").run(result.error, post.id);
+          emitEvent('post_failed', { accountId: post.account_id, platform, subreddit: post.subreddit, title: post.title, postId: post.id, error: result.error });
           await protocols.recordEvent({
             platform, account_id: post.account_id, profile_id: post.profile_id,
             subreddit: post.subreddit, title: post.title,
@@ -685,9 +701,14 @@ async function autoTestProxies() {
         req.on('error', (e) => { clearTimeout(t); resolve({ ok: false, error: e.message }); });
         req.end();
       });
+      const wasOk = p.last_test_ok;
       db.prepare(
         "UPDATE proxies SET last_test_ok = ?, last_test_at = datetime('now'), last_test_error = ? WHERE id = ?"
       ).run(result.ok ? 1 : 0, result.ok ? null : (result.error || 'unknown'), p.id);
+      // Only notify on a transition to failing, not every tick.
+      if (!result.ok && wasOk !== 0) {
+        emitEvent('proxy_down', { proxyId: p.id, label: p.label || `${p.host}:${p.port}`, error: result.error || 'unknown' });
+      }
     }
   } catch (e) {
     elog.warn('[coordinator] autoTestProxies failed', e?.message);
@@ -832,6 +853,7 @@ function trackFailure(accountId, error) {
 
     entry.pausedUntil = Date.now() + CIRCUIT_COOLDOWN_MS;
     elog.warn('[coordinator] Circuit breaker tripped', { accountId, failures: entry.count, cooldown: CIRCUIT_COOLDOWN_MS });
+    emitEvent('circuit_tripped', { accountId, failures: entry.count, lastError: entry.lastError });
     try { setKv(`circuit_${accountId}`, JSON.stringify({ pausedUntil: entry.pausedUntil, lastError: entry.lastError, count: entry.count })); } catch {}
   }
 }

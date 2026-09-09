@@ -1,95 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
-import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
 import { useCloudReload } from '../lib/cloudReload.jsx';
 import { useCloakManagerLaunch } from '../hooks/useCloakManagerLaunch';
-import { Banner, Spinner } from '../components/ui.jsx';
+import { EmptyState } from '../components/ui.jsx';
 import { useToast } from '../lib/toast.jsx';
 import { useConfirm } from '../lib/confirm.jsx';
+import PageHeader from '../components/PageHeader.jsx';
+import { ProfilesSkeleton } from '../components/Skeletons.jsx';
 
-const COLORS = ['#c8553d', '#d4a55a', '#7a9a5a', '#5a7a9a', '#9a5a8e', '#8e6a4a'];
+const COLORS = ['#c8553d', 'var(--gold)', 'var(--green-bright)', '#5a7a9a', '#9a5a8e', '#8e6a4a'];
 
 export default function ProfilesPage({ navigate }) {
   const { token, user, activeTeamId } = useAuth();
-  const { startAccount } = useActiveAccount();
-  const { isAvailable, checkAvailability, launchProgress, cloakStatus } = useCloakManagerLaunch();
+  const { isAvailable, checkAvailability } = useCloakManagerLaunch();
   const { toast } = useToast();
   const { confirm } = useConfirm();
   const [profiles, setProfiles] = useState([]);
-  const [launchingProfile, setLaunchingProfile] = useState(null); // profileId
-  const [launchResults, setLaunchResults] = useState(null); // { success: 0, failed: 0, total: 0 }
-
-  async function playModel(profileId) {
-    setLaunchingProfile(profileId);
-    setLaunchResults(null);
-
-    try {
-      // Get accounts for this profile
-      const accounts = await window.api.accounts.listForProfile({ token, profileId, teamId: activeTeamId });
-      if (!accounts.ok) {
-        toast('err', accounts.error || 'Could not load accounts');
-        setLaunchingProfile(null);
-        return;
-      }
-
-      const accountList = accounts.accounts || [];
-      if (accountList.length === 0) {
-        toast('warn', 'No accounts on this model yet.');
-        setLaunchingProfile(null);
-        return;
-      }
-
-      setLaunchResults({ total: accountList.length, success: 0, failed: 0 });
-
-      // Launch accounts in parallel
-      const launchPromises = accountList.map(async (account) => {
-        try {
-          // Check if account uses CloakManager
-          const modeRes = await window.api.cloakmanager.getAccountMode({
-            token,
-            accountId: account.id
-          });
-
-          if (modeRes.ok && modeRes.mode === 'cloakmanager' && modeRes.profileName) {
-            // CloakManager launch
-            const launchRes = await window.api.cloakmanager.launchProfile({
-              token,
-              accountId: account.id,
-              profileName: modeRes.profileName
-            });
-
-            if (launchRes.ok) {
-              setLaunchResults(prev => ({ ...prev, success: prev.success + 1 }));
-            } else {
-              setLaunchResults(prev => ({ ...prev, failed: prev.failed + 1 }));
-            }
-          } else {
-            // Electron launch
-            const launchRes = await window.api.oserusBrowser.openAccount({
-              token,
-              accountId: account.id
-            });
-
-            if (launchRes.ok) {
-              setLaunchResults(prev => ({ ...prev, success: prev.success + 1 }));
-            } else {
-              setLaunchResults(prev => ({ ...prev, failed: prev.failed + 1 }));
-            }
-          }
-        } catch (err) {
-          console.error('Launch failed for account', account.id, err);
-          setLaunchResults(prev => ({ ...prev, failed: prev.failed + 1 }));
-        }
-      });
-
-      await Promise.all(launchPromises);
-    } catch (err) {
-      toast('err', 'Launch failed: ' + err.message);
-    } finally {
-      setLaunchingProfile(null);
-    }
-  }
+  const [loadingSkel, setLoadingSkel] = useState(true);
 
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
@@ -97,11 +25,13 @@ export default function ProfilesPage({ navigate }) {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(blank());
   const [error, setError] = useState(null);
+  const [memberForms, setMemberForms] = useState({});
+  const [emailDrafts, setEmailDrafts] = useState({});
   const can = useCan();
   const canManage = can('profiles.manage');
 
   function blank() {
-    return { name: '', assigned_user_id: '', niche: '', brand_voice: '', notes: '', avatar_color: COLORS[0] };
+    return { name: '', assigned_user_id: '', niche: '', brand_voice: '', notes: '', avatar_color: COLORS[0], browser_mode: 'electron' };
   }
 
   async function load() {
@@ -115,6 +45,7 @@ export default function ProfilesPage({ navigate }) {
     if (px.ok) setProxies(px.proxies || []);
     const r = await window.api.roles.list({ token }).catch(() => ({ ok: false }));
     if (r.ok) setRoles(r.roles || []);
+    setLoadingSkel(false);
   }
 
   async function setModelProxy(profileId, proxyId) {
@@ -123,7 +54,7 @@ export default function ProfilesPage({ navigate }) {
       toast('err', `Failed to update proxy: ${res.error || 'Unknown error'}`);
       return;
     }
-    load();
+    setProfiles(prev => prev.map(p => p.id === profileId ? { ...p, proxy_id: proxyId ? Number(proxyId) : null } : p));
   }
   useEffect(() => {
     load();
@@ -140,10 +71,24 @@ export default function ProfilesPage({ navigate }) {
       assignedUserId: form.assigned_user_id ? Number(form.assigned_user_id) : null,
       niche: form.niche, brandVoice: form.brand_voice, notes: form.notes,
       avatarColor: form.avatar_color,
+      browserMode: form.browser_mode,
       teamId: activeTeamId,
     });
     if (!res.ok) { setError(res.error); return; }
-    setForm(blank()); setShowAdd(false); load();
+    const newId = res.id;
+    setForm(blank()); setShowAdd(false); await load();
+    if (form.browser_mode === 'cloakmanager') {
+      toast(res.cmProfile?.ok ? 'ok' : 'err',
+        res.cmProfile?.ok
+          ? `Model created — CloakManager profile "${res.cmProfile.profileName}" ready.`
+          : `Model created, but CloakManager profile failed: ${res.cmProfile?.error || 'unknown error'}`);
+    } else {
+      toast('ok', 'Model created.');
+    }
+    setTimeout(() => {
+      const el = document.querySelector(`*[data-profile-id="${newId}"]`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
   }
 
   async function reassign(profileId, userId) {
@@ -152,7 +97,7 @@ export default function ProfilesPage({ navigate }) {
       toast('err', `Failed to reassign profile: ${res.error || 'Unknown error'}`);
       return;
     }
-    load();
+    setProfiles(prev => prev.map(p => p.id === profileId ? { ...p, assigned_user_id: userId || null } : p));
   }
 
   async function del(id) {
@@ -163,6 +108,7 @@ export default function ProfilesPage({ navigate }) {
       toast('err', `Failed to delete profile: ${res.error || 'Unknown error'}`);
       return;
     }
+    toast('ok', 'Model deleted.');
     load();
   }
 
@@ -184,39 +130,25 @@ export default function ProfilesPage({ navigate }) {
 
   return (
     <div>
-      <div className="title-block">
-        <div>
-          <div className="eyebrow">Manage</div>
-          <h1>Model Profiles</h1>
-        </div>
+      <PageHeader eyebrow="Manage" title="Model Profiles">
         {canManage && (
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={importProfile}>Import from file</button>
             <button className="primary" onClick={() => setShowAdd((v) => !v)}>
               {showAdd ? 'Cancel' : '+ New model'}
             </button>
           </div>
         )}
-      </div>
-
-      {/* Launch Results Banner */}
-      {launchResults && (
-        <Banner
-          kind={launchResults.failed > 0 ? 'warn' : 'ok'}
-          style={{ marginBottom: 14 }}
-        >
-          Launched {launchResults.success} of {launchResults.total} accounts
-          {launchResults.failed > 0 && ` (${launchResults.failed} failed)`}
-        </Banner>
-      )}
+      </PageHeader>
 
       {/* CloakManager Availability Status */}
       {isAvailable !== null && (
         <div style={{
           padding: '8px 12px',
           background: isAvailable ? 'rgba(122,154,90,0.12)' : 'rgba(180,90,90,0.12)',
-          border: `1px solid ${isAvailable ? 'var(--ok)' : 'var(--danger)'}`,
-          borderRadius: 6,
+          borderWidth: 1, borderStyle: 'solid',
+          borderColor: isAvailable ? 'var(--ok)' : 'var(--danger)',
+          borderRadius: 'var(--radius)',
           fontSize: 12,
           marginBottom: 14,
           display: 'flex',
@@ -225,13 +157,17 @@ export default function ProfilesPage({ navigate }) {
         }}>
           <span style={{
             width: 8, height: 8, borderRadius: '50%',
-            background: isAvailable ? '#7fd99a' : '#e2a3a3'
+            background: isAvailable ? 'var(--online-green)' : 'var(--danger-fg)'
           }} />
           CloakManager: {isAvailable ? 'Available' : 'Unavailable'}
         </div>
       )}
 
-      {showAdd && canManage && (
+      {loadingSkel ? (
+        <ProfilesSkeleton />
+      ) : (
+        <>
+          {showAdd && canManage && (
         <form onSubmit={addProfile} className="card" style={{ marginBottom: 22 }}>
           <h3 style={{ marginBottom: 14 }}>New model profile</h3>
           {error && <div className="error-banner">{error}</div>}
@@ -261,10 +197,23 @@ export default function ProfilesPage({ navigate }) {
                     onClick={() => setForm({ ...form, avatar_color: c })}
                     style={{
                       width: 28, height: 28, padding: 0, borderRadius: '50%',
-                      background: c, border: form.avatar_color === c ? '2px solid var(--text-0)' : '2px solid transparent',
+                      background: c,                       borderWidth: 2, borderStyle: 'solid',
+                      borderColor: form.avatar_color === c ? 'var(--text-0)' : 'transparent',
                     }}
                   />
                 ))}
+              </div>
+            </div>
+            <div>
+              <label>Browser mode</label>
+              <select value={form.browser_mode} onChange={(e) => setForm({ ...form, browser_mode: e.target.value })}>
+                <option value="electron">Electron (default)</option>
+                <option value="cloakmanager">CloakManager</option>
+              </select>
+              <div className="muted" style={{ fontSize: 'var(--text-xs)', marginTop: 4 }}>
+                {form.browser_mode === 'cloakmanager'
+                  ? "One shared antidetect browser profile is created for this model right now."
+                  : 'Built-in Oserus Browser, one session per account. Can switch to CloakManager later.'}
               </div>
             </div>
           </div>
@@ -284,50 +233,18 @@ export default function ProfilesPage({ navigate }) {
       )}
 
       {profiles.length === 0 ? (
-        <div style={{
-          padding: 48, textAlign: 'center', color: 'var(--text-2)',
-          border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)',
-          background: 'var(--bg-1)',
-        }}>
-          <div style={{ fontSize: 40, marginBottom: 10, color: 'var(--text-3)' }}>◇</div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-1)', marginBottom: 6 }}>No model profiles yet</div>
-          <div style={{ fontSize: 13, color: 'var(--text-3)', maxWidth: 380, margin: '0 auto 16px', lineHeight: 1.6 }}>
-            Create your first model profile to start organizing accounts by brand or persona.
-          </div>
-          {canManage && (
-            <button className="primary" onClick={() => setShowAdd(true)}>+ New model</button>
-          )}
-        </div>
+        <EmptyState icon="◇" title="No model profiles yet" hint="Create your first model profile to start organizing accounts by brand or persona." action={canManage && <button className="primary" onClick={() => setShowAdd(true)}>+ New model</button>} />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
           {profiles.map((p) => (
-            <div key={p.id} className="card" style={{ borderLeft: `3px solid ${p.avatar_color || 'var(--accent)'}`, padding: 0, overflow: 'hidden' }}>
+            <div key={p.id} className="card" data-profile-id={p.id} style={{ borderLeft: `3px solid ${p.avatar_color || 'var(--accent)'}`, padding: 0, overflow: 'hidden' }}>
               <div style={{ padding: 18, position: 'relative' }}>
-                <button
-                  onClick={(e) => { e.stopPropagation(); playModel(p.id); }}
-                  disabled={p.account_count === 0 || launchingProfile === p.id}
-                  title={p.account_count === 0 ? 'No accounts on this model yet' :
-                         launchingProfile === p.id ? 'Launching accounts...' :
-                         `Launch all ${p.account_count} account window(s) in Oserus Browser`}
-                  style={{
-                    position: 'absolute', top: 14, right: 14, zIndex: 2,
-                    width: 36, height: 36, borderRadius: '50%',
-                    background: launchingProfile === p.id ? 'var(--bg-2)' :
-                               p.account_count === 0 ? 'var(--bg-2)' : 'var(--gold)',
-                    color: launchingProfile === p.id ? 'var(--text-3)' :
-                           p.account_count === 0 ? 'var(--text-3)' : '#0d0c0a',
-                    border: 'none', fontSize: launchingProfile === p.id ? 12 : 16,
-                    cursor: p.account_count === 0 || launchingProfile === p.id ? 'not-allowed' : 'pointer',
-                    display: 'grid', placeItems: 'center',
-                    boxShadow: p.account_count === 0 || launchingProfile === p.id ? 'none' : '0 2px 8px rgba(212,166,74,0.3)',
-                  }}
-                >{launchingProfile === p.id ? '⋯' : '▶'}</button>
                 <div
                   onClick={() => navigate && navigate('model', { modelId: p.id })}
                   style={{ cursor: 'pointer' }}
                   title={`Open ${p.name} profile`}
                 >
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6, paddingRight: 48 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
                   <h3>{p.name}</h3>
                   {p.niche && <span className="pill">{p.niche}</span>}
                   <div style={{ flex: 1 }} />
@@ -348,7 +265,7 @@ export default function ProfilesPage({ navigate }) {
                       <span key={m.id} style={{
                         display: 'inline-flex', alignItems: 'center', gap: 6,
                         background: 'var(--bg-2)', border: '1px solid var(--border)',
-                        borderRadius: 999, padding: '3px 9px', fontSize: 11,
+                        borderRadius: 'var(--radius-pill)', padding: '3px 9px', fontSize: 11,
                       }} title={`${m.display_name} · ${m.role}`}>
                         <span style={{ color: 'var(--gold)' }}>{m.display_name}</span>
                         <span className="dim" style={{ fontSize: 10 }}>{m.role}</span>
@@ -371,23 +288,34 @@ export default function ProfilesPage({ navigate }) {
                   </select>
                   <label style={{ marginTop: 10 }}>Add team member</label>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <select id={`member-user-${p.id}`} defaultValue="" style={{ flex: 2 }}>
+                    <select
+                      value={(memberForms[p.id] || {}).userId || ''}
+                      onChange={(e) => setMemberForms(m => ({ ...m, [p.id]: { ...(m[p.id] || {}), userId: e.target.value } }))}
+                      style={{ flex: 2 }}
+                    >
                       <option value="">— pick user —</option>
                       {users.map((u) => (
                         <option key={u.id} value={u.id}>{u.display_name} ({u.username})</option>
                       ))}
                     </select>
-                    <select id={`member-role-${p.id}`} defaultValue={roles[0]?.key || ''} style={{ flex: 1 }} disabled={roles.length === 0}>
+                    <select
+                      value={(memberForms[p.id] || {}).role || ''}
+                      onChange={(e) => setMemberForms(m => ({ ...m, [p.id]: { ...(m[p.id] || {}), role: e.target.value } }))}
+                      style={{ flex: 1 }}
+                      disabled={roles.length === 0}
+                    >
                       {roles.length === 0
                         ? <option value="">— no roles —</option>
                         : roles.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)
                       }
                     </select>
                     <button className="ghost" onClick={async () => {
-                      const u = Number(document.getElementById(`member-user-${p.id}`).value);
-                      const r = document.getElementById(`member-role-${p.id}`).value;
+                      const formData = memberForms[p.id] || {};
+                      const u = Number(formData.userId);
+                      const r = formData.role;
                       if (!u) return;
                       await window.api.profiles.addMember({ token, profileId: p.id, userId: u, role: r });
+                      setMemberForms(m => { const n = { ...m }; delete n[p.id]; return n; });
                       load();
                     }}>Add</button>
                   </div>
@@ -400,7 +328,10 @@ export default function ProfilesPage({ navigate }) {
                             value={m.role}
                             onChange={async (e) => {
                               await window.api.profiles.setMemberRole({ token, profileId: p.id, userId: m.user_id, role: e.target.value });
-                              load();
+                              setProfiles(prev => prev.map(pr => {
+                                if (pr.id !== p.id) return pr;
+                                return { ...pr, members: (pr.members || []).map(mb => mb.user_id === m.user_id ? { ...mb, role: e.target.value } : mb) };
+                              }));
                             }}
                             style={{ fontSize: 11, padding: '2px 6px' }}
                           >
@@ -418,12 +349,14 @@ export default function ProfilesPage({ navigate }) {
                   <label style={{ marginTop: 10 }}>Main email <span className="dim" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>(primary recovery email shown on the Dashboard)</span></label>
                   <input
                     type="email"
-                    defaultValue={p.main_email || ''}
+                    value={emailDrafts[p.id] ?? p.main_email ?? ''}
+                    onChange={(e) => setEmailDrafts(d => ({ ...d, [p.id]: e.target.value }))}
                     placeholder="primary@example.com"
                     onBlur={async (e) => {
                       const v = e.target.value.trim() || null;
-                      if (v === (p.main_email || null)) return;
+                      if (v === (p.main_email || null)) { setEmailDrafts(d => { const n = { ...d }; delete n[p.id]; return n; }); return; }
                       await window.api.profiles.update({ token, profileId: p.id, updates: { main_email: v }, teamId: activeTeamId });
+                      setEmailDrafts(d => { const n = { ...d }; delete n[p.id]; return n; });
                       load();
                     }}
                   />
@@ -446,6 +379,8 @@ export default function ProfilesPage({ navigate }) {
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
     </div>
   );

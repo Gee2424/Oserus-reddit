@@ -19,7 +19,11 @@ const metadata = {
   requires: ['cdpConnection'],
   nativeMode: true,  // NEW: Use native Playwright API
   version: '2.0.0',
-  description: 'Open and preload inbox interface for messaging (native Playwright)'
+  description: 'Open and preload inbox interface for messaging (native Playwright)',
+  // Opens THIS account's inbox specifically — meaningless without a
+  // specific account context, so it only runs on account-targeted launches
+  // (never the model-level generic launch or a sibling-platform account).
+  accountScoped: true,
 };
 
 /**

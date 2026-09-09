@@ -1,17 +1,18 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
+import { PLATFORMS as ALL_PLATFORMS, platformIcon, platformUsernamePrefix } from '../lib/platforms.js';
 import PopOutButton from '../components/PopOutButton.jsx';
 import AccountSelector from '../components/AccountSelector.jsx';
 import PlatformExplainer from '../components/PlatformExplainer.jsx';
-import { Banner, EmptyState } from '../components/ui.jsx';
+import { Banner, EmptyState, FormGrid } from '../components/ui.jsx';
 import { useCloudReload } from '../lib/cloudReload.jsx';
+import PageHeader from '../components/PageHeader.jsx';
 
-const PLATFORM_ICON = { reddit: '◈', redgifs: '▮', x: '𝕏', instagram: '◉', tiktok: '♪' };
 const STATUS_COLOR = {
   pending: { bg: 'rgba(201,162,39,0.15)', fg: 'var(--gold)' },
-  posted: { bg: 'rgba(122,154,90,0.15)', fg: '#bdd5a3' },
-  failed: { bg: 'rgba(180,90,90,0.15)', fg: '#e2a3a3' },
+  posted: { bg: 'rgba(122,154,90,0.15)', fg: 'var(--success-fg)' },
+  failed: { bg: 'rgba(180,90,90,0.15)', fg: 'var(--danger-fg)' },
   cancelled: { bg: 'rgba(255,255,255,0.05)', fg: 'var(--text-3)' },
 };
 
@@ -111,18 +112,9 @@ export default function SchedulerProPage() {
 
   return (
     <div>
-      <div className="title-block">
-        <div>
-          <div className="eyebrow">Automation</div>
-          <h1>Scheduler</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Schedule posts for a specific account. Due posts fire automatically while the app is open.
-          </div>
-        </div>
-        <div style={{ marginLeft: 'auto' }}>
-          <PopOutButton route="scheduler-pro" title="Scheduler" />
-        </div>
-      </div>
+      <PageHeader eyebrow="Automation" title="Scheduler" subtitle="Schedule posts for a specific account. Due posts fire automatically while the app is open.">
+        <PopOutButton route="scheduler-pro" title="Scheduler" />
+      </PageHeader>
 
       <AccountSelector
         profiles={profiles}
@@ -155,7 +147,7 @@ export default function SchedulerProPage() {
             accounts={composerAccounts}
             preselectAccountId={sel.accountId}
             activeTeamId={activeTeamId}
-            onDone={() => { load(); setMsg('Scheduled.'); }}
+            onDone={() => { load(); setMsg('Scheduled — view in Queue below.'); }}
             onError={setErr}
           />
 
@@ -215,7 +207,7 @@ function StatusColumns({ posts, onCancel, onDelete }) {
         const items = buckets[c.key] || [];
         const sc = STATUS_COLOR[c.key] || {};
         return (
-          <div key={c.key} style={{ background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+          <div key={c.key} style={{ background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
             <div style={{
               padding: '10px 12px', borderBottom: '1px solid var(--border)',
               display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
@@ -228,8 +220,8 @@ function StatusColumns({ posts, onCancel, onDelete }) {
                 <div style={{ width: '100%', marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                   {failedGroups.map((g) => (
                     <span key={g.label} style={{
-                      fontSize: 9, padding: '1px 6px', borderRadius: 999,
-                      background: 'rgba(226,163,163,0.18)', color: '#e2a3a3',
+                      fontSize: 9, padding: '1px 6px', borderRadius: 'var(--radius-pill)',
+                      background: 'rgba(226,163,163,0.18)', color: 'var(--danger-fg)',
                       fontFamily: 'var(--font-mono)', letterSpacing: 0,
                     }} title={`${g.label}: ${g.count} failed`}>
                       {g.label} ×{g.count}
@@ -243,11 +235,11 @@ function StatusColumns({ posts, onCancel, onDelete }) {
                 <div className="muted" style={{ fontSize: 11, padding: 14, textAlign: 'center' }}>None</div>
               ) : items.map((p) => (
                 <div key={p.id} style={{
-                  background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8,
+                  background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
                   padding: '8px 10px', fontSize: 12,
                 }}>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)' }}>
-                    {(PLATFORM_ICON[p.platform] || '◈')} {timeLabel(p.scheduled_for)} · {(p.scheduled_for || '').slice(5, 10)}
+                    {platformIcon(p.platform)} {timeLabel(p.scheduled_for)} · {(p.scheduled_for || '').slice(5, 10)}
                   </div>
                   <div style={{ marginTop: 3, color: 'var(--gold)', fontSize: 11 }}>
                     {p.subreddit ? `r/${p.subreddit}` : (p.platform || 'post')}
@@ -256,21 +248,21 @@ function StatusColumns({ posts, onCancel, onDelete }) {
                   {p.boost_status && (
                     <div style={{
                       marginTop: 4, display: 'inline-block', fontSize: 9, fontWeight: 700,
-                      padding: '2px 6px', borderRadius: 999, letterSpacing: '0.05em', textTransform: 'uppercase',
+                      padding: '2px 6px', borderRadius: 'var(--radius-pill)', letterSpacing: '0.05em', textTransform: 'uppercase',
                       background: p.boost_status === 'ordered' ? 'rgba(127,217,154,0.14)'
                         : p.boost_status === 'failed' ? 'rgba(226,163,163,0.14)'
                         : 'rgba(212,166,74,0.14)',
-                      color: p.boost_status === 'ordered' ? '#7fd99a'
-                        : p.boost_status === 'failed' ? '#e2a3a3' : '#d4a64a',
+                      color: p.boost_status === 'ordered' ? 'var(--online-green)'
+                        : p.boost_status === 'failed' ? 'var(--danger-fg)' : 'var(--gold)',
                     }} title={`Boost · ${p.boost_qty} · ${p.boost_status}${p.boost_fire_at ? ` · fires ${p.boost_fire_at}` : ''}`}>
                       ▲ {p.boost_qty} {p.boost_status}
                     </div>
                   )}
                   <div className="muted" style={{ fontSize: 10, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {p.profile_color && <span style={{ width: 6, height: 6, borderRadius: 999, background: p.profile_color }} />}
-                    {p.profile_name || '—'} · u/{p.account_username}
+                    {p.profile_color && <span style={{ width: 6, height: 6, borderRadius: 'var(--radius-pill)', background: p.profile_color }} />}
+                    {p.profile_name || '—'} · {platformUsernamePrefix(p.platform || 'reddit')}{p.account_username}
                     {p.resolved_browser_mode === 'cloakmanager' && (
-                      <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 4px', borderRadius: 3, background: 'rgba(155,89,182,0.2)', color: '#c9a3d9' }}>CM</span>
+                      <span style={{ fontSize: 8, fontWeight: 700, padding: '1px 4px', borderRadius: 'var(--radius-sm)', background: 'var(--cm-soft)', color: 'var(--cm-fg)' }}>CM</span>
                     )}
                     <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
                       {p.status === 'pending' && <button className="ghost" onClick={() => onCancel(p.id)} style={tiny}>Pause</button>}
@@ -329,7 +321,7 @@ export function AISettings({ token, onMsg, onError }) {
   return (
     <div className="card bordered-glow" style={{ padding: 18, marginBottom: 18 }}>
       <h3 style={{ marginTop: 0, marginBottom: 4 }}>AI Settings</h3>
-      <div style={{ fontSize: 12, color: hasKey ? '#bdd5a3' : 'var(--gold)', marginBottom: 14 }}>
+      <div style={{ fontSize: 12, color: hasKey ? 'var(--success-fg)' : 'var(--gold)', marginBottom: 14 }}>
         {hasKey ? `✓ ${providerLabel} is configured and ready to use.` : '⚠ No AI key yet — add Anthropic (recommended) or Grok in Configuration.'}
       </div>
 
@@ -414,7 +406,7 @@ export function AISettings({ token, onMsg, onError }) {
             <tr style={{ borderTop: '1px solid var(--border)' }}>
               <td style={{ padding: '7px 8px' }}>+ Video (short)</td>
               <td style={{ padding: '7px 8px' }} className="mono">+1,000 – 5,000</td>
-              <td style={{ padding: '7px 8px', color: '#e2a3a3' }}>5× – 50× higher</td>
+              <td style={{ padding: '7px 8px', color: 'var(--danger-fg)' }}>5× – 50× higher</td>
             </tr>
           </tbody>
         </table>
@@ -632,7 +624,7 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId, active
         const days = Math.floor((Date.now() - new Date(acc.created_at.replace(' ', 'T') + 'Z').getTime()) / 86400000);
         if (days < intel.min_account_age_days) reasons.push(`age ${days}d / need ${intel.min_account_age_days}d`);
       }
-      if (reasons.length) out.push(`u/${acc.username}: ${reasons.join(' · ')}`);
+      if (reasons.length) out.push(`${platformUsernamePrefix(acc.platform || 'reddit')}${acc.username}: ${reasons.join(' · ')}`);
     }
     return out;
   }, [form.subreddit, targets, intelMap, karmaMap, accounts]);
@@ -717,8 +709,10 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId, active
     if (!items.length) { setBusy(false); onError('No (account × preferred sub) pairs to schedule.'); return; }
     const res = await window.api.scheduled.bulkCreate({ token, items });
     setBusy(false);
-    if (res.ok) wrappedOnDone();
-    else onError(res.error);
+    if (res.ok) {
+      load();
+      setMsg(`Scheduled ${items.length} post${items.length !== 1 ? 's' : ''} — view in Queue below.`);
+    } else onError(res.error);
   }
 
   return (
@@ -729,28 +723,23 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId, active
           Reddit posts fire automatically; non-Reddit posts save as drafts that
           appear in the timeline until their adapters land. */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
-        {[
-          { k: 'reddit',    l: 'Reddit',    icon: '◈', color: '#ff4500' },
-          { k: 'redgifs',   l: 'RedGIFs',   icon: '▮', color: '#d63d3d' },
-          { k: 'x',         l: 'X',         icon: '𝕏', color: '#fff'    },
-          { k: 'instagram', l: 'Instagram', icon: '◉', color: '#e2497d' },
-          { k: 'tiktok',    l: 'TikTok',    icon: '♪', color: '#69c9d0' },
-        ].map((p) => {
-          const isActive = platform === p.k;
+        {ALL_PLATFORMS.map((p) => {
+          const isActive = platform === p.v;
           return (
             <button
-              key={p.k}
-              onClick={() => { setPlatform(p.k); setTargets([]); }}
+              key={p.v}
+              onClick={() => { setPlatform(p.v); setTargets([]); }}
               style={{
                 background: isActive ? 'linear-gradient(135deg, rgba(212,166,74,0.16), rgba(58,111,140,0.06))' : 'var(--bg-1)',
-                border: '1px solid ' + (isActive ? 'var(--gold)' : 'var(--border)'),
-                borderRadius: 999, padding: '5px 12px',
+                borderWidth: 1, borderStyle: 'solid',
+                borderColor: isActive ? 'var(--gold)' : 'var(--border)',
+                borderRadius: 'var(--radius-pill)', padding: '5px 12px',
                 color: isActive ? 'var(--gold-bright)' : 'var(--text-2)',
                 fontSize: 11, fontWeight: 600, cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: 6,
               }}
             >
-              <span style={{ color: p.color }}>{p.icon}</span> {p.l}
+              <span style={{ color: p.color }}>{platformIcon(p.v)}</span> {p.label}
             </button>
           );
         })}
@@ -782,7 +771,7 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId, active
                       onClick={() => setForm((f) => ({ ...f, subreddit: s }))}
                       title={`Use r/${s}`}
                       style={{
-                        fontSize: 10, padding: '2px 8px', borderRadius: 999,
+                        fontSize: 10, padding: '2px 8px', borderRadius: 'var(--radius-pill)',
                         background: form.subreddit === s ? 'var(--gold)' : 'var(--bg-1)',
                         color: form.subreddit === s ? '#1a1a14' : 'var(--text-2)',
                         border: '1px solid var(--border)', cursor: 'pointer',
@@ -877,7 +866,7 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId, active
                       return [...s];
                     })}
                     className={allOn ? 'primary' : 'ghost'}
-                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999 }}
+                    style={{ fontSize: 11, padding: '3px 10px', borderRadius: 'var(--radius-pill)' }}
                     title={`Schedule to all ${m.accountIds.length} accounts under ${m.name}`}
                   >
                     ◇ {m.name} <span style={{ opacity: 0.7 }}>({m.accountIds.length})</span>
@@ -899,7 +888,7 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId, active
                 className={on ? 'primary' : 'ghost'}
                 style={{ fontSize: 12, padding: '4px 10px' }}
               >
-                {(PLATFORM_ICON[a.platform] || '◈')} {a.username}
+                {platformIcon(a.platform)} {a.username}
               </button>
             );
           })}
@@ -913,7 +902,7 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId, active
       )}
 
       {platform === 'reddit' && eligibilityWarnings.length > 0 && (
-        <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 'var(--radius-lg)', background: 'rgba(180,90,90,0.08)', border: '1px solid #6e2c2c', fontSize: 12, color: '#e2a3a3' }}>
+        <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 'var(--radius-lg)', background: 'rgba(180,90,90,0.08)', border: '1px solid var(--danger-border)', fontSize: 12, color: 'var(--danger-fg)' }}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>⚠ Subreddit gate may reject these accounts:</div>
           {eligibilityWarnings.map((w, i) => <div key={i} style={{ marginTop: 2 }}>{w}</div>)}
         </div>
@@ -980,10 +969,10 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId, active
   );
 }
 
-const warnBanner = { background: 'rgba(201,162,39,0.12)', border: '1px solid var(--gold)', color: 'var(--gold-bright)', padding: '10px 14px', borderRadius: 4, marginBottom: 12, fontSize: 13 };
+const warnBanner = { background: 'rgba(201,162,39,0.12)', border: '1px solid var(--gold)', color: 'var(--gold-bright)', padding: '10px 14px', borderRadius: 'var(--radius-sm)', marginBottom: 12, fontSize: 13 };
 const dayHeader = { fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 6, paddingLeft: 4 };
 const row = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderBottom: '1px solid var(--border)' };
-const pill = { fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, textTransform: 'uppercase', flexShrink: 0 };
+const pill = { fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 'var(--radius-pill)', textTransform: 'uppercase', flexShrink: 0 };
 const tiny = { fontSize: 11, padding: '4px 8px' };
 
 function Toggle({ label, value, onChange }) {

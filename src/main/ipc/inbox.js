@@ -125,14 +125,18 @@ function register(ipcMain) {
   // CloakManager account helpers — use the centralized resolveBrowserMode
   const { resolveBrowserMode } = require('../lib/browserMode');
 
-  function isCM(accountId, userId) {
-    return resolveBrowserMode(accountId, userId).mode === 'cloakmanager';
+  function isCM(accountId) {
+    return resolveBrowserMode(accountId).mode === 'cloakmanager';
   }
   function cmProfileName(accountId) {
-    const row = getDb().prepare(
-      "SELECT cloak_profile_name FROM account_browser_settings WHERE account_id = ?"
-    ).get(accountId);
-    return row?.cloak_profile_name || null;
+    const row = getDb().prepare(`
+      SELECT COALESCE(bs.cloak_profile_override, mp.cloak_profile_name) AS effective_cm_name
+      FROM reddit_accounts ra
+      JOIN model_profiles mp ON mp.id = ra.profile_id
+      LEFT JOIN account_browser_settings bs ON bs.account_id = ra.id
+      WHERE ra.id = ?
+    `).get(accountId);
+    return row?.effective_cm_name || null;
   }
 
   ipcMain.handle('inbox:fetch', async (_e, { token, accountId, folder = 'all' }) => {
@@ -143,7 +147,7 @@ function register(ipcMain) {
       if (!canAccessAccount(user, accountId)) {
         return { ok: false, error: 'Not authorized for this account' };
       }
-      if (isCM(accountId, user.id)) {
+      if (isCM(accountId)) {
         // NOTE: The CDP inbox-fetch task does not yet implement Cupid AI
         // auto-reply — that feature only exists on the Electron path below.
         // CM accounts that need auto-reply require a separate CDP task.
@@ -190,7 +194,7 @@ function register(ipcMain) {
       if (!canAccessAccount(user, accountId)) {
         return { ok: false, error: 'Not authorized for this account' };
       }
-      if (isCM(accountId, user.id)) {
+      if (isCM(accountId)) {
         const profileName = cmProfileName(accountId);
         if (!profileName) throw new Error('No CloakManager profile for this account');
         const cdpOrchestrator = require('../cdp/orchestrator');
@@ -233,7 +237,7 @@ function register(ipcMain) {
       if (!canAccessAccount(user, accountId)) {
         return { ok: false, error: 'Not authorized for this account' };
       }
-      if (isCM(accountId, user.id)) {
+      if (isCM(accountId)) {
         const profileName = cmProfileName(accountId);
         if (!profileName) throw new Error('No CloakManager profile for this account');
         const cdpOrchestrator = require('../cdp/orchestrator');
@@ -273,7 +277,7 @@ function register(ipcMain) {
       if (!canAccessAccount(user, accountId)) {
         return { ok: false, error: 'Not authorized for this account' };
       }
-      if (isCM(accountId, user.id)) {
+      if (isCM(accountId)) {
         const profileName = cmProfileName(accountId);
         if (!profileName) throw new Error('No CloakManager profile for this account');
         const cdpOrchestrator = require('../cdp/orchestrator');

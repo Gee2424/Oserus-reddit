@@ -2,56 +2,33 @@ const { getDb } = require('../db');
 
 /**
  * Resolve the effective browser mode for an account.
- * 'inherit' resolves to the user's default_browser_mode, or the profile
- * owner's default if no userId is provided. Falls back to 'electron' when
- * no settings exist.
  *
- * This is the single source of truth for browser mode resolution — all
- * call sites that need to decide between electron/cloakmanager routing
- * should go through this function, not re-implement the logic.
+ * Reads browser_mode from model_profiles (the single source of truth).
+ * If the model is set to 'cloakmanager', checks for a per-account
+ * cloak_profile_override before falling back to the model's default
+ * cloak_profile_name.
  *
  * @param {number} accountId
- * @param {number|null} [userId] - The user making the request. If null,
- *   resolves via the profile owner's default_browser_mode.
  * @returns {{ mode: 'electron'|'cloakmanager', profileName: string|null }}
  */
-function resolveBrowserMode(accountId, userId = null) {
+function resolveBrowserMode(accountId) {
   const db = getDb();
   const row = db.prepare(`
-    SELECT browser_mode, cloak_profile_name
-    FROM account_browser_settings WHERE account_id = ?
+    SELECT mp.browser_mode, mp.cloak_profile_name AS model_cm_name,
+           bs.cloak_profile_override
+    FROM reddit_accounts ra
+    JOIN model_profiles mp ON mp.id = ra.profile_id
+    LEFT JOIN account_browser_settings bs ON bs.account_id = ra.id
+    WHERE ra.id = ?
   `).get(accountId);
 
-  const rawMode = row?.browser_mode || null;
-  const profileName = row?.cloak_profile_name || null;
-
-  // Direct modes — no fallback needed
-  if (rawMode === 'cloakmanager') return { mode: 'cloakmanager', profileName };
-  if (rawMode === 'electron')     return { mode: 'electron', profileName: null };
-
-  // inherit or null → resolve from user default
-  let defaultMode = 'electron';
-  if (userId) {
-    const userRow = db.prepare(
-      'SELECT default_browser_mode FROM user_browser_settings WHERE user_id = ?'
-    ).get(userId);
-    defaultMode = userRow?.default_browser_mode || 'electron';
-  } else {
-    // No user context — fall back to profile owner's default
-    const ownerRow = db.prepare(`
-      SELECT ubs.default_browser_mode
-      FROM reddit_accounts ra
-      JOIN model_profiles mp ON mp.id = ra.profile_id
-      LEFT JOIN user_browser_settings ubs ON ubs.user_id = mp.assigned_user_id
-      WHERE ra.id = ?
-    `).get(accountId);
-    defaultMode = ownerRow?.default_browser_mode || 'electron';
+  if (!row || !row.browser_mode || row.browser_mode === 'electron') {
+    return { mode: 'electron', profileName: null };
   }
 
-  return {
-    mode: defaultMode,
-    profileName: defaultMode === 'cloakmanager' ? profileName : null,
-  };
+  // cloakmanager mode — account override wins, else model default
+  const profileName = row.cloak_profile_override || row.model_cm_name || null;
+  return { mode: 'cloakmanager', profileName };
 }
 
 module.exports = { resolveBrowserMode };

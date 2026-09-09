@@ -11,13 +11,68 @@
  */
 
 const { getDb } = require('../db');
-const { connectToProfile, closeConnection: closeCDPConnection } = require('../cdp-automation');
+const { chromium } = require('playwright');
+const { PlaywrightCDPAdapter } = require('./playwright-adapter');
 
 /**
  * Connection pool cache
- * Map<profileName, { connection, createdAt, lastUsed, healthStatus, retryCount }>
+ * Map<profileName, { adapter, browser, context, page, createdAt, lastUsed, healthStatus, retryCount }>
+ * `adapter` is the PlaywrightCDPAdapter handed to scripts (its `.native`
+ * carries { browser, context, page }); `browser` is kept so we can really
+ * close the CDP connection on stop.
  */
 const connectionPool = new Map();
+
+/** How stale a pooled connection may be before we re-verify it on reuse. */
+const REVERIFY_AFTER_MS = 30 * 1000;
+
+// A "real" page — not a blank/internal tab. Launch/task scripts should drive
+// one of these, never chrome://newtab or about:blank.
+function isRealPageUrl(u) {
+  return !!u && !/^(about:|chrome:|chrome-extension:|devtools:|edge:)/i.test(u);
+}
+
+/**
+ * Deterministically choose the page a script should drive.
+ * Prefer the most-recently-opened real tab; fall back to page 0; last resort
+ * wait for a page to appear.
+ * @param {import('playwright').BrowserContext} context
+ * @returns {Promise<import('playwright').Page>}
+ */
+async function pickPage(context) {
+  const pages = context.pages();
+  const real = pages.filter((p) => {
+    try { return isRealPageUrl(p.url()); } catch { return false; }
+  });
+  if (real.length) return real[real.length - 1];
+  if (pages.length) return pages[0];
+  return context.waitForEvent('page', { timeout: 15000 });
+}
+
+/**
+ * Attach to an already-running CloakManager profile over CDP.
+ * Reuses the existing context/page — never creates a new context — so the
+ * profile's fingerprint + session state are preserved.
+ *
+ * @param {string} cdpWsUrl
+ * @returns {Promise<{ adapter: PlaywrightCDPAdapter, browser: import('playwright').Browser, context: import('playwright').BrowserContext, page: import('playwright').Page }>}
+ */
+async function connectToProfile(cdpWsUrl) {
+  const browser = await chromium.connectOverCDP(cdpWsUrl);
+  try {
+    const contexts = browser.contexts();
+    if (!contexts || contexts.length === 0) {
+      throw new Error('No browser contexts available');
+    }
+    const context = contexts[0];
+    const page = await pickPage(context);
+    const adapter = new PlaywrightCDPAdapter(browser, context, page);
+    return { adapter, browser, context, page };
+  } catch (err) {
+    try { await browser.close(); } catch { /* ignore */ }
+    throw new Error(`Playwright connection failed: ${err.message}`);
+  }
+}
 
 /**
  * Connection TTL in milliseconds - connections are reusable for 5 minutes
@@ -48,19 +103,22 @@ const HEALTH_CHECK_INTERVAL = 30 * 1000;
  */
 async function getConnection(profileName, cdpWsUrl) {
   try {
-    // Check if we have a healthy cached connection
+    // Reuse a healthy cached connection. If it's been idle a while, verify it
+    // still responds before handing it back.
     const cached = connectionPool.get(profileName);
     if (cached && cached.healthStatus === 'healthy' && isConnectionValid(cached)) {
-      console.log('[CDP Connection Manager] Reusing cached connection for:', profileName);
-      cached.lastUsed = Date.now();
-      return cached.connection;
+      const stale = Date.now() - cached.lastUsed > REVERIFY_AFTER_MS;
+      if (!stale || await verifyConnection(profileName)) {
+        console.log('[CDP Connection Manager] Reusing cached connection for:', profileName);
+        cached.lastUsed = Date.now();
+        return cached.adapter;
+      }
+      console.log('[CDP Connection Manager] Cached connection failed re-verify, reconnecting:', profileName);
     }
 
-    // Clean up stale connection if exists
-    if (cached) {
-      console.log('[CDP Connection Manager] Cleaning up stale connection for:', profileName);
+    // Clean up stale/dead connection if exists
+    if (connectionPool.has(profileName)) {
       await closeConnection(profileName).catch(() => {});
-      connectionPool.delete(profileName);
     }
 
     // Create new connection with retry logic and startup delays
@@ -97,9 +155,9 @@ async function getConnection(profileName, cdpWsUrl) {
       throw new Error(`Failed to connect to profile ${profileName}: ${lastError?.message || 'Unknown error'}`);
     }
 
-    // Cache the connection
+    // Cache it — `connection` is { adapter, browser, context, page }.
     connectionPool.set(profileName, {
-      connection,
+      ...connection,
       createdAt: Date.now(),
       lastUsed: Date.now(),
       healthStatus: 'healthy',
@@ -107,7 +165,7 @@ async function getConnection(profileName, cdpWsUrl) {
     });
 
     console.log('[CDP Connection Manager] ✅ New connection created for:', profileName);
-    return connection;
+    return connection.adapter;
 
   } catch (error) {
     console.error('[CDP Connection Manager] ❌ Failed to get connection:', error.message);
@@ -146,21 +204,21 @@ async function releaseConnection(profileName) {
  * @returns {Promise<boolean>} true if connection was closed
  */
 async function closeConnection(profileName) {
+  const cached = connectionPool.get(profileName);
+  if (!cached) return false;
+  connectionPool.delete(profileName);
+  // Real close. `browser` is a connectOverCDP client — closing it detaches
+  // our CDP session; it does NOT terminate the CloakManager Chromium (that's
+  // CloakManager's `stopProfile`). Verified by testCDPConnection() which
+  // close()s after every launch check.
   try {
-    const cached = connectionPool.get(profileName);
-    if (!cached) {
-      return false;
-    }
-
-    await closeCDPConnection(cached.connection);
-    connectionPool.delete(profileName);
-    console.log('[CDP Connection Manager] ❌ Connection closed and removed:', profileName);
-
-    return true;
+    await cached.browser.close();
   } catch (error) {
-    console.error('[CDP Connection Manager] Error closing connection:', error.message);
-    return false;
+    console.warn('[CDP Connection Manager] browser.close() error:', error.message);
   }
+  try { cached.adapter && cached.adapter.close && cached.adapter.close(); } catch { /* ignore */ }
+  console.log('[CDP Connection Manager] ❌ Connection closed and removed:', profileName);
+  return true;
 }
 
 /**
@@ -170,23 +228,16 @@ async function closeConnection(profileName) {
  * @returns {boolean} true if connection is valid for reuse
  */
 function isConnectionValid(cached) {
-  const now = Date.now();
-
-  // Check TTL
-  if (now - cached.lastUsed > CONNECTION_TTL) {
-    return false;
-  }
-
-  // Check if connection is healthy
-  if (cached.healthStatus !== 'healthy') {
-    return false;
-  }
-
-  // Check if connection exists
-  if (!cached.connection || !cached.connection.client) {
-    return false;
-  }
-
+  if (Date.now() - cached.lastUsed > CONNECTION_TTL) return false;
+  if (cached.healthStatus !== 'healthy') return false;
+  if (!cached.adapter || !cached.browser) return false;
+  // Playwright browsers expose isConnected(); if the CDP socket dropped this
+  // is false and we must reconnect.
+  try {
+    if (typeof cached.browser.isConnected === 'function' && !cached.browser.isConnected()) {
+      return false;
+    }
+  } catch { return false; }
   return true;
 }
 
@@ -289,12 +340,11 @@ async function verifyConnection(profileName) {
       return false;
     }
 
-    // Simple health check - try to execute a simple script
-    const { Runtime } = cached.connection;
-    await Runtime.evaluate({
-      expression: 'document.readyState',
-      timeout: 5000
-    });
+    // Lightweight liveness probe against the pooled page.
+    await Promise.race([
+      cached.page.evaluate('1'),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('health probe timeout')), 3000)),
+    ]);
 
     cached.healthStatus = 'healthy';
     cached.retryCount = 0;
@@ -327,30 +377,55 @@ async function getConnectionForAccount(accountId) {
   try {
     const db = getDb();
 
-    // Get account and its CloakManager profile name
+    // Get effective CM profile name from model_profiles or override
     const account = db.prepare(`
-      SELECT a.username, a.platform, bs.cloak_profile_name
+      SELECT a.username, a.platform,
+             COALESCE(bs.cloak_profile_override, mp.cloak_profile_name) AS effective_cm_name
       FROM reddit_accounts a
+      JOIN model_profiles mp ON mp.id = a.profile_id
       LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
       WHERE a.id = ?
     `).get(accountId);
 
-    if (!account || !account.cloak_profile_name) {
+    if (!account || !account.effective_cm_name) {
       return null;
     }
 
     // Get CDP connection info
-    const profileInfo = await getProfileCDPInfo(account.cloak_profile_name);
+    const profileInfo = await getProfileCDPInfo(account.effective_cm_name);
     if (!profileInfo || !profileInfo.cdp_ws_url) {
       console.error('[CDP Connection Manager] Missing cdp_ws_url in profile info:', profileInfo);
       return null;
     }
 
     // Get or create connection
-    const connection = await getConnection(account.cloak_profile_name, profileInfo.cdp_ws_url);
+    const connection = await getConnection(account.effective_cm_name, profileInfo.cdp_ws_url);
     return connection;
   } catch (error) {
     console.error('[CDP Connection Manager] Error getting connection for account:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Get connection for a profile directly by name — for a model-level launch
+ * with no specific account in play (e.g. the generic "Open Browser" button
+ * on a model's shared CloakManager profile, before any account is targeted).
+ *
+ * @param {string} profileName
+ * @returns {Promise<Object|null>} Connection or null
+ */
+async function getConnectionForProfile(profileName) {
+  try {
+    if (!profileName) return null;
+    const profileInfo = await getProfileCDPInfo(profileName);
+    if (!profileInfo || !profileInfo.cdp_ws_url) {
+      console.error('[CDP Connection Manager] Missing cdp_ws_url in profile info:', profileInfo);
+      return null;
+    }
+    return await getConnection(profileName, profileInfo.cdp_ws_url);
+  } catch (error) {
+    console.error('[CDP Connection Manager] Error getting connection for profile:', error.message);
     return null;
   }
 }
@@ -379,6 +454,19 @@ async function cleanupStaleConnections() {
 
   console.log('[CDP Connection Manager] Cleaned up', profilesToClose.length, 'stale connections');
   return profilesToClose.length;
+}
+
+/**
+ * Close every pooled connection. Called on app shutdown.
+ * @returns {Promise<number>} number closed
+ */
+async function cleanupAllConnections() {
+  const names = [...connectionPool.keys()];
+  for (const profileName of names) {
+    await closeConnection(profileName).catch(() => {});
+  }
+  console.log('[CDP Connection Manager] Closed', names.length, 'connections');
+  return names.length;
 }
 
 /**
@@ -506,6 +594,7 @@ module.exports = {
   releaseConnection,
   closeConnection,
   getConnectionForAccount,
+  getConnectionForProfile,
 
   // Profile info
   getProfileCDPInfo,
@@ -516,6 +605,7 @@ module.exports = {
 
   // Pool management
   cleanupStaleConnections,
+  cleanupAllConnections,
   getConnectionStats,
 
   // Initialization

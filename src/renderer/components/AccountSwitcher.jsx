@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
+import { platformUsernamePrefix, platformLabel } from '../lib/platforms.js';
 
 const STATUS_META = {
-  warming: { color: '#d4a55a', label: 'warming' },
-  ready: { color: '#7a9a5a', label: 'ready' },
+  warming: { color: 'var(--gold)', label: 'warming' },
+  ready: { color: 'var(--green-bright)', label: 'ready' },
   paused: { color: '#968b78', label: 'paused' },
   banned: { color: '#b3473a', label: 'banned' },
 };
@@ -12,26 +13,13 @@ const STATUS_META = {
 const BROWSER_MODES = {
   electron: { label: 'Electron', color: '#4a90e2', icon: '⚡' },
   cloakmanager: { label: 'CloakManager', color: '#9b59b6', icon: '👻' },
-  inherit: { label: 'Inherit', color: '#95a5a6', icon: '🔄' },
 };
 
-// Helper to get browser mode for an account
+// Helper to get browser mode for an account (reads from model-level resolved_browser_mode)
 function getBrowserMode(account) {
   if (!account) return 'electron';
-
-  const accountMode = account.browser_mode;
-  if (accountMode === 'cloakmanager') return 'cloakmanager';
-  if (accountMode === 'electron') return 'electron';
-
-  // For 'inherit' or missing, default to electron
-  return 'electron';
+  return account.resolved_browser_mode || 'electron';
 }
-
-function platformLabel(p) {
-  return ({ reddit: 'Reddit', redgifs: 'RedGifs', x: 'X', instagram: 'Instagram', tiktok: 'TikTok' })[p] || p || 'platform';
-}
-
-const PLATFORM_PREFIX = { reddit: 'u/', redgifs: '@' };
 
 // Platform-filtered switcher. `platform` prop: 'reddit' or 'redgifs'.
 // If omitted, shows all accounts (legacy global switcher).
@@ -69,7 +57,7 @@ export default function AccountSwitcher({ platform }) {
     (groups[a.profile_name] = groups[a.profile_name] || []).push(a);
   }
 
-  const prefix = active ? (PLATFORM_PREFIX[active.platform] || 'u/') : 'u/';
+  const prefix = active ? platformUsernamePrefix(active.platform) : '@';
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
@@ -107,7 +95,7 @@ export default function AccountSwitcher({ platform }) {
             </>
           ) : (
             <span style={{ color: 'var(--text-2)' }}>
-              {platform ? `No ${platform === 'reddit' ? 'Reddit' : 'RedGifs'} account selected` : 'No account selected'}
+              {platform ? `No ${platformLabel(platform)} account selected` : 'No account selected'}
             </span>
           )}
         </span>
@@ -162,7 +150,7 @@ export default function AccountSwitcher({ platform }) {
                       }}
                     >
                       <span style={styles.dot(STATUS_META[a.status]?.color || '#968b78')} />
-                      <span className="mono" style={{ color: 'var(--text-3)' }}>{PLATFORM_PREFIX[a.platform] || 'u/'}</span>
+                      <span className="mono" style={{ color: 'var(--text-3)' }}>{platformUsernamePrefix(a.platform)}</span>
                       <span style={{ flex: 1 }}>{a.username}</span>
                       <span style={{
                         color: modeConfig.color,

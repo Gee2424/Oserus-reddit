@@ -1,10 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
+import { useToast } from '../lib/toast.jsx';
+import PageHeader from '../components/PageHeader.jsx';
+import TabBar from '../components/TabBar.jsx';
+import { EmptyState } from '../components/ui.jsx';
 
 export default function TeamPage({ navigate }) {
   const { user, activeTeamId } = useAuth();
   const can = useCan();
+  const { toast } = useToast();
   const [tab, setTab] = useState('members');
   const [teams, setTeams] = useState([]);
   const [activeTeam, setActiveTeam] = useState(null);
@@ -33,6 +38,7 @@ export default function TeamPage({ navigate }) {
     setBusy(false);
     if (res.ok) {
       setCreateName('');
+      toast('ok', 'Team created! Next: go to Models to create a profile, then link accounts.');
       navigate('dashboard');
     } else {
       setMsg({ kind: 'err', text: res.error });
@@ -216,30 +222,29 @@ export default function TeamPage({ navigate }) {
   if (!activeTeam) {
     return (
       <div style={{ padding: 24, maxWidth: 500 }}>
-        <h2 style={{ margin: '0 0 6px' }}>Create your team</h2>
-        <p className="mono" style={{ color: 'var(--text-2)', fontSize: 13, marginBottom: 20 }}>
-          You're not on any team yet. Name your team to get started.
-        </p>
-        {msg && (
-          <div className={msg.kind === 'err' ? 'error-banner' : ''}
-               style={msg.kind === 'ok' ? { color: 'var(--green)', marginBottom: 10, fontSize: 12 } : { marginBottom: 10 }}>
-            {msg.text}
+        <EmptyState icon="⚑" title="Create your team" hint="You're not on any team yet. Name your team to get started." />
+        <div className="card" style={{ marginTop: 18, padding: 18 }}>
+          {msg && (
+            <div className={msg.kind === 'err' ? 'error-banner' : ''}
+                 style={msg.kind === 'ok' ? { color: 'var(--green)', marginBottom: 10, fontSize: 12 } : { marginBottom: 10 }}>
+              {msg.text}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+            <div style={{ flex: 1 }}>
+              <label>Team name</label>
+              <input
+                value={createName}
+                onChange={(e) => setCreateName(e.target.value)}
+                placeholder="e.g. Acme Agency"
+                onKeyDown={(e) => e.key === 'Enter' && createTeam()}
+                autoFocus
+              />
+            </div>
+            <button className="primary" onClick={createTeam} disabled={busy || !createName.trim()}>
+              {busy ? 'Creating…' : 'Create team'}
+            </button>
           </div>
-        )}
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
-          <div style={{ flex: 1 }}>
-            <label>Team name</label>
-            <input
-              value={createName}
-              onChange={(e) => setCreateName(e.target.value)}
-              placeholder="e.g. Acme Agency"
-              onKeyDown={(e) => e.key === 'Enter' && createTeam()}
-              autoFocus
-            />
-          </div>
-          <button className="primary" onClick={createTeam} disabled={busy || !createName.trim()}>
-            {busy ? 'Creating…' : 'Create team'}
-          </button>
         </div>
       </div>
     );
@@ -254,34 +259,19 @@ export default function TeamPage({ navigate }) {
 
   return (
     <div style={{ padding: 24, maxWidth: 800 }}>
-      <h2 style={{ margin: '0 0 4px' }}>{activeTeam.name}</h2>
-      <div className="mono" style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 16 }}>
-        Your role: <span style={{ color: 'var(--gold)' }}>{myRole}</span>
-      </div>
+      <PageHeader eyebrow="Configuration" title={activeTeam.name} subtitle={`Your role: ${myRole}`} />
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderBottom: '1px solid var(--border)' }}>
-        {tabs.map(t => {
-          const label = t.charAt(0).toUpperCase() + t.slice(1);
-          const badge = t === 'invitations' && pendingCount > 0 ? ` (${pendingCount})` : '';
-          return (
-            <button
-              key={t}
-              className={`ghost ${tab === t ? 'active' : ''}`}
-              onClick={() => setTab(t)}
-              style={{
-                padding: '8px 16px', fontSize: 13, fontWeight: tab === t ? 600 : 400,
-                borderBottom: tab === t ? '2px solid var(--gold)' : '2px solid transparent',
-                color: tab === t ? 'var(--gold-bright)' : 'var(--text-2)',
-                background: 'transparent', borderWidth: 0, borderStyle: 'solid',
-                borderColor: 'transparent', cursor: 'pointer',
-              }}
-            >
-              {label}{badge}
-            </button>
-          );
-        })}
-      </div>
+      <TabBar
+        items={tabs.map(t => ({
+          key: t,
+          label: t.charAt(0).toUpperCase() + t.slice(1),
+          badge: t === 'invitations' && pendingCount > 0 ? ` (${pendingCount})` : null,
+        }))}
+        activeKey={tab}
+        onChange={setTab}
+        style={{ marginBottom: 16 }}
+      />
 
       {msg && (
         <div className={msg.kind === 'err' ? 'error-banner' : ''}
@@ -363,7 +353,7 @@ export default function TeamPage({ navigate }) {
                     <td style={{ padding: '8px' }}>
                       {m.role !== 'owner' && (
                         <button className="ghost" onClick={() => removeMember(m.user_id)}
-                                style={{ color: 'var(--red, #c55)', fontSize: 12 }}>
+                                style={{ color: 'var(--danger-fg)', fontSize: 12 }}>
                           Remove
                         </button>
                       )}
@@ -374,9 +364,7 @@ export default function TeamPage({ navigate }) {
             </tbody>
           </table>
           {members.length === 0 && (
-            <div style={{ padding: 24, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', fontSize: 13, color: 'var(--text-3)', marginTop: 8 }}>
-              No members on this team yet.
-            </div>
+            <EmptyState title="" hint="No members on this team yet." compact />
           )}
         </div>
       )}
@@ -384,9 +372,7 @@ export default function TeamPage({ navigate }) {
       {tab === 'machines' && (
         <div>
           {machines.length === 0 && (
-            <div style={{ padding: 24, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', fontSize: 13, color: 'var(--text-3)' }}>
-              No machines connected. They'll appear here when a member signs in on this team.
-            </div>
+            <EmptyState title="" hint="No machines connected. They'll appear here when a member signs in on this team." compact />
           )}
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
@@ -410,7 +396,7 @@ export default function TeamPage({ navigate }) {
                     <td style={{ padding: '8px' }}>
                       <span style={{
                         display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
-                        background: isOnline ? '#7a9a5a' : '#555', marginRight: 6,
+                        background: isOnline ? 'var(--green-bright)' : 'var(--text-3)', marginRight: 6,
                       }} />
                       {m.last_seen_at ? new Date(m.last_seen_at).toLocaleString() : 'Never'}
                     </td>
@@ -467,7 +453,7 @@ export default function TeamPage({ navigate }) {
                         <td style={{ padding: '8px', color: 'var(--text-2)', fontSize: 11 }}>
                           {new Date(inv.created_at).toLocaleDateString()}
                         </td>
-                        <td style={{ padding: '8px', color: expired ? 'var(--red, #c55)' : 'var(--text-2)', fontSize: 11 }}>
+                        <td style={{ padding: '8px', color: expired ? 'var(--danger-fg)' : 'var(--text-2)', fontSize: 11 }}>
                           {expired ? 'Expired' : new Date(inv.expires_at).toLocaleDateString()}
                         </td>
                         <td style={{ padding: '8px', display: 'flex', gap: 6 }}>
@@ -518,7 +504,7 @@ export default function TeamPage({ navigate }) {
                         <td style={{ padding: '8px' }}>
                           <span className={`pill ${inv.status === 'accepted' ? '' : inv.status === 'declined' ? '' : ''}`}
                                 style={{
-                                  background: inv.status === 'accepted' ? 'var(--green)' : inv.status === 'declined' ? 'var(--red, #c55)' : 'var(--gold)',
+                                  background: inv.status === 'accepted' ? 'var(--green)' : inv.status === 'declined' ? 'var(--danger-fg)' : 'var(--gold)',
                                   color: inv.status === 'accepted' ? '#fff' : '#fff',
                                 }}>
                             {inv.status}
@@ -530,7 +516,7 @@ export default function TeamPage({ navigate }) {
                         <td style={{ padding: '8px' }}>
                           {inv.status === 'pending' && (
                             <button className="ghost" onClick={() => cancelInvitation(inv.id)} disabled={busy}
-                                    style={{ fontSize: 11, color: 'var(--red, #c55)' }}>
+                                    style={{ fontSize: 11, color: 'var(--danger-fg)' }}>
                               Cancel
                             </button>
                           )}

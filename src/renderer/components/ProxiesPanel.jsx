@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import { useToast } from '../lib/toast.jsx';
 import { useConfirm } from '../lib/confirm.jsx';
+import { thSm as th, tdSm as td, FormGrid } from './ui.jsx';
 
 const PROXY_KINDS = [
   { v: 'http',   label: 'HTTP' },
@@ -184,7 +185,7 @@ export default function ProxiesPanel() {
           {/* Paste a proxy URL — auto-fills host / port / user / pass.
               Accepts every common residential format: socks5://host:port:user:pass,
               user:pass@host:port, bare host:port, etc. */}
-          <div style={{ marginBottom: 14, padding: 12, borderRadius: 6, background: 'var(--bg-elev)', border: '1px solid var(--border)' }}>
+          <div style={{ marginBottom: 14, padding: 12, borderRadius: 'var(--radius)', background: 'var(--bg-elev)', border: '1px solid var(--border)' }}>
             <label>Paste a proxy URL <span className="dim" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>(socks5://host:port:user:pass, user:pass@host:port, or host:port)</span></label>
             <div style={{ display: 'flex', gap: 8 }}>
               <input
@@ -360,6 +361,3 @@ export default function ProxiesPanel() {
     </div>
   );
 }
-
-const th = { textAlign: 'left', padding: '10px 14px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)', fontWeight: 500 };
-const td = { padding: '10px 14px' };

@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
 import { useInboxLive } from '../lib/inboxLive.jsx';
-import { PLATFORMS, platformColor } from '../lib/platforms.js';
+import { usePlatforms, platformColor } from '../lib/platforms.js';
 import { useCloakManagerLaunch } from '../hooks/useCloakManagerLaunch';
 import { Avatar, EmptyState } from '../components/ui.jsx';
 import { useToast } from '../lib/toast.jsx';
@@ -14,17 +14,15 @@ const FOLDERS = [
   { key: 'sent', label: 'Hidden', icon: '◐' },
 ];
 
-const INBOX_LIVE = { reddit: true, redgifs: false, x: false, instagram: false, tiktok: false };
-
 const TILE_COLORS = {
-  red: '#e2a3a3', gold: 'var(--gold)', blue: 'var(--blue-bright)', green: 'var(--green-bright)', neutral: 'var(--text-1)',
+  red: 'var(--danger-fg)', gold: 'var(--gold)', blue: 'var(--blue-bright)', green: 'var(--green-bright)', neutral: 'var(--text-1)',
 };
 function AnalyticsTile({ label, value, tone = 'neutral' }) {
   return (
     <div style={{
       flex: 1, minWidth: 90,
       background: 'var(--bg-1)', border: '1px solid var(--border)',
-      borderRadius: 8, padding: '8px 12px',
+      borderRadius: 'var(--radius-lg)', padding: '8px 12px',
     }}>
       <div style={{ fontSize: 9, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>{label}</div>
       <div style={{ fontSize: 20, fontWeight: 700, color: TILE_COLORS[tone] || TILE_COLORS.neutral, marginTop: 2 }}>{value}</div>
@@ -37,6 +35,8 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   const { toast } = useToast();
   const { forPlatform, refresh: refreshAccounts, accounts: allAccounts } = useActiveAccount();
   const inboxLive = useInboxLive();
+  const PLATFORMS = usePlatforms();
+  const INBOX_LIVE = useMemo(() => Object.fromEntries(PLATFORMS.map(p => [p.v, p.v === 'reddit'])), [PLATFORMS]);
   const [platform, setPlatform] = useState('reddit');
   const ctx = forPlatform(platform);
   const [localAccounts, setLocalAccounts] = useState(null);
@@ -228,8 +228,9 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                   onClick={() => { setPlatform(p.v); setSelectedThreadKey(null); }}
                   style={{
                     background: isActive ? 'var(--bg-2)' : 'transparent',
-                    border: `1px solid ${isActive ? platformColor(p.v) : 'transparent'}`,
-                    borderRadius: 999, padding: '5px 12px',
+                    borderWidth: 1, borderStyle: 'solid',
+                    borderColor: isActive ? platformColor(p.v) : 'transparent',
+                    borderRadius: 'var(--radius-pill)', padding: '5px 12px',
                     color: isActive ? 'var(--text-0)' : 'var(--text-2)',
                     fontSize: 12, fontWeight: 600, cursor: 'pointer',
                     display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -298,7 +299,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
                             <span style={{
-                              fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
+                              fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 'var(--radius-sm)',
                               background: isCM ? 'rgba(155,89,182,0.2)' : 'rgba(74,144,226,0.2)',
                               color: isCM ? '#c9a3d9' : '#7aa8e0',
                             }}>{isCM ? 'CM' : 'EB'}</span>
@@ -317,7 +318,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
           {/* Column 2: conversation list + folder tabs */}
           <div style={listCol}>
             <div style={{ padding: '12px 12px 0 12px' }}>
-              <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, marginBottom: 10 }}>
+              <div style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 10, marginBottom: 10 }}>
                 <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 6 }}>
                   Account: <span style={{ color: 'var(--text-0)', fontWeight: 600 }}>{active ? active.username : '—'}</span>
                 </div>
@@ -507,7 +508,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                           style={{
                             position: 'absolute', right: 8, top: 8,
                             background: 'var(--bg-2)', border: '1px solid var(--border)',
-                            color: 'var(--text-0)', borderRadius: 8, padding: '4px 8px', fontSize: 11, cursor: 'pointer',
+                            color: 'var(--text-0)', borderRadius: 'var(--radius-lg)', padding: '4px 8px', fontSize: 11, cursor: 'pointer',
                           }}
                         >📋 {templates.length}</button>
                       )}
@@ -516,7 +517,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                           position: 'absolute', bottom: 'calc(100% + 6px)', right: 0,
                           width: 280, maxHeight: 260, overflowY: 'auto',
                           background: 'var(--bg-elev)', border: '1px solid var(--border)',
-                          borderRadius: 10, padding: 6, zIndex: 50,
+                          borderRadius: 'var(--radius-lg)', padding: 6, zIndex: 50,
                           boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
                         }}>
                           {templates.map((t) => (
@@ -526,7 +527,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
                               style={{
                                 display: 'block', width: '100%', textAlign: 'left',
                                 background: 'transparent', border: 'none', cursor: 'pointer',
-                                color: 'var(--text-0)', padding: '8px 10px', borderRadius: 6,
+                                color: 'var(--text-0)', padding: '8px 10px', borderRadius: 'var(--radius)',
                               }}
                             >
                               <div style={{ fontSize: 12, fontWeight: 600 }}>{t.name}</div>
@@ -548,7 +549,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
   );
 }
 
-const shell = { background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden', boxShadow: '0 8px 30px -10px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column' };
+const shell = { background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', boxShadow: '0 8px 30px -10px rgba(0,0,0,0.6)', display: 'flex', flexDirection: 'column' };
 const topBar = { display: 'flex', alignItems: 'center', padding: '16px 18px', borderBottom: '1px solid var(--border)', background: 'var(--bg-1)' };
 const analyticsStrip = { display: 'flex', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--border)', background: 'var(--bg-0)' };
 const threeCol = { display: 'grid', gridTemplateColumns: 'minmax(170px, 220px) minmax(260px, 340px) 1fr', flex: 1, minHeight: 0, overflow: 'hidden' };
@@ -558,16 +559,16 @@ const profileHeader = { fontSize: 11, fontWeight: 700, color: 'var(--gold)', tex
 const listCol = { display: 'flex', flexDirection: 'column', background: 'var(--bg-elev)', borderRight: '1px solid var(--border)', minHeight: 0, overflow: 'hidden' };
 const threadCol = { display: 'flex', flexDirection: 'column', background: 'var(--bg-0)', minWidth: 0, minHeight: 0, overflow: 'hidden' };
 
-const accountRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 12, background: 'transparent', border: '1px solid transparent', textAlign: 'left', cursor: 'pointer', width: '100%' };
+const accountRow = { display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 'var(--radius-lg)', background: 'transparent', border: '1px solid transparent', textAlign: 'left', cursor: 'pointer', width: '100%' };
 const accountRowActive = { background: 'var(--accent-soft)', border: '1px solid var(--accent)' };
-const badgeRed = { background: 'var(--danger)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999 };
-const badgeRedSm = { background: 'var(--danger)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 999, alignSelf: 'center' };
+const badgeRed = { background: 'var(--danger)', color: 'var(--text-on-accent)', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 'var(--radius-pill)' };
+const badgeRedSm = { background: 'var(--danger)', color: 'var(--text-on-accent)', fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 'var(--radius-pill)', alignSelf: 'center' };
 
-const kindTabs = { display: 'flex', gap: 0, marginBottom: 10, background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 10, padding: 3 };
+const kindTabs = { display: 'flex', gap: 0, marginBottom: 10, background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: 3 };
 const kindTab = {
   flex: 1, background: 'transparent', border: 'none',
   color: 'var(--text-2)', padding: '6px 8px',
-  fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer',
+  fontSize: 12, fontWeight: 600, borderRadius: 'var(--radius)', cursor: 'pointer',
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
 };
 const kindTabActive = {
@@ -576,24 +577,24 @@ const kindTabActive = {
   boxShadow: 'inset 0 0 0 1px rgba(212,166,74,0.35)',
 };
 const kindBadge = {
-  fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 999,
-  background: 'rgba(226,163,163,0.18)', color: '#e2a3a3',
+  fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 'var(--radius-pill)',
+  background: 'rgba(226,163,163,0.18)', color: 'var(--danger-fg)',
 };
 const folderTabs = { display: 'flex', gap: 6, marginBottom: 10 };
-const folderTab = { flex: 1, background: 'var(--bg-2)', border: '1px solid var(--border)', color: 'var(--text-2)', padding: '7px 10px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 };
+const folderTab = { flex: 1, background: 'var(--bg-2)', border: '1px solid var(--border)', color: 'var(--text-2)', padding: '7px 10px', fontSize: 12, fontWeight: 600, borderRadius: 'var(--radius-lg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 };
 const folderTabActive = { background: 'var(--accent-soft)', color: 'var(--text-0)', borderColor: 'var(--accent)' };
-const miniBadge = { background: 'var(--danger)', color: '#fff', fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 999, marginLeft: 2 };
+const miniBadge = { background: 'var(--danger)', color: 'var(--text-on-accent)', fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 'var(--radius-pill)', marginLeft: 2 };
 
-const convoRow = { display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 10px', width: '100%', textAlign: 'left', background: 'transparent', border: '1px solid transparent', borderRadius: 10, cursor: 'pointer', marginBottom: 4 };
+const convoRow = { display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 10px', width: '100%', textAlign: 'left', background: 'transparent', border: '1px solid transparent', borderRadius: 'var(--radius-lg)', cursor: 'pointer', marginBottom: 4 };
 const convoRowActive = { background: 'var(--accent-soft)', border: '1px solid var(--accent)' };
 
 const threadHeader = { display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px', borderBottom: '1px solid var(--border)' };
 const threadBody = { flex: 1, overflowY: 'auto', padding: '20px 22px', background: 'radial-gradient(ellipse at top, rgba(255,255,255,0.02), transparent 60%)' };
 
 const bubbleThem = { background: 'var(--bg-2)', color: 'var(--text-0)', padding: '9px 14px', borderRadius: '14px 14px 14px 4px', fontSize: 13.5, lineHeight: 1.5, whiteSpace: 'pre-wrap' };
-const bubbleMe = { background: 'var(--accent)', color: '#fff', padding: '9px 14px', borderRadius: '14px 14px 4px 14px', fontSize: 13.5, lineHeight: 1.5, whiteSpace: 'pre-wrap' };
+const bubbleMe = { background: 'var(--accent)', color: 'var(--text-on-accent)', padding: '9px 14px', borderRadius: '14px 14px 4px 14px', fontSize: 13.5, lineHeight: 1.5, whiteSpace: 'pre-wrap' };
 
 const composer = { display: 'flex', gap: 8, padding: 14, borderTop: '1px solid var(--border)', alignItems: 'flex-end' };
-const composerInput = { flex: 1, minHeight: 42, maxHeight: 140, background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 18, color: 'var(--text-0)', padding: '11px 16px', fontSize: 13, resize: 'none', fontFamily: 'var(--font-body)' };
-const sendBtn = { background: 'var(--accent)', border: 'none', color: '#fff', width: 42, height: 42, borderRadius: '50%', cursor: 'pointer', fontSize: 16, flexShrink: 0 };
-const primaryBtn = { background: 'var(--accent)', border: 'none', color: '#fff', fontWeight: 700, fontSize: 13, padding: '8px 18px', borderRadius: 999, cursor: 'pointer' };
+const composerInput = { flex: 1, minHeight: 42, maxHeight: 140, background: 'var(--bg-elev)', border: '1px solid var(--border)', borderRadius: 'var(--radius-pill)', color: 'var(--text-0)', padding: '11px 16px', fontSize: 13, resize: 'none', fontFamily: 'var(--font-body)' };
+const sendBtn = { background: 'var(--accent)', border: 'none', color: 'var(--text-on-accent)', width: 42, height: 42, borderRadius: '50%', cursor: 'pointer', fontSize: 16, flexShrink: 0 };
+const primaryBtn = { background: 'var(--accent)', border: 'none', color: 'var(--text-on-accent)', fontWeight: 700, fontSize: 13, padding: '8px 18px', borderRadius: 'var(--radius-pill)', cursor: 'pointer' };

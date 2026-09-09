@@ -8,11 +8,6 @@ release/
 .env.local
 *.sqlite
 *.db
-CLOAKMANAGER_INTEGRATION.md
-CLOAKMANAGER_INTEGRATION_COMPLETE.md
-CLOAKMANAGER_TESTING_GUIDE.md
-CLOAKMANAGER_IMPLEMENTATION_COMPLETE.md
-CLOAKMANAGER_FIXED_INTEGRATION.md
+# Local-only CloakManager vendor reference (not distributed with the repo)
 OSERUS-INTEGRATION-spec.md
-WEBSOCKET_INTEGRATION_COMPLETE.md
 api_and_websockets.md

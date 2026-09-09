@@ -27,40 +27,40 @@ export default function UpdateBanner() {
         bottom: 20,
         right: 20,
         zIndex: 9999,
-        background: '#13110d',
-        border: '1px solid #c9a227',
-        borderRadius: 8,
+        background: 'var(--bg-1)',
+        border: '1px solid var(--gold-bright)',
+        borderRadius: 'var(--radius-lg)',
         padding: '12px 16px',
-        color: '#f5efe0',
-        fontSize: 13,
+        color: 'var(--text-0)',
+        fontSize: 'var(--text-body)',
         boxShadow: '0 6px 24px rgba(0,0,0,0.5)',
         maxWidth: 320,
       }}
     >
       {state.status === 'downloading' && (
         <>
-          <div style={{ color: '#c9a227', fontWeight: 600, marginBottom: 4 }}>
+          <div style={{ color: 'var(--gold-bright)', fontWeight: 600, marginBottom: 4 }}>
             Update {state.version} downloading
           </div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>{state.percent}% — will install on restart</div>
+          <div style={{ fontSize: 'var(--text-sm)', opacity: 0.8 }}>{state.percent}% — will install on restart</div>
         </>
       )}
       {state.status === 'ready' && (
         <>
-          <div style={{ color: '#c9a227', fontWeight: 600, marginBottom: 6 }}>
+          <div style={{ color: 'var(--gold-bright)', fontWeight: 600, marginBottom: 6 }}>
             Update {state.version} ready
           </div>
-          <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 10 }}>
+          <div style={{ fontSize: 'var(--text-sm)', opacity: 0.85, marginBottom: 10 }}>
             Will install automatically next time you close the app — or restart now.
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button
               onClick={restart}
               style={{
-                background: '#c9a227',
-                color: '#0d0c0a',
+                background: 'var(--gold-bright)',
+                color: 'var(--bg-0)',
                 border: 'none',
-                borderRadius: 4,
+                borderRadius: 'var(--radius-sm)',
                 padding: '6px 12px',
                 fontWeight: 600,
                 cursor: 'pointer',
@@ -72,9 +72,9 @@ export default function UpdateBanner() {
               onClick={() => setState({ status: 'idle', version: '', percent: 0 })}
               style={{
                 background: 'transparent',
-                color: '#f5efe0',
-                border: '1px solid #3a352b',
-                borderRadius: 4,
+                color: 'var(--text-0)',
+                border: '1px solid var(--border-strong)',
+                borderRadius: 'var(--radius-sm)',
                 padding: '6px 12px',
                 cursor: 'pointer',
               }}

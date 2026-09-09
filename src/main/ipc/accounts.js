@@ -144,15 +144,16 @@ function register(ipcMain) {
     const accounts = getDb()
       .prepare(
         `SELECT a.*, p.label AS proxy_label, p.kind AS proxy_kind,
-                bs.browser_mode, bs.cloak_profile_name, bs.autopilot_skip,
-                COALESCE(NULLIF(bs.browser_mode, 'inherit'), ubs.default_browser_mode, 'electron') AS resolved_browser_mode,
+                bs.autopilot_skip, bs.cloak_profile_override,
+                mp.browser_mode AS resolved_browser_mode,
+                mp.cloak_profile_name AS model_cm_name,
+                COALESCE(bs.cloak_profile_override, mp.cloak_profile_name) AS effective_cm_name,
                 cp.profile_name AS cloak_actual_name, cp.cdp_port, cp.status AS cloak_status
          FROM reddit_accounts a
-         LEFT JOIN model_profiles mp ON mp.id = a.profile_id
+         JOIN model_profiles mp ON mp.id = a.profile_id
          LEFT JOIN proxies p ON p.id = COALESCE(a.proxy_id, mp.proxy_id)
          LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
-         LEFT JOIN user_browser_settings ubs ON ubs.user_id = mp.assigned_user_id
-         LEFT JOIN cloakmanager_profiles cp ON cp.account_id = a.id
+         LEFT JOIN cloakmanager_profiles cp ON cp.profile_name = COALESCE(bs.cloak_profile_override, mp.cloak_profile_name)
          WHERE a.profile_id = ? ${platformClause}
          ORDER BY a.platform, a.status, a.username`
       )
@@ -187,28 +188,25 @@ function register(ipcMain) {
       }
       const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
-      // Account-level proxy wins; if unset, fall back to the model's proxy so
-      // setting one proxy at the model level lights up every account under it.
-      const userJoinParam = [user.id];
-      const allParams = userJoinParam.concat(params);
       const accounts = getDb()
         .prepare(
           `SELECT a.*, p.name AS profile_name, p.main_email AS profile_main_email,
                   px.label AS proxy_label, px.kind AS proxy_kind,
                   px.last_test_ok AS proxy_test_ok, px.last_test_error AS proxy_test_error,
-                  bs.browser_mode, bs.cloak_profile_name,
-                  COALESCE(NULLIF(bs.browser_mode, 'inherit'), ubs.default_browser_mode, 'electron') AS resolved_browser_mode,
+                  p.browser_mode AS resolved_browser_mode,
+                  p.cloak_profile_name AS model_cm_name,
+                  bs.cloak_profile_override,
+                  COALESCE(bs.cloak_profile_override, p.cloak_profile_name) AS effective_cm_name,
                   cp.profile_name AS cloak_actual_name, cp.cdp_port, cp.status AS cloak_status
            FROM reddit_accounts a
            JOIN model_profiles p ON p.id = a.profile_id
            LEFT JOIN proxies px ON px.id = COALESCE(a.proxy_id, p.proxy_id)
            LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
-           LEFT JOIN user_browser_settings ubs ON ubs.user_id = ?
-           LEFT JOIN cloakmanager_profiles cp ON cp.account_id = a.id
+           LEFT JOIN cloakmanager_profiles cp ON cp.profile_name = COALESCE(bs.cloak_profile_override, p.cloak_profile_name)
            ${whereClause}
            ORDER BY p.name, a.platform, a.status, a.username`
         )
-        .all(...allParams);
+        .all(...params);
       return { ok: true, accounts: accounts.map(hydrateAccount) };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -222,7 +220,8 @@ function register(ipcMain) {
       if (!user) throw new Error('Not authenticated');
       if (!canAccessProfile(user, profileId)) throw new Error('Not authorized');
       const plat = platform || 'reddit';
-      if (!['reddit', 'redgifs', 'x', 'instagram', 'tiktok'].includes(plat)) throw new Error('Invalid platform');
+      const platRow = getDb().prepare('SELECT key FROM platforms WHERE key = ?').get(plat);
+      if (!platRow) throw new Error('Invalid platform');
       const os = ['desktop', 'android', 'ios'].includes(osProfile) ? osProfile : 'desktop';
       ensureAccountMigrations();
       const partitionKey = `${plat}-${profileId}-${username.toLowerCase().replace(/[^a-z0-9_-]/g, '')}-${Date.now()}`;
@@ -246,18 +245,6 @@ function register(ipcMain) {
         if (teamId) setSharedCredential(teamId, info.lastInsertRowid, 'email_password', emailPassword, user.id).catch(() => {});
       }
       log(user, 'account.create', 'account', info.lastInsertRowid, `${plat} u/${username}`);
-
-      // Initialize account_browser_settings with default profile name
-      const { getProfileName } = require('../lib/profileName');
-      const account = { username, platform: plat };
-      const defaultProfileName = getProfileName(account);
-
-      getDb().prepare(`
-        INSERT INTO account_browser_settings (account_id, browser_mode, cloak_profile_name)
-        VALUES (?, 'inherit', ?)
-      `).run(info.lastInsertRowid, defaultProfileName);
-
-      console.log('[accounts:create] Initialized browser_settings with profile:', defaultProfileName);
 
       return { ok: true, id: info.lastInsertRowid, partitionKey };
     } catch (err) {
@@ -302,7 +289,7 @@ function register(ipcMain) {
           if (acct.team_id) deleteSharedCredential(acct.team_id, accountId, 'email_password').catch(() => {});
         }
       }
-      if (sets.length === 0 && !updates.browserMode && !updates.cloakProfileName) return { ok: true };
+      if (sets.length === 0 && !updates.cloakProfileOverride) return { ok: true };
       params.push(accountId);
 
       if (sets.length > 0) {
@@ -314,45 +301,20 @@ function register(ipcMain) {
         }
       }
 
-      // Handle browser_mode and cloak_profile_name separately in account_browser_settings table
-      const browserSettings = {};
-      if (updates.browserMode !== undefined) {
-        browserSettings.browser_mode = updates.browserMode;
-      }
-      if (updates.cloakProfileName !== undefined) {
-        browserSettings.cloak_profile_name = updates.cloakProfileName;
-      }
-
-      if (Object.keys(browserSettings).length > 0) {
+      // Handle cloak_profile_override separately in account_browser_settings table
+      if (updates.cloakProfileOverride !== undefined) {
         const existing = getDb().prepare(`
           SELECT account_id FROM account_browser_settings WHERE account_id = ?
         `).get(accountId);
 
-        const setClauses = [];
-        const setParams = [];
-
-        if (browserSettings.browser_mode !== undefined) {
-          setClauses.push('browser_mode = ?');
-          setParams.push(browserSettings.browser_mode);
-        }
-        if (browserSettings.cloak_profile_name !== undefined) {
-          setClauses.push('cloak_profile_name = ?');
-          setParams.push(browserSettings.cloak_profile_name);
-        }
-
-        setParams.push(accountId);
-
         if (existing) {
           getDb().prepare(`
-            UPDATE account_browser_settings
-            SET ${setClauses.join(', ')}
-            WHERE account_id = ?
-          `).run(...setParams);
+            UPDATE account_browser_settings SET cloak_profile_override = ? WHERE account_id = ?
+          `).run(updates.cloakProfileOverride, accountId);
         } else {
           getDb().prepare(`
-            INSERT INTO account_browser_settings (account_id, browser_mode, cloak_profile_name)
-            VALUES (?, ?, ?)
-          `).run(accountId, browserSettings.browser_mode || 'inherit', browserSettings.cloak_profile_name || null);
+            INSERT INTO account_browser_settings (account_id, cloak_profile_override) VALUES (?, ?)
+          `).run(accountId, updates.cloakProfileOverride);
         }
       }
 
@@ -417,7 +379,8 @@ function register(ipcMain) {
       if (!user) throw new Error('Not authenticated');
       if (!canAccessProfile(user, profileId)) throw new Error('Not authorized for this profile');
       const plat = platform || 'reddit';
-      if (!['reddit', 'redgifs', 'x', 'instagram', 'tiktok'].includes(plat)) throw new Error('Invalid platform');
+      const platRow = getDb().prepare('SELECT key FROM platforms WHERE key = ?').get(plat);
+      if (!platRow) throw new Error('Invalid platform');
       ensureAccountMigrations();
 
       const input = String(lines || '').split(/\r?\n/);
@@ -431,12 +394,6 @@ function register(ipcMain) {
       );
 
       const txn = getDb().transaction(() => {
-        const { getProfileName } = require('../lib/profileName');
-        const insertBrowserSettings = getDb().prepare(`
-          INSERT INTO account_browser_settings (account_id, browser_mode, cloak_profile_name)
-          VALUES (?, 'inherit', ?)
-        `);
-
         for (let i = 0; i < input.length; i++) {
           const raw = input[i].trim();
           if (!raw || raw.startsWith('#')) continue;
@@ -453,10 +410,6 @@ function register(ipcMain) {
             );
             if (p) credentialVaultSet('account_password', info.lastInsertRowid, p);
             if (ep) credentialVaultSet('email_password', info.lastInsertRowid, ep);
-
-            // Initialize browser_settings with default profile name
-            const defaultProfileName = getProfileName({ username: cleanUser, platform: plat });
-            insertBrowserSettings.run(info.lastInsertRowid, defaultProfileName);
 
             created.push({ id: info.lastInsertRowid, username: cleanUser });
           } catch (err) {
@@ -492,11 +445,46 @@ function register(ipcMain) {
       if (!acct) throw new Error('Account not found');
       if (!canAccessProfile(user, acct.profile_id)) throw new Error('Not authorized for this account');
       getDb().prepare(
-        `INSERT INTO account_browser_settings (account_id, browser_mode, autopilot_skip, created_at)
-         VALUES (?, 'inherit', ?, datetime('now'))
+        `INSERT INTO account_browser_settings (account_id, autopilot_skip, created_at)
+         VALUES (?, ?, datetime('now'))
          ON CONFLICT(account_id) DO UPDATE SET autopilot_skip = excluded.autopilot_skip`
       ).run(accountId, skip ? 1 : 0);
       return { ok: true, skip: !!skip };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('accounts:setCloakOverride', (_e, { token, accountId, overrideName }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      const acct = getDb().prepare('SELECT profile_id FROM reddit_accounts WHERE id = ?').get(accountId);
+      if (!acct) throw new Error('Account not found');
+      if (!canAccessProfile(user, acct.profile_id)) throw new Error('Not authorized');
+      const existing = getDb().prepare('SELECT account_id FROM account_browser_settings WHERE account_id = ?').get(accountId);
+      if (existing) {
+        getDb().prepare('UPDATE account_browser_settings SET cloak_profile_override = ? WHERE account_id = ?').run(overrideName || null, accountId);
+      } else {
+        getDb().prepare('INSERT INTO account_browser_settings (account_id, cloak_profile_override) VALUES (?, ?)').run(accountId, overrideName || null);
+      }
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  // Clear the needs_attention flag set by the CDP orchestrator after a
+  // hard CloakManager login/task failure (wrong password, 2FA, captcha).
+  // Puts the account back in the autopilot / scheduler pool.
+  ipcMain.handle('accounts:clearAttention', (_e, { token, accountId }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      if (user.role === 'chatter') throw new Error('Chatters cannot change account settings');
+      const acct = getDb().prepare('SELECT profile_id FROM reddit_accounts WHERE id = ?').get(accountId);
+      if (!acct) throw new Error('Account not found');
+      if (!canAccessProfile(user, acct.profile_id)) throw new Error('Not authorized for this account');
+      getDb().prepare(
+        "UPDATE reddit_accounts SET needs_attention = 0, attention_reason = NULL, attention_at = NULL WHERE id = ?"
+      ).run(accountId);
+      return { ok: true };
     } catch (err) { return { ok: false, error: err.message }; }
   });
 }

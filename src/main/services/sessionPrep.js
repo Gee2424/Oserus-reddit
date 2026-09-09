@@ -170,35 +170,20 @@ async function prepareSessionForAccount(accountId) {
   if (!accountId) return { ok: false, error: 'No accountId' };
   const db = getDb();
 
-  // Check browser mode for this account
-  const modeSettings = db.prepare(`
-    SELECT browser_mode, cloak_profile_name
-    FROM account_browser_settings
-    WHERE account_id = ?
-  `).get(accountId);
-
-  let finalMode = 'electron';
-  let profileName = null;
-
-  if (modeSettings?.browser_mode === 'cloakmanager') {
-    finalMode = 'cloakmanager';
-    profileName = modeSettings.cloak_profile_name || null;
-  } else if (modeSettings?.browser_mode === 'inherit') {
-    finalMode = resolveBrowserMode(accountId).mode;
-  }
+  // Resolve browser mode from model_profiles
+  const { mode: finalMode, profileName } = resolveBrowserMode(accountId);
 
   // If CloakManager mode, return mode info without creating Electron session
   if (finalMode === 'cloakmanager') {
-    // Get account info for profile name generation
     const account = db.prepare('SELECT username, partition_key FROM reddit_accounts WHERE id = ?').get(accountId);
     if (!account) return { ok: false, error: 'Account not found' };
 
     return {
       ok: true,
       mode: 'cloakmanager',
-      accountId: account.id,
+      accountId,
       partitionKey: account.partition_key,
-      profileName: profileName // Always set by account creation/update
+      profileName
     };
   }
 

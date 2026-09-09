@@ -20,7 +20,12 @@ const metadata = {
   requires: ['cdpConnection', 'credentials'],
   nativeMode: true,  // NEW: Use native Playwright API
   version: '2.0.1',
-  description: 'Reddit login with native Playwright API (better locators, auto-waiting, humanization)'
+  description: 'Reddit login with native Playwright API (better locators, auto-waiting, humanization)',
+  // This step needs one specific account's credentials — on a model-level
+  // CloakManager profile shared by accounts on several platforms, it only
+  // runs when the launch was targeted at a Reddit account, never on a
+  // generic model-level launch or for a sibling account on another platform.
+  accountScoped: true,
 };
 
 /**
@@ -126,13 +131,10 @@ async function execute(nativeConnection, context) {
     const otpCount = await otpPage.count();
 
     if (otpCount > 0) {
-      console.log('[Reddit Login] ⚠️ 2FA required but not supported - awaiting manual intervention');
-      return {
-        success: false,
-        requires2FA: true,
-        username: credentials.username,
-        message: '2FA code required'
-      };
+      console.log('[Reddit Login] ⚠️ 2FA required — needs a human');
+      // Throw (don't return) so the executor classifies this as a
+      // non-retryable TwoFactorRequired and flags the account.
+      throw new Error('two_factor_required: Reddit is asking for a 2FA code for ' + credentials.username);
     }
 
     // Wait for potential redirect

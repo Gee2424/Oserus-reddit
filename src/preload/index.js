@@ -62,9 +62,30 @@ const api = {
     delete: (data) => ipcRenderer.invoke('accounts:delete', data),
     getAutopilotSkip: (data) => ipcRenderer.invoke('accounts:getAutopilotSkip', data),
     setAutopilotSkip: (data) => ipcRenderer.invoke('accounts:setAutopilotSkip', data),
+    setCloakOverride: (data) => ipcRenderer.invoke('accounts:setCloakOverride', data),
+    clearAttention: (data) => ipcRenderer.invoke('accounts:clearAttention', data),
+    onNeedsAttention: (callback) => {
+      const listener = (_e, payload) => callback(payload);
+      ipcRenderer.on('account:needsAttention', listener);
+      return () => ipcRenderer.removeListener('account:needsAttention', listener);
+    },
   },
   activity: {
     list: (data) => ipcRenderer.invoke('activity:list', data),
+  },
+  coordinator: {
+    // Background-work notifications for the activity drawer.
+    onEvent: (callback) => {
+      const listener = (_e, payload) => callback(payload);
+      ipcRenderer.on('coordinator:event', listener);
+      return () => ipcRenderer.removeListener('coordinator:event', listener);
+    },
+  },
+  platforms: {
+    list: (data) => ipcRenderer.invoke('platforms:list', data),
+    create: (data) => ipcRenderer.invoke('platforms:create', data),
+    update: (data) => ipcRenderer.invoke('platforms:update', data),
+    delete: (data) => ipcRenderer.invoke('platforms:delete', data),
   },
   // Management Hub backend — per-user productivity metrics + drill-down.
   team: {
@@ -326,6 +347,7 @@ const api = {
   // linked accounts.
   oserusBrowser: {
     openAccount:        (data) => ipcRenderer.invoke('oserus-browser:openAccount', data),
+    openModel:          (data) => ipcRenderer.invoke('oserus-browser:openModel', data),
     openAllForProfile:  (data) => ipcRenderer.invoke('oserus-browser:openAllForProfile', data),
   },
   chrome: {
@@ -369,11 +391,10 @@ const api = {
   },
   cloakmanager: {
     checkAvailable: (data) => ipcRenderer.invoke('cloakmanager:checkAvailable', data),
-    getSettings: (data) => ipcRenderer.invoke('cloakmanager:getSettings', data),
-    updateSettings: (data) => ipcRenderer.invoke('cloakmanager:updateSettings', data),
     getAccountMode: (data) => ipcRenderer.invoke('cloakmanager:getAccountMode', data),
     setAccountMode: (data) => ipcRenderer.invoke('cloakmanager:setAccountMode', data),
     createProfile: (data) => ipcRenderer.invoke('cloakmanager:createProfile', data),
+    createModelProfile: (data) => ipcRenderer.invoke('cloakmanager:createModelProfile', data),
     launchProfile: (data) => ipcRenderer.invoke('cloakmanager:launchProfile', data),
     stopProfile: (data) => ipcRenderer.invoke('cloakmanager:stopProfile', data),
     getProfileInfo: (data) => ipcRenderer.invoke('cloakmanager:getProfileInfo', data),
@@ -388,6 +409,15 @@ const api = {
     getBinaryStatus: (data) => ipcRenderer.invoke('cloakmanager:getBinaryStatus', data),
     startBinary: (data) => ipcRenderer.invoke('cloakmanager:startBinary', data),
     stopBinary: (data) => ipcRenderer.invoke('cloakmanager:stopBinary', data),
+    // Model-level launch script configuration (one shared CloakManager
+    // profile per model, so scripts are configured once per model)
+    getAvailableLaunchScripts: (data) => ipcRenderer.invoke('cloakmanager:getAvailableLaunchScripts', data),
+    getModelLaunchScripts: (data) => ipcRenderer.invoke('cloakmanager:getModelLaunchScripts', data),
+    updateModelLaunchScript: (data) => ipcRenderer.invoke('cloakmanager:updateModelLaunchScript', data),
+    reorderModelLaunchScripts: (data) => ipcRenderer.invoke('cloakmanager:reorderModelLaunchScripts', data),
+    getCustomScripts: (data) => ipcRenderer.invoke('cloakmanager:getCustomScripts', data),
+    saveCustomScript: (data) => ipcRenderer.invoke('cloakmanager:saveCustomScript', data),
+    deleteCustomScript: (data) => ipcRenderer.invoke('cloakmanager:deleteCustomScript', data),
     // WebSocket event listeners
     onProfileLaunched: (callback) => {
       const listener = (_event, data) => callback(data);

@@ -6,6 +6,8 @@ import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { Banner } from '../components/ui.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
 import RunHistory from '../components/RunHistory.jsx';
+import PageHeader from '../components/PageHeader.jsx';
+import TabBar from '../components/TabBar.jsx';
 
 // Automation = Scheduler + Autopilot + AI Settings under one sidebar entry.
 // AI Settings was moved out of the Scheduler's hidden <details> into its
@@ -76,7 +78,7 @@ function StatsBar() {
             <div style={{
               fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 600,
               color: it.tone === 'gold' ? 'var(--gold-bright)' :
-                     it.tone === 'red' ? '#e2a3a3' :
+                     it.tone === 'red' ? 'var(--danger-fg)' :
                      it.tone === 'green' ? 'var(--green-bright)' :
                      'var(--text-0)',
             }}>
@@ -88,7 +90,7 @@ function StatsBar() {
       </div>
       {circuits.length > 0 && (
         <div style={{ marginBottom: 18, padding: '10px 14px', background: 'rgba(180,90,90,0.1)', border: '1px solid rgba(180,90,90,0.25)', borderRadius: 'var(--radius-lg)', fontSize: 12 }}>
-          <span style={{ color: '#e2a3a3', fontWeight: 700 }}>Circuit breaker active: </span>
+          <span style={{ color: 'var(--danger-fg)', fontWeight: 700 }}>Circuit breaker active: </span>
           {circuits.map((c, i) => (
             <span key={c.accountId}>
               Account {c.accountId} paused ({c.failures} consecutive failures{', '}
@@ -113,46 +115,25 @@ export default function AutomationPage({ navigate, initialSection }) {
     return () => clearTimeout(t);
   }, [aiMsg, aiErr]);
 
-  const tabs = [
-    { k: 'scheduler', l: 'Scheduler', d: 'Compose posts, schedule, monitor queue' },
-    { k: 'autopilot', l: 'Autopilot', d: 'Engagement rules, run controls, activity' },
-    { k: 'ai',        l: 'AI Settings', d: 'Persona, tone, length, provider, system prompt' },
-    { k: 'history',   l: 'Run History', d: 'Automation execution log across all platforms' },
-  ];
-
   return (
     <div>
-      <div className="title-block">
-        <div>
-          <div className="eyebrow">Workspace</div>
-          <h1>Automation</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            One workspace for everything that runs while the app is open —
-            scheduled posts, autopilot rules, AI settings, and run history.
-          </div>
-        </div>
-        <div style={{ marginLeft: 'auto' }}>
-          <PopOutButton route={section === 'autopilot' ? 'autopilot' : section === 'ai' ? 'scheduler-pro' : 'scheduler-pro'} title="Automation" />
-        </div>
-      </div>
+      <PageHeader eyebrow="Workspace" title="Automation" subtitle="One workspace for everything that runs while the app is open — scheduled posts, autopilot rules, AI settings, and run history.">
+        <PopOutButton route={section === 'autopilot' ? 'autopilot' : 'scheduler-pro'} title="Automation" />
+      </PageHeader>
 
       <StatsBar />
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 18, borderBottom: '1px solid var(--border)' }}>
-        {tabs.map((t) => (
-          <button
-            key={t.k}
-            onClick={() => setSection(t.k)}
-            title={t.d}
-            style={{
-              background: 'transparent', border: 'none',
-              borderBottom: '2px solid ' + (section === t.k ? 'var(--gold)' : 'transparent'),
-              color: section === t.k ? 'var(--gold-bright)' : 'var(--text-2)',
-              padding: '10px 18px', fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: -1,
-            }}
-          >{t.l}</button>
-        ))}
-      </div>
+      <TabBar
+        items={[
+          { key: 'scheduler', label: 'Scheduler', hint: 'Schedule posts for a specific account. Due posts fire automatically while the app is open.' },
+          { key: 'autopilot', label: 'Autopilot', hint: 'One protocol per platform — posts-to-comments pacing + content mix, runs in the background.' },
+          { key: 'ai', label: 'AI Settings', hint: 'Pick the Grok model, tune the persona, and decide which platforms use AI-generated content.' },
+          { key: 'history', label: 'Run History', hint: 'Automation execution log across all platforms' },
+        ]}
+        activeKey={section}
+        onChange={setSection}
+        style={{ marginBottom: 18 }}
+      />
 
       {section === 'scheduler' && <ErrorBoundary label="Scheduler"><SchedulerProPage navigate={navigate} /></ErrorBoundary>}
       {section === 'autopilot' && <ErrorBoundary label="Autopilot"><AutopilotPage /></ErrorBoundary>}

@@ -29,6 +29,10 @@ export function AuthProvider({ children }) {
           const u = normalizeUser(res.user);
           setUser(u);
           const teamsRes = await window.api.team.listTeams({});
+          const sessionRes = await window.api.teamAuth.getSession({});
+          if (sessionRes.ok && sessionRes.session?.access_token) {
+            window.api.cloud.setAccessToken({ token: sessionRes.session.access_token }).catch(() => {});
+          }
           if (teamsRes.ok && teamsRes.teams && teamsRes.teams.length > 0) {
             const teamId = teamsRes.teams[0].id;
             setActiveTeamId(teamId);

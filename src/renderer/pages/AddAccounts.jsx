@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
-import { Banner } from '../components/ui.jsx';
+import { Banner, FormGrid } from '../components/ui.jsx';
 import { useToast } from '../lib/toast.jsx';
 import { useConfirm } from '../lib/confirm.jsx';
 import ProxiesPanel from '../components/ProxiesPanel.jsx';
+import PageHeader from '../components/PageHeader.jsx';
 
 const TABS = [
   { key: 'bulk',    label: 'Bulk Paste',          hint: 'username:password per line' },
@@ -14,7 +15,7 @@ const TABS = [
   { key: 'proxies', label: 'Proxies',              hint: 'create/edit proxy pool' },
 ];
 
-import { PLATFORMS } from '../lib/platforms.js';
+import { PLATFORMS, platformUsernamePrefix } from '../lib/platforms.js';
 
 const USER_AGENTS = [
   { v: '',                                                                                                       label: '— default (Windows / Chrome 127) —' },
@@ -40,7 +41,7 @@ export default function AddAccountsPage({ navigate, initialTab }) {
   const [proxies, setProxies] = useState([]);
   const [form, setForm] = useState({
     profileId: '', platform: 'reddit', proxyId: '', status: 'warming',
-    userAgent: '', browserMode: 'inherit', cloakProfileName: '',
+    userAgent: '',
     lines: '', username: '', password: '', email: '', emailPw: '',
   });
   const [busy, setBusy] = useState(false);
@@ -94,48 +95,14 @@ export default function AddAccountsPage({ navigate, initialTab }) {
     });
     setBusy(false);
     if (res.ok) {
-      // Set browser mode if CloakManager selected (Reddit only)
-      if (form.platform === 'reddit' && form.browserMode) {
-        try {
-          await window.api.cloakmanager.setAccountMode({
-            token,
-            accountId: res.id,
-            mode: form.browserMode,
-            profileName: form.cloakProfileName || null,
-          });
-          // Create CloakManager profile if mode is cloakmanager
-          if (form.browserMode === 'cloakmanager') {
-            const profileRes = await window.api.cloakmanager.createProfile({
-              token,
-              accountId: res.id,
-              accountConfig: {
-                os: 'windows'
-              },
-            });
-            if (!profileRes.ok) {
-              console.error('CloakManager profile creation failed:', profileRes.error);
-            }
-          }
-        } catch (err) {
-          console.error('Failed to set browser mode:', err);
-        }
-      }
       setForm((f) => ({ ...f, username: '', password: '', email: '', emailPw: '' }));
-      toast('ok', `Added u/${form.username}.`);
+      toast('ok', `Added ${platformUsernamePrefix(form.platform)}${form.username}.`);
     } else toast('err', res.error);
   }
 
   return (
     <div>
-      <div className="title-block">
-        <div>
-          <div className="eyebrow">Accounts</div>
-          <h1>Add Accounts</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Bulk-import, add one at a time, or open the browser to sign in directly.
-          </div>
-        </div>
-      </div>
+      <PageHeader eyebrow="Accounts" title="Add Accounts" subtitle="Bulk-import, add one at a time, or open the browser to sign in directly." />
 
 
 
@@ -152,7 +119,7 @@ export default function AddAccountsPage({ navigate, initialTab }) {
 
         <div style={{ padding: 22 }}>
           {/* Shared: class / platform / proxy / status */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 18 }}>
+          <FormGrid cols={4} style={{ marginBottom: 18 }}>
             <div>
               <label>Class (model)</label>
               <select value={form.profileId} onChange={(e) => set('profileId', e.target.value)}>
@@ -179,7 +146,7 @@ export default function AddAccountsPage({ navigate, initialTab }) {
                 {STATUSES.map((s) => <option key={s.v} value={s.v}>{s.label}</option>)}
               </select>
             </div>
-          </div>
+          </FormGrid>
 
           <div style={{ marginBottom: 18 }}>
             <label>User Agent (browser identity for these accounts' sessions)</label>
@@ -190,40 +157,6 @@ export default function AddAccountsPage({ navigate, initialTab }) {
               Stored on the account for now; future builds will set it on the per-account browser session.
             </div>
           </div>
-
-          {/* Browser Mode Selection (for Reddit accounts) */}
-          {form.platform === 'reddit' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
-              <div>
-                <label>Browser Mode</label>
-                <select value={form.browserMode} onChange={(e) => set('browserMode', e.target.value)}>
-                  <option value="inherit">Inherit (use system default)</option>
-                  <option value="electron">Electron (standard)</option>
-                  <option value="cloakmanager">CloakManager (advanced)</option>
-                </select>
-                <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-                  {form.browserMode === 'inherit' && 'Uses the default browser mode set in Settings.'}
-                  {form.browserMode === 'electron' && 'Standard Electron webview with shared fingerprint.'}
-                  {form.browserMode === 'cloakmanager' && 'Unique fingerprint per account. Requires CloakManager service.'}
-                </div>
-              </div>
-              <div>
-                <label>CloakManager Profile Name (optional)</label>
-                <input
-                  value={form.cloakProfileName}
-                  onChange={(e) => set('cloakProfileName', e.target.value)}
-                  placeholder="Auto-generated if blank"
-                  disabled={form.browserMode !== 'cloakmanager'}
-                  style={{ fontFamily: 'monospace' }}
-                />
-                {form.browserMode === 'cloakmanager' && (
-                  <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-                    {form.cloakProfileName ? `Using: ${form.cloakProfileName}` : `Auto: reddit-${form.username || 'username'}`}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
 
           {tab === 'bulk' && (
             <>
@@ -249,9 +182,9 @@ export default function AddAccountsPage({ navigate, initialTab }) {
               </button>
 
               {last && last.errors?.length > 0 && (
-                <div style={{ marginTop: 14, padding: 12, background: 'rgba(180,90,90,0.08)', border: '1px solid #6e2c2c', borderRadius: 8 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#e2a3a3', marginBottom: 6 }}>{last.errors.length} line{last.errors.length === 1 ? '' : 's'} skipped:</div>
-                  <ul style={{ fontSize: 11, color: '#c4a8a8', margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
+                <div style={{ marginTop: 14, padding: 12, background: 'rgba(180,90,90,0.08)', border: '1px solid var(--danger-border)', borderRadius: 'var(--radius-lg)' }}>
+                  <div style={{ fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--danger-fg)', marginBottom: 6 }}>{last.errors.length} line{last.errors.length === 1 ? '' : 's'} skipped:</div>
+                  <ul style={{ fontSize: 11, color: 'var(--text-3)', margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
                     {last.errors.slice(0, 10).map((e, i) => <li key={i}>Line {e.line}{e.username ? ` (${e.username})` : ''}: {e.error}</li>)}
                     {last.errors.length > 10 && <li>…and {last.errors.length - 10} more</li>}
                   </ul>
@@ -298,14 +231,18 @@ export default function AddAccountsPage({ navigate, initialTab }) {
               <div style={{ fontSize: 36, marginBottom: 10 }}>◈</div>
               <h3 style={{ marginBottom: 6 }}>Sign in inside the in-app browser</h3>
               <div className="muted" style={{ fontSize: 13, maxWidth: 520, margin: '0 auto', lineHeight: 1.6 }}>
-                Create the empty account here first (Direct Input or Bulk), then open it in the
-                in-app browser and sign into the platform normally. The browser's cookies are stored
-                in that account's isolated session, so the Inbox / Autopilot / Scheduler all
-                read from the live login automatically.
+                Create the empty account here first, then open it in the in-app browser and sign
+                into the platform normally. The browser's cookies are stored in that account's
+                isolated session, so the Inbox / Autopilot / Scheduler all read from the live login.
               </div>
-              <button className="primary" onClick={() => navigate && navigate('profiles')} style={{ marginTop: 18 }}>
-                Back to Models ↗
-              </button>
+              <div style={{ marginTop: 18, display: 'flex', gap: 8, justifyContent: 'center' }}>
+                <button className="primary" onClick={() => setTab('direct')}>
+                  + Add one account
+                </button>
+                <button className="ghost" onClick={() => setTab('bulk')}>
+                  Bulk paste accounts
+                </button>
+              </div>
             </div>
           )}
 
@@ -425,11 +362,11 @@ function BackupPoolPanel({ token, activeTeamId }) {
         account; marking "Banned" pulls a burned one out of rotation.
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-        <BackupCol title={`Live · ${operating.length}`} accounts={operating} color="#7fd99a"
+        <BackupCol title={`Live · ${operating.length}`} accounts={operating} color="var(--online-green)"
           actionLabel="Mark banned" onAct={(id) => mark(id, 'banned')} />
         <BackupCol title={`Backup · ${warming.length}`} accounts={warming} color="var(--gold)"
           actionLabel="Promote to Live" onAct={(id) => mark(id, 'ready')} />
-        <BackupCol title={`Banned · ${banned.length}`} accounts={banned} color="#e2a3a3"
+        <BackupCol title={`Banned · ${banned.length}`} accounts={banned} color="var(--danger-fg)"
           actionLabel="Move to Backup" onAct={(id) => mark(id, 'warming')} />
       </div>
     </div>
@@ -444,7 +381,7 @@ function BackupCol({ title, accounts, color, actionLabel, onAct }) {
         ? <div className="muted" style={{ fontSize: 12 }}>None.</div>
         : accounts.map((a) => (
           <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>u/{a.username}</span>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{platformUsernamePrefix(a.platform || 'reddit')}{a.username}</span>
             <button className="ghost" onClick={() => onAct(a.id)} style={{ fontSize: 10, padding: '3px 8px' }}>{actionLabel}</button>
           </div>
         ))}

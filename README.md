@@ -2,7 +2,7 @@
 
 Multi-platform account management for OnlyFans agencies — Reddit, RedGifs, X, Instagram, TikTok. Electron desktop app with a custom Chromium chrome ("Oserus Browser"), per-account session + proxy isolation, antidetect fingerprinting per model, AI-driven autopilot + scheduling, and team sync via Supabase.
 
-Current version: **0.85.5**. See [`UPDATES_v0.85.md`](UPDATES_v0.85.md) for everything that's landed since the v0.8 rebrand.
+Current version: **0.86.7**. See [`UPDATES_v0.85.md`](UPDATES_v0.85.md) for the consolidated recap of everything since the v0.8 rebrand.
 
 ---
 

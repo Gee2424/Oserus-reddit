@@ -14,7 +14,9 @@ import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
 // Module-level cached snapshot — replaced only on state change
 let _storeSnapshot = {
   cloakStatus: {},
-  launchProgress: {},
+  launchProgress: {},   // per profile — CloakManager's own launch_progress events
+  cdpProgress: {},      // per profile — our orchestrator state machine (cdp:progress)
+  attention: {},        // per accountId — { code, reason, at }
   runningProfiles: new Set(),
   isAvailable: null,
   wsConnected: false,
@@ -86,6 +88,35 @@ function _ensureWS() {
   window.api.cloakmanager.onWSDisconnected(() => {
     _updateSnapshot({ wsConnected: false });
   });
+
+  // Our orchestrator's launch state machine: { profile, accountId, stage, ok, reason, message }
+  window.api.cloakmanager.onCDPProgress?.((data) => {
+    if (!data || !data.profile) return;
+    _updateSnapshot({
+      cdpProgress: {
+        ..._storeSnapshot.cdpProgress,
+        [data.profile]: {
+          stage: data.stage, ok: data.ok !== false,
+          reason: data.reason || null, message: data.message || '',
+          accountId: data.accountId ?? null, at: Date.now(),
+        },
+      },
+      ...(data.stage === 'ready' || data.stage === 'failed'
+        ? { cloakStatus: { ..._storeSnapshot.cloakStatus, [data.profile]: data.stage === 'ready' ? 'running' : 'error' } }
+        : {}),
+    });
+  });
+
+  // An account flagged needs_attention by a hard CM login/task failure.
+  window.api.accounts?.onNeedsAttention?.((data) => {
+    if (!data || !data.accountId) return;
+    _updateSnapshot({
+      attention: {
+        ..._storeSnapshot.attention,
+        [data.accountId]: { code: data.code, reason: data.reason, at: Date.now() },
+      },
+    });
+  });
 }
 
 export function useCloakManagerLaunch() {
@@ -99,7 +130,7 @@ export function useCloakManagerLaunch() {
     () => _storeSnapshot
   );
 
-  const { cloakStatus, launchProgress, runningProfiles, isAvailable, wsConnected } = state;
+  const { cloakStatus, launchProgress, cdpProgress, attention, runningProfiles, isAvailable, wsConnected } = state;
 
   const checkAvailability = useCallback(async (token) => {
     try {
@@ -124,15 +155,38 @@ export function useCloakManagerLaunch() {
     return state.cloakStatus[profileName] || null;
   }, [state]);
 
+  // Combined launch phase for a profile: our orchestrator's cdp:progress wins
+  // (it covers login/setup), else CloakManager's own launch_progress.
+  const getLaunchPhase = useCallback((profileName) => {
+    const cdp = state.cdpProgress[profileName];
+    if (cdp) return cdp; // { stage, ok, reason, message }
+    const lp = state.launchProgress[profileName];
+    if (lp) return { stage: lp.stage || 'launching', ok: true, message: lp.message || '', progress: lp.progress };
+    return null;
+  }, [state]);
+
+  const getAttention = useCallback((accountId) => state.attention[accountId] || null, [state]);
+  const clearAttentionLocal = useCallback((accountId) => {
+    if (!state.attention[accountId]) return;
+    const next = { ...state.attention };
+    delete next[accountId];
+    _updateSnapshot({ attention: next });
+  }, [state]);
+
   return {
     isAvailable,
     checkAvailability,
     wsConnected,
     cloakStatus,
     launchProgress,
+    cdpProgress,
+    attention,
     runningProfiles,
     isAccountRunning,
     getAccountProgress,
-    getAccountStatus
+    getAccountStatus,
+    getLaunchPhase,
+    getAttention,
+    clearAttentionLocal,
   };
 }

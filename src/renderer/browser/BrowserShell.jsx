@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import logoUrl from '../assets/logo.png';
+import { usePlatforms } from '../lib/platforms.js';
 
 // Chrome UI for an Oserus Browser window. Frameless host — the tab
 // strip IS the title bar (drag region). Layout below the tab strip:
@@ -36,8 +37,6 @@ const BOOKMARKS = [
   { label: 'LinkedIn',  url: 'https://www.linkedin.com',  domain: 'linkedin.com'  },
   { label: 'OnlyFans',  url: 'https://onlyfans.com',      domain: 'onlyfans.com'  },
 ];
-
-const PLATFORMS = ['reddit', 'x', 'instagram', 'tiktok', 'redgifs'];
 
 export default function BrowserShell() {
   const [tabs, setTabs] = useState([]);
@@ -370,6 +369,8 @@ function ContentSidebar({ accountPlatform, chromeTop, canAdd, addOpen, setAddOpe
   const [platform, setPlatform] = useState(accountPlatform || 'reddit');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const rawPlatforms = usePlatforms();
+  const PLATFORMS = useMemo(() => rawPlatforms.map(p => p.v), [rawPlatforms]);
 
   useEffect(() => { setPlatform(accountPlatform || 'reddit'); }, [accountPlatform]);
 
@@ -634,26 +635,26 @@ function fmtWhen(iso) {
 // rather than a sibling app. If you retint the management app, retint
 // here too (or refactor both to consume the same CSS vars).
 const BRAND = {
-  bg0:          '#07090a', // var(--bg-0)
-  bg1:          '#0c100f', // var(--bg-1)
-  bg2:          '#121815', // var(--bg-2)
-  bg3:          '#1a221d', // var(--bg-3)
-  bgElev:       '#0e1311', // var(--bg-elev)
-  border:       '#1c241f', // var(--border)
-  borderStrong: '#2a342b', // var(--border-strong)
-  bg4:          '#2a342b', // alias for legacy refs
-  text0:        '#e6e3d2', // var(--text-0)
-  text1:        '#bdbaa6', // var(--text-1)
-  text2:        '#8a8a7d', // var(--text-2)
-  text3:        '#5a5b54', // var(--text-3)
-  green:        '#3d6b4f', // var(--green)
-  greenBright:  '#4f8a64', // var(--green-bright)
-  gold:         '#d4a64a', // var(--gold)
-  goldBright:   '#e8c068', // var(--gold-bright)
-  goldOrange:   '#e89146', // var(--gold-orange)
-  blue:         '#3a6f8c', // var(--blue)
-  blueBright:   '#6aa6c4', // var(--blue-bright)  — everyday accent
-  danger:       '#b3473a', // var(--danger)
+  bg0:          'var(--bg-0)',
+  bg1:          'var(--bg-1)',
+  bg2:          'var(--bg-2)',
+  bg3:          'var(--bg-3)',
+  bgElev:       'var(--bg-elev)',
+  border:       'var(--border)',
+  borderStrong: 'var(--border-strong)',
+  bg4:          'var(--border-strong)',
+  text0:        'var(--text-0)',
+  text1:        'var(--text-1)',
+  text2:        'var(--text-2)',
+  text3:        'var(--text-3)',
+  green:        'var(--green)',
+  greenBright:  'var(--green-bright)',
+  gold:         'var(--gold)',
+  goldBright:   'var(--gold-bright)',
+  goldOrange:   'var(--gold-orange)',
+  blue:         'var(--blue)',
+  blueBright:   'var(--blue-bright)',
+  danger:       'var(--danger)',
 };
 const BRAND_GRADIENT = `linear-gradient(135deg, ${BRAND.green} 0%, ${BRAND.greenBright} 30%, ${BRAND.gold} 70%, ${BRAND.goldOrange} 100%)`;
 const BRAND_GRADIENT_H = `linear-gradient(90deg, ${BRAND.green} 0%, ${BRAND.greenBright} 28%, ${BRAND.gold} 72%, ${BRAND.goldOrange} 100%)`;
@@ -879,13 +880,13 @@ const card = {
 };
 const cardTop = { display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontSize: 10 };
 const cardTag = (source) => ({
-  padding: '1px 6px', borderRadius: 3, fontSize: 9, textTransform: 'uppercase',
+  padding: '1px 6px', borderRadius: 'var(--radius-sm)', fontSize: 9, textTransform: 'uppercase',
   background: source === 'scheduled' ? 'rgba(79,138,100,0.20)' : 'rgba(255,255,255,0.06)',
   color: source === 'scheduled' ? BRAND.greenBright : BRAND.text2,
 });
 const cardSub = { color: BRAND.text1, fontSize: 11 };
 const cardStatus = (s) => ({
-  padding: '1px 6px', borderRadius: 3, fontSize: 9, textTransform: 'uppercase',
+  padding: '1px 6px', borderRadius: 'var(--radius-sm)', fontSize: 9, textTransform: 'uppercase',
   background: s === 'posted' ? 'rgba(79,138,100,0.20)'
     : s === 'failed' ? 'rgba(179,71,58,0.20)'
     : 'rgba(255,255,255,0.06)',

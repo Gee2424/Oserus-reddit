@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
-import { Banner } from '../components/ui.jsx';
+import { platformUsernamePrefix } from '../lib/platforms.js';
+import { Banner, FormGrid, EmptyState, thSm as th, tdSm as td } from '../components/ui.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
 import AccountSelector from '../components/AccountSelector.jsx';
+import PageHeader from '../components/PageHeader.jsx';
 
 // Intelligence.
 //
@@ -107,17 +109,9 @@ export default function IntelligencePage() {
 
   return (
     <div>
-      <div className="title-block">
-        <div>
-          <div className="eyebrow">Research</div>
-          <h1>Intelligence</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Scrape, analyze, and plan content using a logged-in account. The platform you pick
-            decides which session is used and what to call things.
-          </div>
-        </div>
-        <div style={{ marginLeft: 'auto' }}><PopOutButton route="intel" title="Intelligence" /></div>
-      </div>
+      <PageHeader eyebrow="Research" title="Intelligence" subtitle="Scrape, analyze, and plan content using a logged-in account. The platform you pick decides which session is used and what to call things.">
+        <PopOutButton route="intel" title="Intelligence" />
+      </PageHeader>
 
       <AccountSelector
         profiles={profiles}
@@ -131,10 +125,7 @@ export default function IntelligencePage() {
       {msg && <Banner kind="ok">{msg}</Banner>}
 
       {!sel.accountId ? (
-        <div className="card" style={{ padding: 20, color: 'var(--text-3)', fontSize: 13 }}>
-          Pick a model and platform above, then an account on that platform. Scraping uses that
-          account's logged-in session so the platform serves real data (not the visitor wall).
-        </div>
+        <EmptyState icon="◎" title="Select an account" hint="Pick a model and platform above, then an account on that platform. Scraping uses that account's logged-in session so the platform serves real data (not the visitor wall)." />
       ) : (
         <>
           {/* Tab strip — Reddit gets three workspaces, every other
@@ -144,7 +135,7 @@ export default function IntelligencePage() {
             <div style={{
               display: 'flex', gap: 4, marginBottom: 14,
               background: 'var(--bg-1)', border: '1px solid var(--border)',
-              borderRadius: 999, padding: 3, width: 'fit-content',
+              borderRadius: 'var(--radius-pill)', padding: 3, width: 'fit-content',
             }}>
               {[
                 { k: 'discover',     label: 'Discover',     hint: 'Scrape · analyze trends · AI plan' },
@@ -158,10 +149,10 @@ export default function IntelligencePage() {
                     onClick={() => setTab(t.k)}
                     title={t.hint}
                     style={{
-                      padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 999,
+                      padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 'var(--radius-pill)',
                       border: 'none', cursor: 'pointer',
                       background: active ? 'var(--gold)' : 'transparent',
-                      color: active ? '#1a1410' : 'var(--text-2)',
+                      color: active ? 'var(--bg-0)' : 'var(--text-2)',
                     }}
                   >{t.label}</button>
                 );
@@ -374,7 +365,7 @@ function DiscoverPanel({ token, activeTeamId, accountId, profileId, platform, la
         className="primary"
         style={{
           width: '100%', padding: '12px 18px', marginTop: 14,
-          background: busy ? 'var(--bg-1)' : 'linear-gradient(90deg, #3a6f8c, #6a4fc4)',
+          background: busy ? 'var(--bg-1)' : 'linear-gradient(90deg, var(--blue), #6a4fc4)',
         }}
       >
         {busy ? <><Spinner /> {stageLabel}</> : `→ ${stageLabel}`}
@@ -388,7 +379,7 @@ function DiscoverPanel({ token, activeTeamId, accountId, profileId, platform, la
           mostly a sanity-check list. */}
       {plan && (
         <div style={planBox}>
-          <div style={subhead}>AI content plan {plan.savedDocId ? '· saved to docs' : ''}</div>
+          <div style={subhead}>AI content plan {plan.savedDocId ? <><span style={{ margin: '0 6px' }}>·</span><span style={{ fontSize: 10, color: 'var(--gold-bright)' }}>Saved to docs (open Documentation in sidebar)</span></> : ''}</div>
           <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.55 }}>
             {plan.plan || plan.text || JSON.stringify(plan)}
           </div>
@@ -416,7 +407,7 @@ function DiscoverPanel({ token, activeTeamId, accountId, profileId, platform, la
       )}
 
       {posts.length > 0 && (
-        <details style={{ marginTop: 18, border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', background: 'var(--bg-elev)' }}>
+        <details style={{ marginTop: 18, border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '8px 12px', background: 'var(--bg-elev)' }}>
           <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--text-2)', padding: '4px 0' }}>
             {lang.resultUnit[0].toUpperCase() + lang.resultUnit.slice(1)} scraped · {posts.length}
           </summary>
@@ -581,11 +572,7 @@ function CompatibilityPanel({ token, accountId, accounts, activeTeamId }) {
 
   if (!acct) return null;
   if (subs.length === 0) {
-    return (
-      <div className="card muted" style={{ padding: 24, textAlign: 'center', fontSize: 13, marginBottom: 16 }}>
-        Scrape some subreddit requirements first — then this panel shows which qualify for u/{acct.username}.
-      </div>
-    );
+    return <EmptyState icon="◧" title="No requirements data yet" hint={`Scrape some subreddit requirements first — then this panel shows which subs ${acct ? platformUsernamePrefix(acct.platform) + acct.username : 'this account'} qualifies for.`} />;
   }
 
   return (
@@ -593,12 +580,12 @@ function CompatibilityPanel({ token, accountId, accounts, activeTeamId }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
         <h3 style={{ margin: 0, fontSize: 15 }}>Compatibility</h3>
         <span className="muted" style={{ fontSize: 12 }}>
-          u/{acct.username} · post karma {karma[acct.id]?.post_karma ?? '—'} · comment karma {karma[acct.id]?.comment_karma ?? '—'}
+          {platformUsernamePrefix(acct.platform)}{acct.username} · post karma {karma[acct.id]?.post_karma ?? '—'} · comment karma {karma[acct.id]?.comment_karma ?? '—'}
         </span>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        <div style={{ padding: 12, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <div style={{ padding: 12, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
           <div style={{ ...subhead, color: 'var(--green-bright)' }}>✓ Qualifies · {qualifying.length}</div>
           {qualifying.length === 0
             ? <div className="muted" style={{ fontSize: 12 }}>None.</div>
@@ -611,8 +598,8 @@ function CompatibilityPanel({ token, accountId, accounts, activeTeamId }) {
                 </div>
               ))}
         </div>
-        <div style={{ padding: 12, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8 }}>
-          <div style={{ ...subhead, color: '#e2a3a3' }}>✗ Fails · {failing.length}</div>
+        <div style={{ padding: 12, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
+          <div style={{ ...subhead, color: 'var(--danger-fg)' }}>✗ Fails · {failing.length}</div>
           {failing.length === 0
             ? <div className="muted" style={{ fontSize: 12 }}>None.</div>
             : failing.map((s) => (
@@ -635,22 +622,20 @@ function Spinner() {
 
 const infoNote = {
   background: 'rgba(60,110,180,0.10)',
-  border: '1px solid #2c4a6e',
+  border: '1px solid var(--info-border)',
   borderRadius: 'var(--radius-lg)',
   padding: '10px 14px', marginBottom: 14,
-  fontSize: 12, color: '#9fc0ea',
+  fontSize: 12, color: 'var(--info-fg)',
 };
 const subhead   = { fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-3)', marginBottom: 8 };
 const resultRow = { display: 'flex', gap: 8, fontSize: 12, padding: '6px 8px', borderBottom: '1px dashed var(--border)', color: 'inherit', textDecoration: 'none' };
-const chip      = { display: 'inline-block', marginRight: 6, marginBottom: 4, padding: '2px 8px', borderRadius: 999, background: 'var(--bg-elev)', border: '1px solid var(--border)', fontSize: 11 };
-const trendBox  = { marginTop: 18, padding: 14, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 10 };
-const planBox   = { marginTop: 18, padding: 14, background: 'var(--bg-1)', border: '1px solid var(--gold)', borderRadius: 10 };
-const th        = { textAlign: 'left', padding: '8px 12px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', fontWeight: 600, fontFamily: 'var(--font-mono)' };
-const td        = { padding: '7px 12px', verticalAlign: 'middle' };
+const chip      = { display: 'inline-block', marginRight: 6, marginBottom: 4, padding: '2px 8px', borderRadius: 'var(--radius-pill)', background: 'var(--bg-elev)', border: '1px solid var(--border)', fontSize: 11 };
+const trendBox  = { marginTop: 18, padding: 14, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' };
+const planBox   = { marginTop: 18, padding: 14, background: 'var(--bg-1)', border: '1px solid var(--gold)', borderRadius: 'var(--radius-lg)' };
 const compatRow = { padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: 12 };
 const primaryGradientBtn = (busy) => ({
   marginTop: 14, width: '100%', padding: '12px 18px', borderRadius: 'var(--radius-lg)',
   border: 'none', cursor: busy ? 'not-allowed' : 'pointer',
-  background: busy ? 'var(--bg-3)' : 'linear-gradient(90deg, #3a6f8c 0%, #6a4fc4 100%)',
-  color: '#fff', fontWeight: 700, fontSize: 13, letterSpacing: '0.02em',
+  background: busy ? 'var(--bg-3)' : 'linear-gradient(90deg, var(--blue) 0%, #6a4fc4 100%)',
+  color: 'var(--text-on-accent)', fontWeight: 700, fontSize: 13, letterSpacing: '0.02em',
 });

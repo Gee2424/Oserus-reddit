@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
+import { useConfirm } from '../lib/confirm.jsx';
 
 function roleColor(key) {
   if (!key) return '#5a5a6a';
@@ -13,6 +14,7 @@ const blank = { username: '', password: '', display_name: '', email: '', phone: 
 export default function UsersPage({ embedded }) {
   const { token, user: me } = useAuth();
   const can = useCan();
+  const { confirm } = useConfirm();
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
 
@@ -99,15 +101,19 @@ export default function UsersPage({ embedded }) {
   }
 
   async function del(id, username) {
-    if (!confirm(`Delete user "${username}"? Their assignments will become unassigned but profile data stays.`)) return;
+    const ok = await confirm(
+      `Delete user "${username}"? Their assignments will become unassigned but profile data stays.`,
+      { title: 'Delete user', confirmLabel: 'Delete', variant: 'danger' }
+    );
+    if (!ok) return;
     const res = await window.api.auth.deleteUser({ token, userId: id });
-    if (!res.ok) { alert(res.error); return; }
+    if (!res.ok) { setError(res.error); return; }
     load();
   }
 
   async function doReset() {
     const res = await window.api.auth.resetUserPassword({ token, userId: resetForId, newPassword: newPw });
-    if (!res.ok) { alert(res.error); return; }
+    if (!res.ok) { setError(res.error); return; }
     setResetForId(null);
     setNewPw('');
     setFlash({ kind: 'ok', text: 'Password reset.' });
@@ -236,9 +242,9 @@ const styles = {
   ok: {
     background: 'rgba(122,154,90,0.12)',
     border: '1px solid var(--ok)',
-    color: '#bdd5a3',
+    color: 'var(--success-fg)',
     padding: '10px 14px',
-    borderRadius: 4,
+    borderRadius: 'var(--radius-sm)',
     marginBottom: 12,
   },
   avatar: {
@@ -257,7 +263,7 @@ const styles = {
     display: 'inline-flex',
     alignItems: 'center',
     padding: '2px 10px',
-    borderRadius: 999,
+    borderRadius: 'var(--radius-pill)',
     fontFamily: 'var(--font-mono)',
     fontSize: 10,
     fontWeight: 600,

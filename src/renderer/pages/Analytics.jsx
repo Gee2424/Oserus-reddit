@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { platformColor, platformUsernamePrefix } from '../lib/platforms.js';
 import PopOutButton from '../components/PopOutButton.jsx';
-import { Banner } from '../components/ui.jsx';
+import { Banner, th, td, EmptyState } from '../components/ui.jsx';
 import { AnalyticsSkeleton } from '../components/Skeletons.jsx';
+import PageHeader from '../components/PageHeader.jsx';
 
-const STATUS_COLORS = { warming: '#d4a55a', ready: '#7a9a5a', paused: '#968b78', banned: '#b3473a' };
+const STATUS_COLORS = { warming: 'var(--gold)', ready: 'var(--green-bright)', paused: 'var(--text-2)', banned: 'var(--danger)' };
 
 export default function AnalyticsPage() {
   const { token, activeTeamId } = useAuth();
@@ -47,42 +49,22 @@ export default function AnalyticsPage() {
   }
 
   if (loading) return <AnalyticsSkeleton />;
-  if (!data) return (
-    <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-2)', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)' }}>
-      <div style={{ fontSize: 40, marginBottom: 10, color: 'var(--text-3)' }}>◧</div>
-      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-1)', marginBottom: 6 }}>No analytics data yet</div>
-      <div style={{ fontSize: 13, color: 'var(--text-3)', maxWidth: 380, margin: '0 auto', lineHeight: 1.6 }}>
-        Add accounts and start posting to see performance metrics here.
-      </div>
-    </div>
-  );
+  if (!data) return <EmptyState icon="◧" title="No analytics data yet" hint="Add accounts and start posting to see performance metrics here." />;
 
   const { accounts, totals } = data;
   const safeTotals = totals || {};
-  const redditAccounts = (accounts || []).filter(a => a.platform !== 'redgifs');
+  const contentAccounts = (accounts || []).filter(a => a.platform === 'reddit');
 
   return (
     <div>
-      <div className="title-block" style={{ justifyContent: 'space-between' }}>
-        <div>
-          <div className="eyebrow">Performance</div>
-          <h1>Analytics</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Reach, engagement, and account growth across every platform you operate.
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <PopOutButton route="analytics" title="Analytics" />
-          <button
-            className="ghost"
-            onClick={load}
-            disabled={loading}
+      <PageHeader eyebrow="Performance" title="Analytics" subtitle="Reach, engagement, and account growth across every platform you operate.">
+        <PopOutButton route="analytics" title="Analytics" />
+        <button className="ghost" onClick={load} disabled={loading}
             style={{ opacity: loading ? 0.6 : 1 }}
           >
             {loading ? 'Loading…' : 'Refresh'}
           </button>
-        </div>
-      </div>
+      </PageHeader>
 
       {error && (
         <Banner kind="err" style={{ marginBottom: 14 }}>
@@ -95,28 +77,28 @@ export default function AnalyticsPage() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 14 }}>
         <StatCard label="Total accounts" value={safeTotals.accounts || 0} />
-        <StatCard label="Ready" value={safeTotals.ready || 0} accent="#7a9a5a" />
-        <StatCard label="Warming" value={safeTotals.warming || 0} accent="#d4a55a" />
-        <StatCard label="Paused" value={safeTotals.paused || 0} accent="#968b78" />
-        <StatCard label="Banned" value={safeTotals.banned || 0} accent="#b3473a" />
+        <StatCard label="Ready" value={safeTotals.ready || 0} accent="var(--green-bright)" />
+        <StatCard label="Warming" value={safeTotals.warming || 0} accent="var(--gold)" />
+        <StatCard label="Paused" value={safeTotals.paused || 0} accent="var(--text-2)" />
+        <StatCard label="Banned" value={safeTotals.banned || 0} accent="var(--danger)" />
         <StatCard label="Total karma" value={(safeTotals.total_karma || 0).toLocaleString()} accent="var(--gold-bright)" />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 22 }}>
-        <StatCard label="Scheduled" value={(safeTotals.scheduled || 0).toLocaleString()} accent="#7aa2f7" />
-        <StatCard label="Posted" value={(safeTotals.posted || 0).toLocaleString()} accent="#7fd99a" />
-        <StatCard label="Failed" value={(safeTotals.failed || 0).toLocaleString()} accent="#e2a3a3" />
+        <StatCard label="Scheduled" value={(safeTotals.scheduled || 0).toLocaleString()} accent="var(--eb-fg)" />
+        <StatCard label="Posted" value={(safeTotals.posted || 0).toLocaleString()} accent="var(--online-green)" />
+        <StatCard label="Failed" value={(safeTotals.failed || 0).toLocaleString()} accent="var(--danger-fg)" />
         <StatCard label="Events logged" value={(safeTotals.events || 0).toLocaleString()} accent="var(--text-2)" />
-        <StatCard label="Boosts ordered" value={(safeTotals.boosts_ordered || 0).toLocaleString()} accent="#d4a64a" />
+        <StatCard label="Boosts ordered" value={(safeTotals.boosts_ordered || 0).toLocaleString()} accent="var(--gold)" />
       </div>
 
       {safeTotals.by_platform && Object.keys(safeTotals.by_platform).length > 0 && (
         <div className="card" style={{ padding: 14, marginBottom: 22, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span className="dim" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Accounts by platform</span>
           {Object.entries(safeTotals.by_platform).map(([p, n]) => {
-            const color = p === 'redgifs' ? '#ff2e74' : p === 'x' ? '#1d9bf0' : p === 'instagram' ? '#e1306c' : p === 'tiktok' ? '#25f4ee' : '#ff4500';
+            const color = platformColor(p);
             return (
-              <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 999, padding: '4px 12px', fontSize: 12 }}>
+              <span key={p} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius-pill)', padding: '4px 12px', fontSize: 12 }}>
                 <span style={{ width: 7, height: 7, borderRadius: '50%', background: color }} />
                 {p} <span className="dim">· {n}</span>
               </span>
@@ -133,10 +115,7 @@ export default function AnalyticsPage() {
           </div>
         </div>
         {redditAccounts.length === 0 ? (
-          <div style={{ padding: 32, textAlign: 'center', border: '1px dashed var(--border)', background: 'var(--bg-1)' }}>
-            <div style={{ fontSize: 28, marginBottom: 6, color: 'var(--text-3)' }}>◧</div>
-            <div style={{ fontSize: 13, color: 'var(--text-2)' }}>No accounts linked yet.</div>
-          </div>
+          <EmptyState icon="◧" title="No accounts yet" hint="Accounts will appear here once you've added them under Models." />
         ) : (
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
             <thead>
@@ -153,9 +132,9 @@ export default function AnalyticsPage() {
               </tr>
             </thead>
             <tbody>
-              {redditAccounts.map(a => (
+              {contentAccounts.map(a => (
                 <tr key={a.id} style={{ borderTop: '1px solid var(--border)' }}>
-                  <td style={td} className="mono">u/{a.username}</td>
+                  <td style={td} className="mono">{platformUsernamePrefix(a.platform || 'reddit')}{a.username}</td>
                   <td style={td}>{a.profile_name || '—'}</td>
                   <td style={td}>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -181,7 +160,7 @@ export default function AnalyticsPage() {
       {recordOpen && (
         <div className="modal-overlay">
           <form onSubmit={recordKarma} style={{ width: 380 }} className="modal-card card">
-            <h3 style={{ marginBottom: 12 }}>Record karma — u/{recordOpen.username}</h3>
+            <h3 style={{ marginBottom: 12 }}>Record karma — {platformUsernamePrefix(recordOpen.platform || 'reddit')}{recordOpen.username}</h3>
             <div className="muted" style={{ fontSize: 12, marginBottom: 14 }}>
               Open the Reddit profile (old.reddit.com/user/{recordOpen.username}) and paste the numbers shown there.
             </div>
@@ -217,5 +196,3 @@ function StatCard({ label, value, accent }) {
   );
 }
 
-const th = { padding: '10px 14px', fontWeight: 500 };
-const td = { padding: '10px 14px', verticalAlign: 'middle' };

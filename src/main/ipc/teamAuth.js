@@ -2,6 +2,7 @@ const { safeStorage } = require('electron');
 const elog = require('electron-log');
 const { getAnonClient, getAdminClient, getAuthedClient, getAuthClient } = require('../supabaseClient');
 const { getKv, setKv } = require('../db');
+const { withJwtRetry } = require('../lib/retry');
 
 const SESSION_KEY = 'oserus_session';
 const ENC_PREFIX = 'ENC:';
@@ -85,17 +86,18 @@ async function ensureDefaultTeam(userId, email) {
     const client = getAuthedClient();
     if (!client) return null;
     // Check if user already has teams via team_members
-    const { data: members } = await client.from('team_members')
-      .select('team_id').eq('user_id', userId);
+    const { data: members } = await withJwtRetry(() =>
+      client.from('team_members').select('team_id').eq('user_id', userId)
+    );
     if (members && members.length > 0) return members[0].team_id;
     const teamName = email ? `${email.split('@')[0]}'s Team` : 'My Team';
-    const { data: team, error: teamErr } = await client.from('teams').insert({
-      name: teamName, owner_user_id: userId,
-    }).select().single();
+    const { data: team, error: teamErr } = await withJwtRetry(() =>
+      client.from('teams').insert({ name: teamName, owner_user_id: userId }).select().single()
+    );
     if (teamErr) { console.warn('[teamAuth] create team failed:', teamErr.message); return null; }
-    await client.from('team_members').insert({
-      team_id: team.id, user_id: userId, role: 'owner',
-    });
+    await withJwtRetry(() =>
+      client.from('team_members').insert({ team_id: team.id, user_id: userId, role: 'owner' })
+    );
     console.log('[teamAuth] Created default team', team.id, 'for', email);
     return team.id;
   } catch (e) {
@@ -107,8 +109,9 @@ async function ensureDefaultTeam(userId, email) {
 async function getUserRole(client, userId) {
   try {
     if (!client) return 'member';
-    const { data } = await client.from('team_members')
-      .select('role').eq('user_id', userId).limit(1);
+    const { data } = await withJwtRetry(() =>
+      client.from('team_members').select('role').eq('user_id', userId).limit(1)
+    );
     return data?.[0]?.role || 'member';
   } catch { return 'member'; }
 }

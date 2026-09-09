@@ -103,6 +103,8 @@ create table if not exists model_profiles (
   geo_country text,
   geo_checked_at text,
   team_id uuid,
+  browser_mode text not null default 'electron',
+  cloak_profile_name text,
   created_at text,
   updated_at bigint not null default 0
 );
@@ -122,6 +124,9 @@ create table if not exists reddit_accounts (
   geo_timezone text,
   geo_country text,
   geo_checked_at text,
+  needs_attention integer default 0,
+  attention_reason text,
+  attention_at text,
   team_id uuid,
   created_at text,
   updated_at bigint not null default 0
@@ -458,7 +463,12 @@ create table if not exists team_key_shares (
 -- ALTER TABLE ADD COLUMN IF NOT EXISTS is idempotent (Postgres 9.6+).
 
 ALTER TABLE IF EXISTS model_profiles    ADD COLUMN IF NOT EXISTS team_id uuid;
+ALTER TABLE IF EXISTS model_profiles    ADD COLUMN IF NOT EXISTS browser_mode text NOT NULL DEFAULT 'electron';
+ALTER TABLE IF EXISTS model_profiles    ADD COLUMN IF NOT EXISTS cloak_profile_name text;
 ALTER TABLE IF EXISTS reddit_accounts   ADD COLUMN IF NOT EXISTS team_id uuid;
+ALTER TABLE IF EXISTS reddit_accounts   ADD COLUMN IF NOT EXISTS needs_attention integer default 0;
+ALTER TABLE IF EXISTS reddit_accounts   ADD COLUMN IF NOT EXISTS attention_reason text;
+ALTER TABLE IF EXISTS reddit_accounts   ADD COLUMN IF NOT EXISTS attention_at text;
 ALTER TABLE IF EXISTS proxies           ADD COLUMN IF NOT EXISTS team_id uuid;
 ALTER TABLE IF EXISTS post_events       ADD COLUMN IF NOT EXISTS team_id uuid;
 ALTER TABLE IF EXISTS teams             ADD COLUMN IF NOT EXISTS encrypted_key text;

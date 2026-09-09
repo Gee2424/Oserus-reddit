@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import InboxPage from "./Inbox.jsx";
 import { PLATFORMS as PLATFORM_PILLS } from "../lib/platforms.js";
+import PageHeader from "../components/PageHeader.jsx";
 // Account Manager Pro — Inbox-first workspace. Scheduling lives in the
 // sidebar Scheduler entry now (one scheduler, not two), so the old Posting
 // tab is gone. Platform pills filter the inbox view.
@@ -8,16 +9,7 @@ export default function RedditApiPage({ navigate }) {
   const [platform, setPlatform] = useState("reddit");
   return (
     <div>
-      <div className="title-block">
-        <div>
-          <div className="eyebrow">Workspace</div>
-          <h1>Account Manager Pro</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            DMs and modmail across every platform. Sessions stay per-account.
-            Scheduling lives in the Scheduler.
-          </div>
-        </div>
-      </div>
+      <PageHeader eyebrow="Workspace" title="Account Manager Pro" subtitle="DMs and modmail across every platform. Sessions stay per-account. Scheduling lives in the Scheduler." />
       <div
         style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}
       >
@@ -31,8 +23,9 @@ export default function RedditApiPage({ navigate }) {
               style={{
                 background: active ? p.color : "var(--bg-1)",
                 color: active ? "#fff" : "var(--text-1)",
-                border: `1px solid ${active ? p.color : "var(--border)"}`,
-                borderRadius: 999,
+                borderWidth: 1, borderStyle: 'solid',
+                borderColor: active ? p.color : "var(--border)",
+                borderRadius: 'var(--radius-pill)',
                 padding: "5px 14px",
                 fontSize: 12,
                 fontWeight: 600,

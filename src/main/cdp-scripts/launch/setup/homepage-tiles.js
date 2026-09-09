@@ -30,19 +30,14 @@ async function execute(nativeConnection, context) {
   console.log('[Homepage Tiles] Setting up tiles for account:', accountId, 'platform:', platform);
 
   try {
-    const alreadySetup = await page.evaluate(() => {
-      return localStorage.getItem('oserus_homepage_tiles_setup') === 'true';
-    });
-
-    if (alreadySetup) {
-      console.log('[Homepage Tiles] Already set up, skipping');
-      return { success: true, skipped: true, reason: 'already_setup' };
-    }
-
+    // NOTE: used to gate on a 'oserus_homepage_tiles_setup' localStorage flag
+    // here — reading localStorage before any navigation on this page can
+    // throw a SecurityError (e.g. if a prior script left the page on
+    // about:blank), which crashed this script. This script's run_mode is
+    // 'always' in model_launch_scripts (it's meant to run every launch), so
+    // there's no "already done" state to track — just do the setup.
     const result = await page.evaluate(() => {
       try {
-        localStorage.setItem('oserus_homepage_tiles_setup', 'true');
-        localStorage.setItem('oserus_homepage_tiles_date', new Date().toISOString());
         return { success: true };
       } catch (e) {
         return { success: false, error: e.message };

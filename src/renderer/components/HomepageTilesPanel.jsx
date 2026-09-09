@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
+import { th, td } from './ui.jsx';
 
 // Operator-editable preset of tiles shown on the Oserus Browser new-tab
 // page. Tiles are global (shared across every account window) for V1.
@@ -60,7 +61,7 @@ export default function HomepageTilesPanel() {
         <div
           className={msg.kind === 'err' ? 'error-banner' : ''}
           style={msg.kind === 'ok'
-            ? { background: 'rgba(122,154,90,0.12)', border: '1px solid var(--ok)', color: '#bdd5a3', padding: '10px 14px', borderRadius: 4, marginBottom: 14 }
+            ? { background: 'rgba(122,154,90,0.12)', border: '1px solid var(--ok)', color: 'var(--success-fg)', padding: '10px 14px', borderRadius: 'var(--radius-sm)', marginBottom: 14 }
             : { marginBottom: 14 }}
         >{msg.text}</div>
       )}
@@ -115,7 +116,7 @@ export default function HomepageTilesPanel() {
                         value={t.color || '#d4a64a'}
                         onChange={(e) => update(i, { color: e.target.value })}
                         disabled={!canManage}
-                        style={{ width: 36, height: 28, padding: 0, border: '1px solid var(--border)', borderRadius: 4, background: 'transparent', cursor: canManage ? 'pointer' : 'not-allowed' }}
+                        style={{ width: 36, height: 28, padding: 0, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', background: 'transparent', cursor: canManage ? 'pointer' : 'not-allowed' }}
                       />
                       <span className="mono dim" style={{ fontSize: 11 }}>{t.color || '#d4a64a'}</span>
                     </div>
@@ -133,6 +134,4 @@ export default function HomepageTilesPanel() {
   );
 }
 
-const th = { textAlign: 'left', padding: '10px 14px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)', fontWeight: 500 };
-const td = { padding: '8px 14px', verticalAlign: 'middle' };
 const tiny = { fontSize: 11, padding: '4px 8px' };

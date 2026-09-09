@@ -118,11 +118,16 @@ class CloakManagerBinary {
    * @param {number} port - The port to save
    */
   savePort(port) {
-    fs.writeFileSync(this.getPortPath(), JSON.stringify({
+    // Atomic write — a torn port.json on a crash means the next launch
+    // can't find a still-running backend and spawns a duplicate.
+    const target = this.getPortPath();
+    const tmp = target + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({
       port,
       pid: this.process?.pid || null,
       savedAt: Date.now(),
     }));
+    fs.renameSync(tmp, target);
   }
 
   /**
@@ -334,7 +339,17 @@ class CloakManagerBinary {
       const response = await axios.get(`http://127.0.0.1:${port}/health`, {
         timeout: this.healthConfig.requestTimeout,
       });
-      return response.data?.status === 'healthy';
+      if (response.data?.status !== 'healthy') return false;
+      // A process can answer /health while its API router isn't mounted yet —
+      // confirm the real API is up before trusting this instance.
+      try {
+        const api = await axios.get(`http://127.0.0.1:${port}/api/running`, {
+          timeout: this.healthConfig.requestTimeout,
+        });
+        return api.status === 200;
+      } catch {
+        return false;
+      }
     } catch (e) {
       return false;
     }
@@ -443,28 +458,53 @@ class CloakManagerBinary {
       windowsHide: true,
     });
 
-    // Log output for debugging
-    this.process.stdout.on('data', (data) => {
+    // Keep the last few KB of stderr so an early crash gives a real reason
+    // instead of a bare 30s health-check timeout.
+    let stderrTail = '';
+    const child = this.process;
+    let earlyExit = null;
+
+    child.stdout.on('data', (data) => {
       console.log(`[CloakManager Backend] ${data.toString().trim()}`);
     });
-
-    this.process.stderr.on('data', (data) => {
-      console.error(`[CloakManager Backend Error] ${data.toString().trim()}`);
+    child.stderr.on('data', (data) => {
+      const s = data.toString();
+      stderrTail = (stderrTail + s).slice(-4000);
+      console.error(`[CloakManager Backend Error] ${s.trim()}`);
     });
-
-    // Handle process events
-    this.process.on('error', (err) => {
+    child.on('error', (err) => {
       console.error('[CloakManager] Failed to start backend:', err);
-      this.process = null;
+      earlyExit = earlyExit || err.message;
+      if (this.process === child) this.process = null;
     });
-
-    this.process.on('exit', (code) => {
+    child.on('exit', (code) => {
       console.log(`[CloakManager] Backend exited with code ${code}`);
-      this.process = null;
+      earlyExit = earlyExit || `exited with code ${code}`;
+      if (this.process === child) this.process = null;
     });
 
-    // Wait for backend to be healthy
-    await this.waitForHealth(port);
+    // Race the health check against an early process death.
+    try {
+      await Promise.race([
+        this.waitForHealth(port),
+        new Promise((_, reject) => {
+          const iv = setInterval(() => {
+            if (earlyExit) {
+              clearInterval(iv);
+              const tail = stderrTail.trim().split('\n').slice(-6).join('\n');
+              reject(new Error(
+                `CloakManager backend ${earlyExit}${tail ? `\n${tail}` : ''}`
+              ));
+            }
+          }, 200);
+          setTimeout(() => clearInterval(iv), this.healthConfig.timeout + 1000);
+        }),
+      ]);
+    } catch (err) {
+      try { child.kill('SIGKILL'); } catch {}
+      if (this.process === child) this.process = null;
+      throw err;
+    }
 
     this.currentPort = port;
     this.savePort(port);

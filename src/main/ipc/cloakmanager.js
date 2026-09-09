@@ -14,10 +14,6 @@ const { getDb, decryptSecret, credentialVaultGet } = require('../db');
 const { hasPermission } = require('../permissions');
 const cdpOrchestrator = require('../cdp/orchestrator');
 
-// Phase 2: Configurable CDP launch delay for development
-const CDP_LAUNCH_DELAY = process.env.CDP_LAUNCH_DELAY || 95000; // Default 95s, configurable via env
-const handledProfiles = new Set();
-
 function canAccessAccount(user, accountId) {
   if (!user) return false;
   if (user.role === 'admin') return true;
@@ -32,10 +28,80 @@ function canAccessAccount(user, accountId) {
   return !!assign;
 }
 
-function accountIdForProfile(profileName) {
+function profileIdForProfile(profileName) {
   if (!profileName) return null;
-  const row = getDb().prepare('SELECT account_id FROM cloakmanager_profiles WHERE profile_name = ?').get(profileName);
-  return row ? row.account_id : null;
+  const row = getDb().prepare('SELECT profile_id FROM cloakmanager_profiles WHERE profile_name = ?').get(profileName);
+  return row?.profile_id || null;
+}
+
+function canAccessProfileById(user, profileId) {
+  if (!user || !profileId) return false;
+  if (user.role === 'admin') return true;
+  if (hasPermission(user, 'profiles.manage')) return true;
+  const db = getDb();
+  const row = db.prepare('SELECT assigned_user_id FROM model_profiles WHERE id = ?').get(profileId);
+  if (row && row.assigned_user_id === user.id) return true;
+  return !!db.prepare('SELECT 1 FROM profile_assignments WHERE profile_id = ? AND user_id = ? LIMIT 1').get(profileId, user.id);
+}
+
+/**
+ * Create (or re-create) the one shared CloakManager profile for a model,
+ * independent of whether that model has any linked accounts yet, and
+ * independent of which platform they're on. This is the single fingerprint
+ * every one of the model's accounts — Reddit, X, Instagram, TikTok, RedGifs,
+ * or any platform added later — launches into once the model is in
+ * CloakManager mode.
+ *
+ * @param {number} profileId - model_profiles.id
+ * @param {Object} [opts]
+ * @param {string} [opts.os] - 'windows' | 'macos' etc, passed to CloakManager
+ * @returns {Promise<{ok: boolean, profileName?: string, message?: string, error?: string}>}
+ */
+async function ensureModelCmProfile(profileId, opts = {}) {
+  const { sanitizeForCmName, getDefaultProfileName, isValidCmName } = require('../lib/profileName');
+  const db = getDb();
+
+  const model = db.prepare('SELECT id, name, cloak_profile_name, proxy_id FROM model_profiles WHERE id = ?').get(profileId);
+  if (!model) return { ok: false, error: 'Model not found' };
+
+  let cmName = model.cloak_profile_name;
+  if (!cmName) {
+    cmName = getDefaultProfileName({ id: model.id, name: model.name });
+  } else if (!isValidCmName(cmName)) {
+    cmName = sanitizeForCmName(cmName);
+  }
+
+  const proxy = model.proxy_id
+    ? db.prepare('SELECT id, host, port, kind as protocol, username, password_encrypted as password FROM proxies WHERE id = ?').get(model.proxy_id)
+    : null;
+
+  let proxyConfig = null;
+  if (proxy) {
+    proxyConfig = {
+      host: proxy.host,
+      port: proxy.port,
+      protocol: proxy.protocol || 'socks5',
+      username: proxy.username || '',
+      password: proxy.password ? (credentialVaultGet('proxy_password', proxy.id) || decryptSecret(proxy.password) || '') : '',
+      country: 'US',
+    };
+  }
+
+  const client = getCloakManagerClient();
+  const result = await client.createProfile(cmName, { os: opts.os || 'windows' }, proxyConfig).catch((err) => ({ ok: false, error: err.message }));
+
+  if (!result.ok) return result;
+
+  db.prepare('UPDATE model_profiles SET browser_mode = ?, cloak_profile_name = ? WHERE id = ?').run('cloakmanager', cmName, profileId);
+
+  const existing = db.prepare('SELECT 1 FROM cloakmanager_profiles WHERE profile_id = ? AND account_id IS NULL').get(profileId);
+  if (existing) {
+    db.prepare('UPDATE cloakmanager_profiles SET profile_name = ?, status = ? WHERE profile_id = ? AND account_id IS NULL').run(cmName, 'created', profileId);
+  } else {
+    db.prepare('INSERT INTO cloakmanager_profiles (profile_id, profile_name, status) VALUES (?, ?, ?)').run(profileId, cmName, 'created');
+  }
+
+  return { ok: true, profileName: cmName, message: result.message };
 }
 
 /**
@@ -51,103 +117,48 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
   cdpOrchestrator.initialize(mainWindow, client);
   console.log('[IPC] CDP orchestrator initialized');
 
-  // Set up WebSocket event forwarding to renderer
-  client.on('profile_launched', async (data) => {
-    console.log('[IPC] Broadcasting profile_launched:', data.profile);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('cloakmanager:profile_launched', data);
-    }
+  const relay = (channel, data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data);
+  };
 
-    // Trigger CDP launch script sequence with delay for browser startup
-    try {
-      console.log('[IPC] Scheduling CDP launch scripts for profile:', data.profile, `(with ${CDP_LAUNCH_DELAY/1000}s delay for browser startup)`);
-      console.log('[IPC] Current time:', new Date().toISOString(), 'Expected execution:', new Date(Date.now() + CDP_LAUNCH_DELAY).toISOString());
-
-      // CRITICAL: CloakManager launch takes 90+ seconds due to Google navigation timeout
-      // Delay CDP script execution to allow browser to fully launch and CDP to be ready
-      setTimeout(async () => {
-        if (handledProfiles.has(data.profile)) return;
-        handledProfiles.add(data.profile);
-        console.log('[IPC] 🔔 setTimeout callback FIRED for profile:', data.profile);
-        console.log('[IPC] 🔔 Timestamp:', new Date().toISOString());
-        console.log('[IPC] 🔔 cdpOrchestrator type:', typeof cdpOrchestrator);
-        console.log('[IPC] 🔔 cdpOrchestrator methods:', Object.keys(cdpOrchestrator));
-
-        try {
-          console.log('[IPC] 🔔 Calling cdpOrchestrator.handleProfileLaunched');
-          await cdpOrchestrator.handleProfileLaunched(data);
-          console.log('[IPC] 🔔 cdpOrchestrator.handleProfileLaunched COMPLETED');
-        } catch (error) {
-          console.error('[IPC] ❌ Failed to trigger CDP launch scripts:', error);
-          console.error('[IPC] ❌ Error stack:', error.stack);
-        }
-      }, CDP_LAUNCH_DELAY); // Configurable delay for browser to fully launch and CDP to be ready
-    } catch (error) {
-      console.error('[IPC] Failed to schedule CDP launch scripts:', error);
-    }
+  // WebSocket events → renderer. The orchestrator owns the launch lifecycle;
+  // these handlers only relay to the UI and nudge the orchestrator's state
+  // machine. There is no longer a 95s setTimeout or a dual trigger — a launch
+  // we started doesn't depend on `cdp_ready` at all (client.launchProfile
+  // already blocks until the browser is up and verifies CDP); the event only
+  // matters for profiles launched out-of-band from CloakManager's own UI.
+  client.on('profile_launched', (data) => {
+    console.log('[IPC] profile_launched:', data.profile);
+    relay('cloakmanager:profile_launched', data);
   });
 
   client.on('profile_stopped', (data) => {
-    console.log('[IPC] Broadcasting profile_stopped:', data.profile);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('cloakmanager:profile_stopped', data);
-    }
-
-    // Cleanup CDP connections for stopped profile
-    try {
-      console.log('[IPC] Cleaning up CDP connections for profile:', data.profile);
-      cdpOrchestrator.handleProfileStopped(data);
-    } catch (error) {
-      console.error('[IPC] Failed to cleanup CDP connections:', error);
-    }
+    console.log('[IPC] profile_stopped:', data.profile);
+    relay('cloakmanager:profile_stopped', data);
+    try { cdpOrchestrator.onProfileStopped(data.profile); }
+    catch (error) { console.error('[IPC] onProfileStopped failed:', error); }
   });
 
   client.on('window_closed', (data) => {
-    console.log('[IPC] Broadcasting window_closed:', data.profile);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('cloakmanager:window_closed', data);
-    }
+    relay('cloakmanager:window_closed', data);
   });
 
   client.on('browser_crashed', (data) => {
-    console.log('[IPC] Broadcasting browser_crashed:', data.profile);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('cloakmanager:browser_crashed', data);
-    }
+    console.log('[IPC] browser_crashed:', data.profile);
+    relay('cloakmanager:browser_crashed', data);
+    try { cdpOrchestrator.onBrowserCrashed(data); }
+    catch (error) { console.error('[IPC] onBrowserCrashed failed:', error); }
   });
 
   client.on('launch_progress', (data) => {
-    console.log('[IPC] Broadcasting launch_progress:', data.profile, data.stage);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('cloakmanager:launch_progress', data);
-    }
+    relay('cloakmanager:launch_progress', data);
   });
 
   client.on('cdp_ready', (data) => {
-    console.log('[IPC] Broadcasting cdp_ready:', data.profile);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('cloakmanager:cdp_ready', data);
-    }
-
-    // Mark profile as ready for CDP task scripts
-    try {
-      console.log('[IPC] Marking profile as CDP ready:', data.profile);
-      cdpOrchestrator.handleCDPReady(data);
-    } catch (error) {
-      console.error('[IPC] Failed to mark profile as CDP ready:', error);
-    }
-
-    // Phase 3: Use cdp_ready event as immediate trigger for launch scripts
-    // This bypasses the 95-second delay and triggers scripts as soon as CDP is ready
-    try {
-      handledProfiles.add(data.profile);
-      console.log('[IPC] 🚀 cdp_ready event received, launching scripts immediately');
-      console.log('[IPC] 🚀 Calling cdpOrchestrator.handleProfileLaunched from cdp_ready');
-      cdpOrchestrator.handleProfileLaunched(data);
-      console.log('[IPC] 🚀 CDP launch scripts completed from cdp_ready trigger');
-    } catch (error) {
-      console.error('[IPC] Failed to trigger CDP launch scripts from cdp_ready:', error);
-    }
+    console.log('[IPC] cdp_ready:', data.profile);
+    relay('cloakmanager:cdp_ready', data);
+    try { cdpOrchestrator.onCdpReady(data.profile); }
+    catch (error) { console.error('[IPC] onCdpReady failed:', error); }
   });
 
   // WebSocket connection events
@@ -172,27 +183,12 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
     try {
       console.log('[IPC] CloakManager availability check requested');
 
-      // Get user from token
       const user = userFromToken(token);
       if (!user) {
         return { ok: false, available: false, error: 'Invalid token' };
       }
 
-      // Load user's CloakManager URL setting and update client
-      const settings = getDb().prepare(`
-        SELECT cloakmanager_url
-        FROM user_browser_settings
-        WHERE user_id = ?
-      `).get(user.id);
-
       const client = getCloakManagerClient();
-
-      // Update client URL if user has custom setting
-      if (settings && settings.cloakmanager_url) {
-        client.updateBaseUrl(settings.cloakmanager_url);
-        console.log('[IPC] Loaded user CloakManager URL:', settings.cloakmanager_url);
-      }
-
       const available = await client.isAvailable();
       console.log('[IPC] CloakManager availability result:', available);
       return { ok: true, available };
@@ -203,124 +199,18 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
   });
 
   /**
-   * Get user browser mode settings
-   */
-  ipcMain.handle('cloakmanager:getSettings', async (event, { token, userId }) => {
-    try {
-      // userFromToken is imported at top of file
-      const user = userFromToken(token);
-
-      if (!user) {
-        return { ok: false, error: 'Invalid token' };
-      }
-
-      // getDb() is imported at top of file
-      const settings = getDb().prepare(`
-        SELECT default_browser_mode, cloakmanager_url
-        FROM user_browser_settings
-        WHERE user_id = ?
-      `).get(userId || user.id);
-
-      return {
-        ok: true,
-        settings: {
-          defaultMode: settings?.default_browser_mode || 'electron',
-          cloakmanagerUrl: settings?.cloakmanager_url || 'http://127.0.0.1:7331'
-        }
-      };
-    } catch (error) {
-      console.error('Failed to get CloakManager settings:', error);
-      return { ok: false, error: error.message };
-    }
-  });
-
-  /**
-   * Update user browser mode settings
-   */
-  ipcMain.handle('cloakmanager:updateSettings', async (event, { token, settings }) => {
-    try {
-      // userFromToken is imported at top of file
-      const user = userFromToken(token);
-
-      if (!user) {
-        return { ok: false, error: 'Invalid token' };
-      }
-
-      if (user.role !== 'admin') {
-        return { ok: false, error: 'Only admins can change browser settings' };
-      }
-
-      // getDb() is imported at top of file
-      const { defaultMode, cloakmanagerUrl } = settings;
-
-      // Check if settings already exist (no id column - user_id is the primary key)
-      const existing = getDb().prepare(`
-        SELECT user_id FROM user_browser_settings WHERE user_id = ?
-      `).get(user.id);
-
-      if (existing) {
-        // Update existing settings
-        getDb().prepare(`
-          UPDATE user_browser_settings
-          SET default_browser_mode = ?, cloakmanager_url = ?
-          WHERE user_id = ?
-        `).run(defaultMode, cloakmanagerUrl || 'http://127.0.0.1:7331', user.id);
-      } else {
-        // Create new settings
-        getDb().prepare(`
-          INSERT INTO user_browser_settings (user_id, default_browser_mode, cloakmanager_url)
-          VALUES (?, ?, ?)
-        `).run(user.id, defaultMode, cloakmanagerUrl || 'http://127.0.0.1:7331');
-      }
-
-      // CRITICAL: Update the CloakManager client's base URL
-      if (cloakmanagerUrl) {
-        const client = getCloakManagerClient();
-        client.updateBaseUrl(cloakmanagerUrl);
-        console.log('[IPC] Updated CloakManager client URL to:', cloakmanagerUrl);
-      }
-
-      return { ok: true, message: 'Settings updated successfully' };
-    } catch (error) {
-      console.error('Failed to update CloakManager settings:', error);
-      return { ok: false, error: error.message };
-    }
-  });
-
-  /**
-   * Get browser mode for a specific account
+   * Get browser mode for a specific account (resolves from model_profiles)
    */
   ipcMain.handle('cloakmanager:getAccountMode', async (event, { token, accountId }) => {
     try {
-      console.log('[IPC] cloakmanager:getAccountMode called with:', { accountId });
-
-      // userFromToken is imported at top of file
       const user = userFromToken(token);
-      console.log('[IPC] User from token:', user?.username, user?.role);
-
-      if (!user) {
-        console.error('[IPC] Invalid token');
-        return { ok: false, error: 'Invalid token' };
-      }
-
-      if (!canAccessAccount(user, accountId)) {
-        return { ok: false, error: 'Not authorized for this profile' };
-      }
-
-      // getDb() is imported at top of file
-
-      // Get account settings
-      console.log('[IPC] Querying account_browser_settings for accountId:', accountId);
+      if (!user) return { ok: false, error: 'Invalid token' };
+      if (!canAccessAccount(user, accountId)) return { ok: false, error: 'Not authorized for this profile' };
 
       const { resolveBrowserMode } = require('../lib/browserMode');
-      const { mode, profileName } = resolveBrowserMode(accountId, user.id);
-      console.log('[IPC] Account mode:', mode, 'profile:', profileName);
+      const { mode, profileName } = resolveBrowserMode(accountId);
 
-      return {
-        ok: true,
-        mode,
-        profileName
-      };
+      return { ok: true, mode, profileName };
     } catch (error) {
       console.error('Failed to get account browser mode:', error);
       return { ok: false, error: error.message };
@@ -328,59 +218,34 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
   });
 
   /**
-   * Set browser mode for a specific account
+   * Set browser mode for a model profile
    */
   ipcMain.handle('cloakmanager:setAccountMode', async (event, { token, accountId, mode, profileName }) => {
     try {
-      // userFromToken is imported at top of file
       const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Invalid token' };
+      if (user.role === 'chatter') return { ok: false, error: 'Chatters cannot change account settings' };
 
-      if (!user) {
-        return { ok: false, error: 'Invalid token' };
-      }
-
-      if (user.role === 'chatter') {
-        return { ok: false, error: 'Chatters cannot change account settings' };
-      }
-
-      // getDb() is imported at top of file
-
-      // Validate mode
-      if (!['electron', 'cloakmanager', 'inherit'].includes(mode)) {
+      if (!['electron', 'cloakmanager'].includes(mode)) {
         return { ok: false, error: 'Invalid browser mode' };
       }
 
-      // Compute default profile name if not provided
-      if (!profileName) {
-        const { getProfileName } = require('../lib/profileName');
-        const account = getDb().prepare('SELECT username, platform FROM reddit_accounts WHERE id = ?').get(accountId);
-        if (account) {
-          profileName = getProfileName(account);
-          console.log('[IPC] Computed default profile name:', profileName);
-        }
+      // Get the profile_id for this account
+      const acct = getDb().prepare('SELECT profile_id FROM reddit_accounts WHERE id = ?').get(accountId);
+      if (!acct) return { ok: false, error: 'Account not found' };
+
+      if (mode === 'cloakmanager' && !profileName) {
+        // Actually provisions the model's shared CM profile via the CM API
+        // rather than only writing a name to the database.
+        const result = await ensureModelCmProfile(acct.profile_id, {});
+        return result.ok ? { ok: true, message: result.message } : result;
       }
 
-      // Check if settings already exist (no id column - account_id is the primary key)
-      const existing = getDb().prepare(`
-        SELECT account_id, browser_mode, cloak_profile_name FROM account_browser_settings WHERE account_id = ?
-      `).get(accountId);
+      getDb().prepare(`
+        UPDATE model_profiles SET browser_mode = ?, cloak_profile_name = ? WHERE id = ?
+      `).run(mode, mode === 'electron' ? null : profileName, acct.profile_id);
 
-      if (existing) {
-        // Update existing settings
-        getDb().prepare(`
-          UPDATE account_browser_settings
-          SET browser_mode = ?, cloak_profile_name = ?
-          WHERE account_id = ?
-        `).run(mode, profileName || null, accountId);
-      } else {
-        // Create new settings
-        getDb().prepare(`
-          INSERT INTO account_browser_settings (account_id, browser_mode, cloak_profile_name)
-          VALUES (?, ?, ?)
-        `).run(accountId, mode, profileName || null);
-      }
-
-      return { ok: true, message: 'Account mode updated successfully' };
+      return { ok: true, message: 'Browser mode updated successfully' };
     } catch (error) {
       console.error('Failed to set account browser mode:', error);
       return { ok: false, error: error.message };
@@ -388,51 +253,58 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
   });
 
   /**
-   * Create CloakManager profile for an account
+   * Create CloakManager profile for a model profile
    */
   ipcMain.handle('cloakmanager:createProfile', async (event, { token, accountId, accountConfig }) => {
     try {
-      console.log('[IPC] CloakManager profile creation requested for account:', accountId);
-
-      // userFromToken is imported at top of file
       const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Invalid token' };
+      if (user.role === 'chatter') return { ok: false, error: 'Chatters cannot create profiles' };
+      if (!canAccessAccount(user, accountId)) return { ok: false, error: 'Not authorized for this profile' };
 
-      if (!user) {
-        return { ok: false, error: 'Invalid token' };
-      }
-
-      if (user.role === 'chatter') {
-        return { ok: false, error: 'Chatters cannot create profiles' };
-      }
-
-      if (!canAccessAccount(user, accountId)) {
-        return { ok: false, error: 'Not authorized for this profile' };
-      }
-
-      // getDb() is imported at top of file
-
-      // Get account details
-      const account = getDb().prepare(`
-        SELECT username, platform FROM reddit_accounts WHERE id = ?
+      // Get the model profile for this account, including any per-account override
+      const acct = getDb().prepare(`
+        SELECT a.profile_id, a.username, a.platform, mp.name AS profile_name,
+               mp.cloak_profile_name, mp.browser_mode,
+               bs.cloak_profile_override
+        FROM reddit_accounts a
+        JOIN model_profiles mp ON mp.id = a.profile_id
+        LEFT JOIN account_browser_settings bs ON bs.account_id = a.id
+        WHERE a.id = ?
       `).get(accountId);
 
-      if (!account) {
-        console.error('[IPC] Account not found:', accountId);
-        return { ok: false, error: 'Account not found' };
+      if (!acct) return { ok: false, error: 'Account not found' };
+
+      // No per-account override configured — this account uses the model's
+      // one shared CloakManager profile. Delegate to the same model-level
+      // creation path used when a model is switched into CloakManager mode,
+      // so there's only one place that resolves the name/proxy and persists
+      // the result.
+      if (!acct.cloak_profile_override) {
+        return ensureModelCmProfile(acct.profile_id, { os: accountConfig?.os });
       }
 
-      console.log('[IPC] Creating CloakManager profile for account:', account.username, 'platform:', account.platform);
+      const { sanitizeForCmName, isValidCmName } = require('../lib/profileName');
 
-      // Get proxy configuration if available (match actual schema)
+      // This account has its own override — a deliberately separate
+      // instance from the model default (e.g. same-platform conflict).
+      // Self-heal a name saved before sanitization existed.
+      let cmName = acct.cloak_profile_override;
+      if (!isValidCmName(cmName)) {
+        cmName = sanitizeForCmName(cmName);
+        getDb().prepare('UPDATE account_browser_settings SET cloak_profile_override = ? WHERE account_id = ?').run(cmName, accountId);
+      }
+
+      // Get proxy configuration — account's own proxy wins, else model's
       const proxy = getDb().prepare(`
         SELECT id, host, port, kind as protocol, username, password_encrypted as password
         FROM proxies
-        WHERE id = (SELECT proxy_id FROM reddit_accounts WHERE id = ?)
+        WHERE id = (SELECT COALESCE(a.proxy_id, mp.proxy_id) FROM reddit_accounts a
+                    JOIN model_profiles mp ON mp.id = a.profile_id WHERE a.id = ?)
       `).get(accountId);
 
       const client = getCloakManagerClient();
 
-      // Decrypt proxy password if present
       let proxyConfig = null;
       if (proxy) {
         proxyConfig = {
@@ -441,53 +313,47 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
           protocol: proxy.protocol || 'socks5',
           username: proxy.username || '',
           password: proxy.password ? (credentialVaultGet('proxy_password', proxy.id) || decryptSecret(proxy.password) || '') : '',
-          country: 'US' // Default country (not stored in proxy schema)
+          country: 'US'
         };
-        console.log('[IPC] Using proxy:', proxyConfig.host, proxyConfig.port);
-      } else {
-        console.log('[IPC] No proxy configured for account');
       }
 
-      const result = await client.createProfile(account.username, { ...accountConfig, platform: account.platform }, proxyConfig);
+      const result = await client.createProfile(cmName, { os: accountConfig?.os || 'windows' }, proxyConfig);
 
       if (result.ok) {
-        console.log('[IPC] ✅ Profile created successfully:', result);
-
-        // Store profile reference in database (no id column - profile_name is unique)
-        const existing = getDb().prepare(`
-          SELECT profile_name FROM cloakmanager_profiles WHERE account_id = ?
-        `).get(accountId);
-
-        if (existing) {
-          getDb().prepare(`
-            UPDATE cloakmanager_profiles
-            SET profile_name = ?, status = 'created'
-            WHERE account_id = ?
-          `).run(result.profileName, accountId);
-        } else {
-          getDb().prepare(`
-            INSERT INTO cloakmanager_profiles (account_id, profile_name, status)
-            VALUES (?, ?, 'created')
-          `).run(accountId, result.profileName);
-        }
-
-        // CRITICAL FIX: Update account_browser_settings with the profile name AND browser mode
-        // This ensures getAccountMode returns the profile name and CDP orchestrator can find the account
+        // Per-account override: insert its own row, keyed by profile_name.
+        // Don't touch the model-level row — this is a deliberately separate
+        // instance, not the model's shared profile.
         getDb().prepare(`
-          UPDATE account_browser_settings
-          SET cloak_profile_name = ?, browser_mode = 'cloakmanager'
-          WHERE account_id = ?
-        `).run(result.profileName, accountId);
+          INSERT INTO cloakmanager_profiles (profile_id, account_id, profile_name, status)
+          VALUES (?, ?, ?, 'created')
+          ON CONFLICT(profile_name) DO UPDATE SET status = 'created', account_id = excluded.account_id
+        `).run(acct.profile_id, accountId, cmName);
 
-        console.log('[IPC] ✅ Profile name stored in account_browser_settings:', result.profileName);
-
-        return { ok: true, profileName: result.profileName, message: result.message };
+        return { ok: true, profileName: cmName, message: result.message };
       }
 
-      console.error('[IPC] ❌ Profile creation failed:', result);
       return result;
     } catch (error) {
-      console.error('[IPC] ❌ Failed to create CloakManager profile:', error);
+      console.error('[IPC] Failed to create CloakManager profile:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  /**
+   * Create (or retry) a model's shared CloakManager profile directly, with
+   * no accountId required — works for a brand-new model with zero linked
+   * accounts on any platform yet.
+   */
+  ipcMain.handle('cloakmanager:createModelProfile', async (event, { token, profileId, accountConfig }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Invalid token' };
+      if (user.role === 'chatter') return { ok: false, error: 'Chatters cannot create profiles' };
+      if (!canAccessProfileById(user, profileId)) return { ok: false, error: 'Not authorized for this profile' };
+
+      return await ensureModelCmProfile(profileId, { os: accountConfig?.os });
+    } catch (error) {
+      console.error('[IPC] Failed to create model CloakManager profile:', error);
       return { ok: false, error: error.message };
     }
   });
@@ -497,47 +363,39 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
    */
   ipcMain.handle('cloakmanager:launchProfile', async (event, { token, accountId, profileName }) => {
     try {
-      console.log('[IPC] cloakmanager:launchProfile called with:', { accountId, profileName });
-
-      // userFromToken is imported at top of file
       const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Invalid token' };
+      if (!canAccessAccount(user, accountId)) return { ok: false, error: 'Not authorized for this profile' };
 
-      if (!user) {
-        console.error('[IPC] Invalid token');
-        return { ok: false, error: 'Invalid token' };
-      }
+      // Resolve effective CM profile name from model_profiles
+      const { resolveBrowserMode } = require('../lib/browserMode');
+      const resolved = resolveBrowserMode(accountId);
+      const effectiveName = profileName || resolved.profileName;
 
-      if (!canAccessAccount(user, accountId)) {
-        return { ok: false, error: 'Not authorized for this profile' };
-      }
+      if (!effectiveName) return { ok: false, error: 'No CloakManager profile configured' };
 
-      console.log('[IPC] Calling client.launchProfile with:', profileName);
-      const client = getCloakManagerClient();
-      const result = await client.launchProfile(profileName);
-      console.log('[IPC] client.launchProfile result:', result);
+      // Single launch path — the orchestrator owns launch + CDP connect + the
+      // model's setup script sequence (including login for the targeted
+      // account). Idempotent per profile.
+      const acct = accountId
+        ? getDb().prepare('SELECT platform FROM reddit_accounts WHERE id = ?').get(accountId)
+        : null;
+      const result = await cdpOrchestrator.ensureProfileRunning(effectiveName, {
+        accountId: accountId || null,
+        platform: acct ? acct.platform : null,
+        reason: 'manual',
+        waitForScripts: false,
+      });
 
-      if (result.ok) {
-        // Update profile status in database
-        // getDb() is imported at top of file
-        getDb().prepare(`
-          UPDATE cloakmanager_profiles
-          SET cdp_port = ?, cdp_url = ?, cdp_ws_url = ?, fp_seed = ?, status = 'running'
-          WHERE profile_name = ?
-        `).run(result.cdpPort, result.cdpUrl, result.cdpWsUrl, result.fpSeed, profileName);
-
-        return {
-          ok: true,
-          profileName: result.profileName,
-          cdpPort: result.cdpPort,
-          cdpUrl: result.cdpUrl,
-          cdpWsUrl: result.cdpWsUrl,
-          proxyVerified: result.proxyVerified,
-          proxyIp: result.proxyIp,
-          fpSeed: result.fpSeed
-        };
-      }
-
-      return result;
+      return result.ok
+        ? {
+            ok: true,
+            profileName: effectiveName,
+            cdpPort: result.cdpPort,
+            cdpUrl: result.cdpUrl,
+            cdpWsUrl: result.cdpWsUrl,
+          }
+        : { ok: false, error: result.error, code: result.code };
     } catch (error) {
       console.error('Failed to launch CloakManager profile:', error);
       return { ok: false, error: error.message };
@@ -556,7 +414,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
         return { ok: false, error: 'Invalid token' };
       }
 
-      if (!canAccessAccount(user, accountIdForProfile(profileName))) {
+      if (!canAccessProfileById(user, profileIdForProfile(profileName))) {
         return { ok: false, error: 'Not authorized for this profile' };
       }
 
@@ -592,7 +450,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
         return { ok: false, error: 'Invalid token' };
       }
 
-      if (!canAccessAccount(user, accountIdForProfile(profileName))) {
+      if (!canAccessProfileById(user, profileIdForProfile(profileName))) {
         return { ok: false, error: 'Not authorized for this profile' };
       }
 
@@ -674,7 +532,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
         return { ok: false, error: 'Invalid token' };
       }
 
-      if (!canAccessAccount(user, accountIdForProfile(profileName))) {
+      if (!canAccessProfileById(user, profileIdForProfile(profileName))) {
         return { ok: false, error: 'Not authorized for this profile' };
       }
 
@@ -768,13 +626,11 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
       }
 
       console.log('[IPC] ✅ Manual trigger approved for admin:', user.username);
-      await cdpOrchestrator.handleProfileLaunched({ profile: profileName });
+      const result = await cdpOrchestrator.ensureProfileRunning(profileName, { reason: 'manual-trigger' });
 
-      return {
-        ok: true,
-        message: 'Launch scripts triggered successfully',
-        profile: profileName
-      };
+      return result.ok
+        ? { ok: true, message: 'Launch scripts triggered successfully', profile: profileName, results: result.results }
+        : { ok: false, error: result.error, code: result.code, profile: profileName };
     } catch (error) {
       console.error('[IPC] Manual trigger failed:', error);
       return { ok: false, error: error.message };
@@ -792,11 +648,10 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
       const { getDb } = require('../db');
       const db = getDb();
       const rows = db.prepare(`
-        SELECT e.*, a.username, a.platform, p.name AS profile_name
+        SELECT e.*, mp.name AS profile_name
         FROM cdp_script_executions e
         LEFT JOIN cloakmanager_profiles cp ON cp.profile_name = e.profile_name
-        LEFT JOIN reddit_accounts a ON a.id = cp.account_id
-        LEFT JOIN model_profiles p ON p.id = a.profile_id
+        LEFT JOIN model_profiles mp ON mp.id = cp.profile_id
         ORDER BY e.started_at DESC
         LIMIT ?
       `).all(limit);
@@ -1003,8 +858,187 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
       return { ok: false, error: error.message };
     }
   });
+
+  // ----------------------------------------------------------------
+  // Per-account launch script configuration
+  // ----------------------------------------------------------------
+
+  const scriptDiscovery = require('../cdp/script-discovery');
+
+  ipcMain.handle('cloakmanager:getAvailableLaunchScripts', async (event, { token }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Invalid token' };
+      const scripts = scriptDiscovery.discoverLaunchScripts();
+      return { ok: true, scripts };
+    } catch (error) {
+      console.error('[IPC] getAvailableLaunchScripts failed:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  // Launch-script configuration for a CloakManager profile — one shared
+  // browser for the whole model, so this is model-level, not per account.
+  ipcMain.handle('cloakmanager:getModelLaunchScripts', async (event, { token, profileId }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Invalid token' };
+      if (!canAccessProfileById(user, profileId)) return { ok: false, error: 'Permission denied' };
+
+      const db = getDb();
+
+      const platforms = db.prepare('SELECT DISTINCT platform FROM reddit_accounts WHERE profile_id = ?')
+        .all(profileId).map(r => r.platform);
+      scriptDiscovery.seedDefaultsForModel(profileId, platforms);
+
+      const available = scriptDiscovery.discoverLaunchScripts();
+
+      const custom = db.prepare(
+        'SELECT * FROM custom_cdp_scripts WHERE account_id IS NULL ORDER BY name ASC'
+      ).all();
+
+      const configured = db.prepare(
+        'SELECT * FROM model_launch_scripts WHERE profile_id = ? ORDER BY sort_order ASC, id ASC'
+      ).all(profileId);
+
+      return { ok: true, available, custom, configured, platforms };
+    } catch (error) {
+      console.error('[IPC] getModelLaunchScripts failed:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('cloakmanager:updateModelLaunchScript', async (event, { token, profileId, scriptId, enabled, runMode, sortOrder }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Invalid token' };
+      if (!canAccessProfileById(user, profileId)) return { ok: false, error: 'Permission denied' };
+
+      const db = getDb();
+
+      db.prepare(`
+        INSERT INTO model_launch_scripts (profile_id, script_id, enabled, run_mode, sort_order, updated_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(profile_id, script_id) DO UPDATE SET
+          enabled = COALESCE(?, enabled),
+          run_mode = COALESCE(?, run_mode),
+          sort_order = COALESCE(?, sort_order),
+          updated_at = datetime('now')
+      `).run(
+        profileId, scriptId,
+        enabled != null ? (enabled ? 1 : 0) : 1,
+        runMode || 'always',
+        sortOrder != null ? sortOrder : 0,
+        enabled != null ? (enabled ? 1 : 0) : null,
+        runMode || null,
+        sortOrder != null ? sortOrder : null
+      );
+
+      const updated = db.prepare(
+        'SELECT * FROM model_launch_scripts WHERE profile_id = ? AND script_id = ?'
+      ).get(profileId, scriptId);
+
+      return { ok: true, script: updated };
+    } catch (error) {
+      console.error('[IPC] updateModelLaunchScript failed:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('cloakmanager:reorderModelLaunchScripts', async (event, { token, profileId, scriptIds }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Invalid token' };
+      if (!canAccessProfileById(user, profileId)) return { ok: false, error: 'Permission denied' };
+
+      const db = getDb();
+      const update = db.prepare(
+        "UPDATE model_launch_scripts SET sort_order = ?, updated_at = datetime('now') WHERE profile_id = ? AND script_id = ?"
+      );
+
+      const txn = db.transaction(() => {
+        for (let i = 0; i < scriptIds.length; i++) {
+          update.run(i, profileId, scriptIds[i]);
+        }
+      });
+      txn();
+
+      return { ok: true };
+    } catch (error) {
+      console.error('[IPC] reorderModelLaunchScripts failed:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('cloakmanager:getCustomScripts', async (event, { token, accountId }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Invalid token' };
+
+      const db = getDb();
+      const scripts = db.prepare(
+        'SELECT * FROM custom_cdp_scripts WHERE account_id IS NULL OR account_id = ? ORDER BY name ASC'
+      ).all(accountId);
+
+      return { ok: true, scripts };
+    } catch (error) {
+      console.error('[IPC] getCustomScripts failed:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('cloakmanager:saveCustomScript', async (event, { token, accountId, id, name, description, platform, code }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Invalid token' };
+
+      const db = getDb();
+
+      if (id) {
+        db.prepare(`
+          UPDATE custom_cdp_scripts
+          SET name = ?, description = ?, platform = ?, code = ?, updated_at = datetime('now')
+          WHERE id = ?
+        `).run(name, description, platform, code, id);
+      } else {
+        const res = db.prepare(`
+          INSERT INTO custom_cdp_scripts (account_id, name, description, platform, code)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(accountId || null, name, description, platform, code);
+        id = res.lastInsertRowid;
+      }
+
+      const script = db.prepare('SELECT * FROM custom_cdp_scripts WHERE id = ?').get(id);
+      return { ok: true, script };
+    } catch (error) {
+      console.error('[IPC] saveCustomScript failed:', error);
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('cloakmanager:deleteCustomScript', async (event, { token, id }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) return { ok: false, error: 'Invalid token' };
+
+      const db = getDb();
+      const scriptId = `custom:${id}`;
+
+      db.prepare('DELETE FROM account_launch_scripts WHERE script_id = ?').run(scriptId);
+      db.prepare('DELETE FROM model_launch_scripts WHERE script_id = ?').run(scriptId);
+      db.prepare('DELETE FROM custom_cdp_scripts WHERE id = ?').run(id);
+
+      return { ok: true };
+    } catch (error) {
+      console.error('[IPC] deleteCustomScript failed:', error);
+      return { ok: false, error: error.message };
+    }
+  });
 }
 
 // Export CDP availability checker for use in coordinator and other services
 module.exports = registerCloakmanagerHandlers;
 module.exports.hasCDPAvailable = cdpOrchestrator.hasCDPAvailable;
+// So profiles.js can provision a model's CM profile directly (no IPC
+// round-trip) right when a model is created or switched into CM mode.
+module.exports.ensureModelCmProfile = ensureModelCmProfile;

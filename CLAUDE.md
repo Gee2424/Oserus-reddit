@@ -1,6 +1,7 @@
 # CLAUDE.md — session notes for Oserus Management
 
-See `HANDOFF.md` for full project context. This file holds workflow preferences.
+See `README.md` for project overview and `AUDIT.md` for the current
+architecture map. This file holds workflow preferences.
 
 ## Releases
 

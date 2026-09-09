@@ -122,27 +122,33 @@ function loadChromeInto(win, query) {
   }
 }
 
-const PLATFORM_HOME = {
-  reddit:    'https://www.reddit.com/',
-  redgifs:   'https://www.redgifs.com/',
-  x:         'https://x.com/home',
-  instagram: 'https://www.instagram.com/',
-  tiktok:    'https://www.tiktok.com/foryou',
-};
-function homeFor(platform) { return PLATFORM_HOME[platform] || 'https://www.google.com/'; }
+function homeFor(platform) {
+  try {
+    const row = getDb().prepare('SELECT home_url FROM platforms WHERE key = ?').get(platform);
+    return row?.home_url || 'https://www.google.com/';
+  } catch { return 'https://www.google.com/'; }
+}
 
 // Per-platform "Inbox / Account Manager Pro" URL. Auto-opened as a
 // second tab on every Oserus Browser launch so the operator lands
 // with the message center already loaded for the bound account.
 // Each URL requires login — autofill kicks in on the redirect.
-// RedGifs has no canonical inbox / DM surface, so it's omitted.
-const PLATFORM_INBOX = {
-  reddit:    'https://www.reddit.com/message/inbox/',
-  x:         'https://x.com/messages',
-  instagram: 'https://www.instagram.com/direct/inbox/',
-  tiktok:    'https://www.tiktok.com/messages',
-};
-function inboxFor(platform) { return PLATFORM_INBOX[platform] || null; }
+function inboxFor(platform) {
+  // Custom platforms have no inbox URL configured — return null
+  // so the browser doesn't open a second tab.
+  try {
+    const row = getDb().prepare('SELECT login_url FROM platforms WHERE key = ?').get(platform);
+    // Only return an inbox URL for platforms that have a known inbox path.
+    // For custom platforms, login_url is set but there's no inbox — return null.
+    const KNOWN_INBOX = {
+      reddit:    'https://www.reddit.com/message/inbox/',
+      x:         'https://x.com/messages',
+      instagram: 'https://www.instagram.com/direct/inbox/',
+      tiktok:    'https://www.tiktok.com/messages',
+    };
+    return KNOWN_INBOX[platform] || null;
+  } catch { return null; }
+}
 
 // Marker baked into the new-tab data: URL so we can detect it in
 // tabSnapshot and report a clean address ('') to the omnibox instead

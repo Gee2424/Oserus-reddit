@@ -163,7 +163,7 @@ const card = {
 const hint = { padding: 14, marginBottom: 14, color: 'var(--text-3)', fontSize: 13 };
 const iconBubble = {
   width: 28, height: 28, display: 'grid', placeItems: 'center',
-  borderRadius: 8, background: 'var(--bg-1)', border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', border: '1px solid var(--border)',
   fontSize: 16,
 };
 const list = { margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 6 };
@@ -179,5 +179,5 @@ const tipBox = {
   marginTop: 10, padding: '8px 10px',
   background: 'rgba(122,154,90,0.10)',
   border: '1px solid rgba(122,154,90,0.30)',
-  borderRadius: 6, fontSize: 12, color: 'var(--text-1)', lineHeight: 1.5,
+  borderRadius: 'var(--radius)', fontSize: 12, color: 'var(--text-1)', lineHeight: 1.5,
 };

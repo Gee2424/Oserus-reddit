@@ -37,17 +37,14 @@ async function execute(nativeConnection, context) {
   console.log('[Bookmarks Setup] Using Ctrl+D simulation method');
 
   try {
-    // Check if already set up (first launch tracking)
-    const alreadySetup = await page.evaluate(() => {
-      return localStorage.getItem('oserus_bookmarks_setup_complete') === 'true';
-    });
-
-    if (alreadySetup) {
-      console.log('[Bookmarks Setup] Already set up, skipping');
-      return { success: true, skipped: true, reason: 'already_setup' };
-    }
-
-    console.log('[Bookmarks Setup] First launch detected, creating bookmarks...');
+    // NOTE: used to gate on a 'oserus_bookmarks_setup_complete' localStorage
+    // flag here — reading localStorage before any navigation on this page can
+    // throw a SecurityError (e.g. if a prior script left the page on
+    // about:blank), which crashed this script. run_mode is 'once' in
+    // model_launch_scripts, so the orchestrator already skips re-running a
+    // script that previously completed (cdp_script_executions) — no in-script
+    // check needed.
+    console.log('[Bookmarks Setup] Creating bookmarks...');
 
     // Main social media platforms to bookmark
     const bookmarks = [
@@ -95,18 +92,10 @@ async function execute(nativeConnection, context) {
       }
     }
 
-    // Mark setup as complete (even if some failed)
-    await page.evaluate(() => {
-      localStorage.setItem('oserus_bookmarks_setup_complete', 'true');
-      localStorage.setItem('oserus_bookmarks_setup_date', new Date().toISOString());
-      localStorage.setItem('oserus_bookmarks_count', createdCount.toString());
-    });
-
     console.log(`[Bookmarks Setup] ✅ Setup complete: ${createdCount}/${bookmarks.length} bookmarks created`);
 
     return {
       success: true,
-      firstLaunch: true,
       bookmarkCount: createdCount,
       total: bookmarks.length,
       failed: failed,

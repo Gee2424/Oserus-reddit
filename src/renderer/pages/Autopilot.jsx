@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
+import { platformUsernamePrefix } from '../lib/platforms.js';
 import PopOutButton from '../components/PopOutButton.jsx';
 import AccountSelector from '../components/AccountSelector.jsx';
 import PlatformExplainer from '../components/PlatformExplainer.jsx';
 import { Banner } from '../components/ui.jsx';
 import { useCloudReload } from '../lib/cloudReload.jsx';
+import PageHeader from '../components/PageHeader.jsx';
 
 // Autopilot page.
 //
@@ -137,7 +139,7 @@ export default function AutopilotPage() {
       },
     });
     setBusy(false);
-    if (r.ok) { setMsg('Saved.'); setProto(r.protocol); }
+    if (r.ok) { setMsg('Saved at ' + new Date().toLocaleTimeString() + '.'); setProto(r.protocol); }
     else setErr(r.error || 'Failed to save');
   }
 
@@ -199,6 +201,10 @@ export default function AutopilotPage() {
   // refreshes status to reflect the master flipping on too.
   async function toggleScopeEnabled(next) {
     if (!sel.profileId || !sel.platform) return;
+    if (next && (!proto || (!proto.target_subs && !proto.target_filter && !proto.posts_per_day))) {
+      setErr('Configure targeting and rates below first, then save before turning ON.');
+      return;
+    }
     setBusy(true);
     const r = await window.api.autopilot.set({
       token, profileId: sel.profileId, platform: sel.platform,
@@ -207,7 +213,7 @@ export default function AutopilotPage() {
     setBusy(false);
     if (r.ok) {
       setProto(r.protocol);
-      setMsg(next ? `Autopilot ON for ${sel.platform}.` : `Autopilot OFF for ${sel.platform}.`);
+      setMsg(next ? `Autopilot ON for ${sel.platform} — ${new Date().toLocaleTimeString()}.` : `Autopilot OFF for ${sel.platform}.`);
       loadStatus();
     } else setErr(r.error || 'Failed to toggle');
   }
@@ -233,18 +239,9 @@ export default function AutopilotPage() {
 
   return (
     <div>
-      <div className="title-block">
-        <div>
-          <div className="eyebrow">Automation</div>
-          <h1>Autopilot</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            <strong>1.</strong> Pick a model + platform. <strong>2.</strong> Edit the settings below and Save. <strong>3.</strong> Flip <em>Turn ON for &lt;platform&gt;</em>. Saving with the switch on auto-starts the background loop — no separate master step.
-          </div>
-        </div>
-        <div style={{ marginLeft: 'auto' }}>
-          <PopOutButton route="autopilot" title="Autopilot" />
-        </div>
-      </div>
+      <PageHeader eyebrow="Automation" title="Autopilot" subtitle={<><strong>1.</strong> Pick a model + platform. <strong>2.</strong> Edit the settings below and Save. <strong>3.</strong> Flip <em>Turn ON for &lt;platform&gt;</em>. Saving with the switch on auto-starts the background loop — no separate master step.</>}>
+        <PopOutButton route="autopilot" title="Autopilot" />
+      </PageHeader>
 
       {/* ── 1. Master switch ─────────────────────────────────────── */}
       <MasterBanner
@@ -281,7 +278,7 @@ export default function AutopilotPage() {
             <span style={{
               ...statusDot,
               width: 10, height: 10,
-              background: protoOn ? 'var(--ok)' : '#e2a3a3',
+              background: protoOn ? 'var(--ok)' : 'var(--danger-fg)',
             }} />
             <div style={{ flex: 1, minWidth: 220 }}>
               <div style={{ fontWeight: 700, fontSize: 14 }}>
@@ -388,10 +385,11 @@ function MasterBanner({ on, status, canManage, onToggle, cmEnabled, cmEnabledLoa
       background: on
         ? 'linear-gradient(180deg, rgba(122,154,90,0.10), transparent 70%)'
         : 'linear-gradient(180deg, rgba(180,90,90,0.08), transparent 70%)',
-      border: `1px solid ${on ? 'rgba(122,154,90,0.40)' : 'rgba(180,90,90,0.40)'}`,
+      borderWidth: 1, borderStyle: 'solid',
+      borderColor: on ? 'rgba(122,154,90,0.40)' : 'rgba(180,90,90,0.40)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-        <span style={{ ...statusDot, width: 14, height: 14, background: on ? 'var(--ok)' : '#e2a3a3' }} />
+        <span style={{ ...statusDot, width: 14, height: 14, background: on ? 'var(--ok)' : 'var(--danger-fg)' }} />
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 15 }}>
             {on ? 'Autopilot master is RUNNING' : 'Autopilot master is PAUSED'}
@@ -422,11 +420,12 @@ function MasterBanner({ on, status, canManage, onToggle, cmEnabled, cmEnabledLoa
         )}
         {canManage && cmEnabled !== undefined && (
           <button onClick={onToggleCM} disabled={cmEnabledLoading} style={{
-            fontSize: 11, padding: '4px 10px', borderRadius: 999,
+            fontSize: 11, padding: '4px 10px', borderRadius: 'var(--radius-pill)',
             fontFamily: 'monospace',
-            background: cmEnabled ? 'rgba(155,89,182,0.2)' : 'rgba(255,255,255,0.06)',
-            color: cmEnabled ? '#c9a3d9' : 'var(--text-3)',
-            border: `1px solid ${cmEnabled ? 'rgba(155,89,182,0.3)' : 'var(--border)'}`,
+            background: cmEnabled ? 'var(--cm-soft)' : 'rgba(255,255,255,0.06)',
+            color: cmEnabled ? 'var(--cm-fg)' : 'var(--text-3)',
+            borderWidth: 1, borderStyle: 'solid',
+            borderColor: cmEnabled ? 'rgba(155,89,182,0.3)' : 'var(--border)',
             cursor: 'pointer',
           }} title={cmEnabled ? 'CM accounts included in autopilot' : 'CM accounts excluded from autopilot'}>
             {cmEnabled ? '👻 ON' : '👻 OFF'}
@@ -434,7 +433,7 @@ function MasterBanner({ on, status, canManage, onToggle, cmEnabled, cmEnabledLoa
         )}
       </div>
       {cmLaunch && (
-        <div style={{ fontSize: 11, marginTop: 6, color: cmLaunch.stage === 'error' ? '#e2a3a3' : 'var(--gold)' }}>
+        <div style={{ fontSize: 11, marginTop: 6, color: cmLaunch.stage === 'error' ? 'var(--danger-fg)' : 'var(--gold)' }}>
           {cmLaunch.stage === 'launching' && <span>⏳ {cmLaunch.message}</span>}
           {cmLaunch.stage === 'waiting' && <span>🔄 {cmLaunch.message}</span>}
           {cmLaunch.stage === 'ready' && <span>✓ {cmLaunch.message}</span>}
@@ -457,7 +456,7 @@ function RunResult({ result, platform }) {
   }
   if (result.state === 'failed') {
     return (
-      <div style={{ ...resultBox(false), color: '#e2a3a3', borderColor: 'rgba(180,90,90,0.4)' }}>
+      <div style={{ ...resultBox(false), color: 'var(--danger-fg)', borderColor: 'rgba(180,90,90,0.4)' }}>
         ✗ {result.error}
       </div>
     );
@@ -515,7 +514,7 @@ function PostResult({ result, platform }) {
     return <div style={resultBox(true)}><span style={spinDot} /> Generating + submitting one post…</div>;
   }
   if (result.state === 'failed') {
-    return <div style={{ ...resultBox(false), color: '#e2a3a3', borderColor: 'rgba(180,90,90,0.4)' }}>✗ {result.error}</div>;
+    return <div style={{ ...resultBox(false), color: 'var(--danger-fg)', borderColor: 'rgba(180,90,90,0.4)' }}>✗ {result.error}</div>;
   }
   if (result.posted) {
     return (
@@ -531,7 +530,7 @@ function PostResult({ result, platform }) {
   // reason ("Protocol disabled", "Daily cap reached", "Too soon", etc.)
   // so the operator knows what to fix rather than seeing a silent no-op.
   return (
-    <div style={{ ...resultBox(false), color: '#e7c478', borderColor: 'rgba(231,196,120,0.4)' }}>
+    <div style={{ ...resultBox(false), color: 'var(--gold-bright)', borderColor: 'rgba(231,196,120,0.4)' }}>
       <div style={{ fontWeight: 600 }}>Did not post.</div>
       <div style={{ fontSize: 12, marginTop: 4 }}>
         {result.error ? result.error
@@ -670,7 +669,7 @@ function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) 
           </CheckLabel>
         </div>
         {platform === 'reddit' && (
-          <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', marginBottom: 8 }}>
               Reddit-only targeting
             </div>
@@ -728,8 +727,9 @@ function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) 
                 disabled={!canManage}
                 style={{
                   background: active ? 'rgba(212,166,74,0.18)' : 'transparent',
-                  border: `1px solid ${active ? 'var(--gold)' : 'var(--border)'}`,
-                  borderRadius: 999, padding: '4px 11px',
+                  borderWidth: 1, borderStyle: 'solid',
+                  borderColor: active ? 'var(--gold)' : 'var(--border)',
+                  borderRadius: 'var(--radius-pill)', padding: '4px 11px',
                   color: active ? 'var(--gold)' : 'var(--text-2)',
                   fontSize: 11, fontWeight: 600, cursor: canManage ? 'pointer' : 'default',
                 }}
@@ -863,7 +863,7 @@ function ExampleLibrary({ token, accountId }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <h3 style={{ margin: 0 }}>This account's voice library</h3>
         <span className="muted" style={{ fontSize: 12 }}>
-          autopilot mirrors these when generating posts + comments for u/{accountId}
+          autopilot mirrors these when generating posts + comments for account #{accountId}
         </span>
       </div>
       {err && <Banner kind="err">{err}</Banner>}
@@ -901,7 +901,7 @@ function ExampleLibrary({ token, accountId }) {
           <label style={{ display: 'inline-block', cursor: 'pointer' }}>
             <input type="file" accept="image/*" multiple style={{ display: 'none' }}
               onChange={(e) => { for (const f of e.target.files || []) uploadImage(f); e.target.value = ''; }} />
-            <span className="primary" style={{ display: 'inline-block', padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>
+            <span className="primary" style={{ display: 'inline-block', padding: '6px 12px', borderRadius: 'var(--radius-pill)', fontSize: 12, fontWeight: 600 }}>
               + Add image(s)
             </span>
           </label>
@@ -951,7 +951,7 @@ function ExampleLibrary({ token, accountId }) {
                   onClick={async () => { await window.api.examples.deleteComment({ token, id: c.id }); load(); }}>×</button>
               </div>
               {c.parent_body && <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>{String(c.parent_body).slice(0, 140)}</div>}
-              <div style={{ fontSize: 12, marginTop: 6, padding: '6px 8px', background: 'var(--bg-elev)', borderRadius: 6, whiteSpace: 'pre-wrap' }}>
+              <div style={{ fontSize: 12, marginTop: 6, padding: '6px 8px', background: 'var(--bg-elev)', borderRadius: 'var(--radius)', whiteSpace: 'pre-wrap' }}>
                 ↳ {c.comment_body}
               </div>
             </>
@@ -995,7 +995,7 @@ function RecentActivity({ events }) {
                   </div>
                 )}
                 <div className="muted" style={{ fontSize: 11 }}>
-                  {e.account_username ? `${e.platform === 'reddit' ? 'u/' : '@'}${e.account_username}` : `acct ${e.account_id}`}
+                  {e.account_username ? `${platformUsernamePrefix(e.platform || 'reddit')}${e.account_username}` : `acct ${e.account_id}`}
                   {e.profile_name ? ` · ${e.profile_name}` : ''}
                   {' · '}{e.source}
                   {' · '}{e.created_at ? new Date(e.created_at.replace(' ', 'T') + 'Z').toLocaleString() : ''}
@@ -1077,7 +1077,7 @@ function ItemList({ items, render }) {
       {items.length === 0
         ? <div className="muted" style={{ fontSize: 12 }}>Nothing yet.</div>
         : items.map((it) => (
-            <div key={it.id} style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px' }}>
+            <div key={it.id} style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '8px 10px' }}>
               {render(it)}
             </div>
           ))}
@@ -1112,8 +1112,8 @@ function formatRelative(isoLike) {
 }
 
 function statusPillStyle(s) {
-  if (s === 'posted' || s === 'engaged') return { background: 'rgba(122,154,90,0.15)', color: '#bdd5a3' };
-  if (s === 'failed' || s === 'engaged-err') return { background: 'rgba(180,90,90,0.15)', color: '#e2a3a3' };
+  if (s === 'posted' || s === 'engaged') return { background: 'rgba(122,154,90,0.15)', color: 'var(--success-fg)' };
+  if (s === 'failed' || s === 'engaged-err') return { background: 'rgba(180,90,90,0.15)', color: 'var(--danger-fg)' };
   if (s === 'dry-run') return { background: 'rgba(212,166,74,0.15)', color: 'var(--gold)' };
   return { background: 'rgba(255,255,255,0.06)', color: 'var(--text-3)' };
 }
@@ -1123,11 +1123,11 @@ const spinDot   = { width: 8, height: 8, borderRadius: '50%', background: 'var(-
 const resultBox = (running) => ({
   marginTop: 12, padding: '8px 12px',
   background: running ? 'rgba(212,166,74,0.08)' : 'var(--bg-1)',
-  border: '1px solid var(--border)', borderRadius: 8,
+  border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
   fontSize: 12, color: 'var(--text-1)',
 });
-const pill = { fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, textTransform: 'uppercase', flexShrink: 0, marginTop: 2 };
+const pill = { fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 'var(--radius-pill)', textTransform: 'uppercase', flexShrink: 0, marginTop: 2 };
 const eventRow = { display: 'flex', gap: 10, alignItems: 'flex-start', padding: '10px 16px', borderBottom: '1px solid var(--border)' };
 const subhead = { fontWeight: 600, fontSize: 13, marginBottom: 8 };
-const imageThumbBox = { position: 'relative', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8, aspectRatio: '1 / 1', overflow: 'hidden' };
-const imageThumbX   = { position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: 999, width: 22, height: 22, cursor: 'pointer', fontSize: 12 };
+const imageThumbBox = { position: 'relative', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', aspectRatio: '1 / 1', overflow: 'hidden' };
+const imageThumbX   = { position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', borderRadius: 'var(--radius-pill)', width: 22, height: 22, cursor: 'pointer', fontSize: 12 };

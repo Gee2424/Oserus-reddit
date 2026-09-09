@@ -5,6 +5,7 @@ import { ActiveAccountProvider } from './lib/activeAccount.jsx';
 import { InboxLiveProvider } from './lib/inboxLive.jsx';
 import { ToastProvider } from './lib/toast.jsx';
 import { ConfirmProvider } from './lib/confirm.jsx';
+import { loadPlatforms } from './lib/platforms.js';
 import LoginPage from './pages/Login.jsx';
 import Shell from './components/Shell.jsx';
 import DashboardPage from './pages/Dashboard.jsx';
@@ -21,9 +22,11 @@ import SchedulerProPage from './pages/SchedulerPro.jsx';
 import AutomationPage from './pages/Automation.jsx';
 import IntelligencePage from './pages/Intelligence.jsx';
 import AddAccountsPage from './pages/AddAccounts.jsx';
+import PlatformsPage from './pages/Platforms.jsx';
 import RedGifsDashboardPage from './pages/RedGifsDashboard.jsx';
 import RedditApiPage from './pages/RedditApi.jsx';
 import InboxPage from './pages/Inbox.jsx';
+import ScriptsPage from './pages/Scripts.jsx';
 import UpdateBanner from './components/UpdateBanner.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { installCloudReloadBridge } from './lib/cloudReload.jsx';
@@ -47,21 +50,49 @@ function getPopoutInfo() {
 
 function Inner() {
   const { user, loading } = useAuth();
-  const [route, setRoute] = useState('loading');
-  const [routeParams, setRouteParams] = useState({});
+  // Navigation history stack. Top of stack is the current view. `navigate`
+  // pushes; `goBack` pops. `resetRoute` replaces the whole stack (used by the
+  // post-login routing effect so Back can't land on a stale/loading view).
+  const [history, setHistory] = useState([{ route: 'loading', params: {} }]);
+  const top = history[history.length - 1];
+  const route = top.route;
+  const routeParams = top.params || {};
+  const [loadError, setLoadError] = useState(null);
   const [, forceHash] = React.useState(0);
 
-  // After login, check if user has teams — if zero, go to team creation
+  const resetRoute = React.useCallback((r, params = {}) => {
+    setHistory([{ route: r, params }]);
+  }, []);
+  const navigate = React.useCallback((r, params = {}) => {
+    setHistory((h) => {
+      const cur = h[h.length - 1];
+      if (cur && cur.route === r && JSON.stringify(cur.params || {}) === JSON.stringify(params || {})) return h;
+      return [...h, { route: r, params }];
+    });
+  }, []);
+  const goBack = React.useCallback(() => {
+    setHistory((h) => (h.length > 1 ? h.slice(0, -1) : h));
+  }, []);
+  const canGoBack = history.length > 1;
+
+  // After login, load platforms and check if user has teams
   useEffect(() => {
-    if (!user) { setRoute('login'); return; }
-    window.api.team.listTeams({}).then(res => {
+    if (!user) { resetRoute('login'); return; }
+    // Load platforms first (needed by all pages), then check teams
+    loadPlatforms().then(() => window.api.team.listTeams({})).then(res => {
       if (res.ok && res.teams && res.teams.length > 0) {
-        setRoute('dashboard');
+        resetRoute('dashboard');
+      } else if (!res.ok) {
+        setLoadError(res.error || 'Could not connect to server — check your internet connection');
+        resetRoute('dashboard');
       } else {
-        setRoute('team');
+        resetRoute('team');
       }
-    }).catch(() => setRoute('dashboard'));
-  }, [user]);
+    }).catch((err) => {
+      setLoadError(err?.message || 'Could not connect to server');
+      resetRoute('dashboard');
+    });
+  }, [user, resetRoute]);
 
   React.useEffect(() => {
     const onHash = () => forceHash((n) => n + 1);
@@ -76,6 +107,11 @@ function Inner() {
     return (
       <div style={{ height: '100%', display: 'grid', placeItems: 'center', background: 'var(--bg-0)' }}>
         <div style={{ textAlign: 'center' }}>
+          {loadError && (
+            <div className="error-banner" style={{ maxWidth: 400, margin: '0 auto 16px' }}>
+              {loadError}
+            </div>
+          )}
           <div style={{
             width: 48, height: 48, borderRadius: '50%',
             border: '2px solid var(--border-strong)',
@@ -89,11 +125,6 @@ function Inner() {
     );
   }
   if (!user) return <LoginPage />;
-
-  const navigate = (r, params = {}) => {
-    setRoute(r);
-    setRouteParams(params);
-  };
 
   const page = (() => {
     switch (route) {
@@ -117,6 +148,7 @@ function Inner() {
         return <SchedulerProPage initialProTab="configure" navigate={navigate} />;
       case 'team': return <TeamPage navigate={navigate} />;
       case 'settings': return <SettingsPage navigate={navigate} />;
+      case 'scripts': return <ScriptsPage navigate={navigate} />;
       case 'docs': return <DocsPage />;
       case 'analytics': return <AnalyticsPage />;
       case 'activity': return <DashboardPage navigate={navigate} />;
@@ -126,6 +158,7 @@ function Inner() {
       case 'scheduler-pro': return <AutomationPage navigate={navigate} initialSection="scheduler" />;
       case 'intel': return <IntelligencePage initialTab={routeParams.tab} />;
       case 'add-accounts': return <AddAccountsPage navigate={navigate} initialTab={routeParams.tab} />;
+      case 'platforms': return <PlatformsPage navigate={navigate} />;
       default: return <DashboardPage navigate={navigate} />;
     }
   })();
@@ -164,7 +197,7 @@ function Inner() {
         <ToastProvider>
           <ConfirmProvider>
             <InboxLiveProvider>
-              <Shell route={route} navigate={navigate}>
+              <Shell route={route} navigate={navigate} goBack={goBack} canGoBack={canGoBack}>
                 <ErrorBoundary label={route}>
                   <div className="page-wrap" key={route}>{page}</div>
                 </ErrorBoundary>
@@ -198,7 +231,7 @@ function PopoutShell({ children }) {
           style={{
             WebkitAppRegion: 'no-drag', background: pinned ? 'var(--gold)' : 'transparent',
             color: pinned ? 'var(--bg-0)' : 'var(--text-2)', border: '1px solid var(--border)',
-            borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer',
+            borderRadius: 'var(--radius)', padding: '4px 10px', fontSize: 'var(--text-sm)', cursor: 'pointer',
           }}
         >
           {pinned ? '📌 Pinned' : '📌 Pin on top'}

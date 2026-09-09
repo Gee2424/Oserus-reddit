@@ -37,17 +37,14 @@ async function execute(nativeConnection, context) {
   console.log('[Environment Setup] Using native Playwright API');
 
   try {
-    // Check if already set up (first launch tracking)
-    const alreadySetup = await page.evaluate(() => {
-      return localStorage.getItem('oserus_environment_setup_complete') === 'true';
-    });
-
-    if (alreadySetup) {
-      console.log('[Environment Setup] Already set up, skipping');
-      return { success: true, skipped: true, reason: 'already_setup' };
-    }
-
-    console.log('[Environment Setup] First launch detected, configuring environment...');
+    // NOTE: used to gate on a 'oserus_environment_setup_complete' localStorage
+    // flag here — reading localStorage before any navigation on this page can
+    // throw a SecurityError (e.g. if a prior script left the page on
+    // about:blank), which crashed this script. run_mode is 'once' in
+    // model_launch_scripts, so the orchestrator already skips re-running a
+    // script that previously completed (cdp_script_executions) — no in-script
+    // check needed.
+    console.log('[Environment Setup] Configuring environment...');
 
     // Get account geo preferences from database — getDb is already
     // available from the script-executor.js scope via eval().
@@ -59,17 +56,10 @@ async function execute(nativeConnection, context) {
 
     // Native Playwright: cleaner evaluate syntax
     // Pass data as parameters instead of string interpolation
-    const result = await page.evaluate((timezone, countryCode) => {
+    const result = await page.evaluate(({ timezone, countryCode }) => {
       try {
-        // Set browser zoom to default (100%)
         document.body.style.zoom = '1.0';
-
-        // Get language from country code if available
         const language = countryCode ? getLanguageForCountry(countryCode) : null;
-
-        // Mark setup as complete
-        localStorage.setItem('oserus_environment_setup_complete', 'true');
-        localStorage.setItem('oserus_environment_setup_date', new Date().toISOString());
 
         return {
           success: true,
@@ -84,12 +74,11 @@ async function execute(nativeConnection, context) {
           error: e.message
         };
       }
-    }, account?.geo_timezone || null, account?.geo_country || null);
+    }, { timezone: account?.geo_timezone || null, countryCode: account?.geo_country || null });
 
     console.log('[Environment Setup] ✅ Environment configured:', result);
     return {
       success: true,
-      firstLaunch: true,
       config: result
     };
 

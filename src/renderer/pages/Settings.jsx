@@ -1,14 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
 import { useActiveAccount } from '../lib/activeAccount.jsx';
+import { platformUsernamePrefix } from '../lib/platforms.js';
 import ProxiesPanel from '../components/ProxiesPanel.jsx';
 import ExtensionsPanel from '../components/ExtensionsPanel.jsx';
 import HomepageTilesPanel from '../components/HomepageTilesPanel.jsx';
 import AutopilotAIPanel from '../components/AutopilotAIPanel.jsx';
-import BrowserModeSettings from '../components/BrowserModeSettings.jsx';
 import CDPHistoryPanel from '../components/CDPHistoryPanel.jsx';
+import CloakManagerStatus from '../components/CloakManagerStatus.jsx';
 import { useToast } from '../lib/toast.jsx';
+import { Tag, StatusPill, Banner, FormGrid } from '../components/ui.jsx';
+import PageHeader from '../components/PageHeader.jsx';
 
 // Configuration page.
 //
@@ -16,7 +19,7 @@ import { useToast } from '../lib/toast.jsx';
 // The nav sidebar + CollapsibleSection wrapper replaced the old flat
 // Section component — each section collapses to a title bar, only one
 // expanded at a time. Nav order: AI → Infrastructure → Account →
-// Cloud Sync → Browser & Devices.
+// Browser Modes → Cloud Sync → Browser & Devices.
 
 export default function SettingsPage() {
   const { token } = useAuth();
@@ -31,17 +34,20 @@ export default function SettingsPage() {
     { id: 'ai',             label: 'AI',                   icon: '◇', admin: true },
     { id: 'infrastructure', label: 'Infrastructure',       icon: '⚡', admin: true },
     { id: 'account',        label: 'Account',              icon: '⚑', admin: false },
+    { id: 'browsermodes',   label: 'Browser Modes',        icon: '👻', admin: true },
     { id: 'cloud',          label: 'Cloud Sync',           icon: '☁', admin: true },
     { id: 'browser',        label: 'Browser & Devices',    icon: '◐', admin: true },
   ], []);
 
   const [expandedSection, setExpandedSection] = useState('ai');
   const [activeNavSection, setActiveNavSection] = useState('ai');
+  const scrollLock = useRef(false);
 
   // IntersectionObserver — highlights the nav item for the in-view section
   useEffect(() => {
     const visibleSections = SECTIONS.filter(s => !s.admin || isAdmin);
     const observer = new IntersectionObserver((entries) => {
+      if (scrollLock.current) return;
       let best = null;
       let bestTop = Infinity;
       for (const entry of entries) {
@@ -51,7 +57,7 @@ export default function SettingsPage() {
         }
       }
       if (best) setActiveNavSection(best);
-    }, { rootMargin: '-72px 0px -65% 0px', threshold: 0.05 });
+    }, { rootMargin: '-72px 0px -85% 0px', threshold: 0 });
 
     for (const s of visibleSections) {
       const el = document.getElementById(s.id);
@@ -67,11 +73,18 @@ export default function SettingsPage() {
     });
   }, []);
 
-  const scrollToSection = (id) => {
+  function expandSection(id) {
+    scrollLock.current = true;
     setExpandedSection(id);
+    setActiveNavSection(id);
     setTimeout(() => {
       document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 20);
+      setTimeout(() => { scrollLock.current = false; }, 400);
+    }, 50);
+  }
+
+  function toggleSection(id) {
+    setExpandedSection(expandedSection === id ? null : id);
   };
 
   // ── AI state ──────────────────────────────────────────────────────
@@ -164,19 +177,9 @@ export default function SettingsPage() {
     refresh();
   }
 
-  const bothAIProvidersConfigured = providers.anthropic?.hasKey && grokHasKey;
-
   return (
     <div>
-      <div className="title-block">
-        <div>
-          <div className="eyebrow">Configuration</div>
-          <h1>Settings</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            API keys, proxies, and your operator account — all in one place.
-          </div>
-        </div>
-      </div>
+      <PageHeader eyebrow="Configuration" title="Settings" subtitle="API keys, proxies, and your operator account — all in one place." />
 
       <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 24, alignItems: 'start' }}>
         {/* Settings navigation sidebar */}
@@ -193,7 +196,7 @@ export default function SettingsPage() {
                 <button
                   onClick={() => {
                     if (gated) { toast('warn', `Admin only — ${s.label} settings`); return; }
-                    scrollToSection(s.id);
+                    expandSection(s.id);
                   }}
                   title={gated ? `Admin only — ${s.label} settings` : s.label}
                   style={{
@@ -240,7 +243,7 @@ export default function SettingsPage() {
               icon="◇"
               subtitle="LLM keys that power composing, research, and autopilot. Each key is encrypted using your OS keychain when saved."
               isExpanded={expandedSection === 'ai'}
-              onToggle={() => scrollToSection('ai')}
+              onToggle={() => toggleSection('ai')}
               admin
               isAdmin={isAdmin}
             >
@@ -259,12 +262,12 @@ export default function SettingsPage() {
                     title="Grok (xAI)" configured={grokHasKey}
                     description="Alternative LLM for the composer + research flows. Useful if you want a different voice on suggestions. Get a key at console.x.ai → API Keys. Switch the active provider below once both are configured."
                     placeholder="xai-…" onSave={saveGrok} onClear={clearGrok} />
-                  {bothAIProvidersConfigured && (
+                  {(providers.anthropic?.hasKey || grokHasKey) && (
                     <Subcard title="Active AI provider"
                       description="Decides which LLM the composer + research routes call into. Autopilot uses its own key (below) regardless of this setting.">
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <Toggle active={providers.provider === 'anthropic'} label={`Anthropic · ${providers.anthropic?.model?.includes('haiku') ? 'Claude Haiku 4.5' : 'Claude'}`} onClick={() => switchProvider('anthropic')} />
-                        <Toggle active={providers.provider === 'grok'} label="Grok" onClick={() => switchProvider('grok')} />
+                        <Toggle active={providers.provider === 'anthropic'} label={`Anthropic · ${providers.anthropic?.model?.includes('haiku') ? 'Claude Haiku 4.5' : 'Claude'}`} onClick={() => switchProvider('anthropic')} disabled={!providers.anthropic?.hasKey} />
+                        <Toggle active={providers.provider === 'grok'} label="Grok" onClick={() => switchProvider('grok')} disabled={!grokHasKey} />
                       </div>
                     </Subcard>
                   )}
@@ -284,7 +287,7 @@ export default function SettingsPage() {
               icon="⚡"
               subtitle="Shared pools every model can pull from. Schedules attach a boost to a post and a proxy to an account from these here."
               isExpanded={expandedSection === 'infrastructure'}
-              onToggle={() => scrollToSection('infrastructure')}
+              onToggle={() => toggleSection('infrastructure')}
               admin
               isAdmin={isAdmin}
             >
@@ -302,7 +305,6 @@ export default function SettingsPage() {
                     description="Unpacked extensions loaded into every account's session partition. Each profile gets its own extension storage / cookies / badges, so uBlock, MetaMask, etc. behave correctly per-account.">
                     <ExtensionsPanel />
                   </Subcard>
-                  <BrowserModeSettings />
                   <div style={{ marginTop: 6 }}><CDPHistoryPanel token={token} /></div>
                 </div>
               )}
@@ -316,7 +318,7 @@ export default function SettingsPage() {
               icon="⚑"
               subtitle="Your operator login and the per-account browser sessions Oserus Browser uses."
               isExpanded={expandedSection === 'account'}
-              onToggle={() => scrollToSection('account')}
+              onToggle={() => toggleSection('account')}
             >
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
                 <Subcard title="Change password">
@@ -351,7 +353,7 @@ export default function SettingsPage() {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13 }}>
                               <span style={platformChip}>{a.platform || 'reddit'}</span>
-                              <span className="mono dim">{a.platform === 'redgifs' ? '@' : 'u/'}</span>
+                              <span className="mono dim">{platformUsernamePrefix(a.platform || 'reddit')}</span>
                               {a.username}
                             </div>
                             <div className="muted" style={{ fontSize: 11 }}>{a.profile_name}</div>
@@ -366,13 +368,28 @@ export default function SettingsPage() {
             </CollapsibleSection>
           </div>
 
+          {/* Browser Modes */}
+          <div id="browsermodes" style={{ scrollMarginTop: 56 }}>
+            <CollapsibleSection
+              title="Browser Modes"
+              icon="👻"
+              subtitle="How each model's accounts open a browser when you click Open Browser — set per model on that model's profile page."
+              isExpanded={expandedSection === 'browsermodes'}
+              onToggle={() => toggleSection('browsermodes')}
+              admin
+              isAdmin={isAdmin}
+            >
+              {isAdmin && <BrowserModesSection />}
+            </CollapsibleSection>
+          </div>
+
           {/* Cloud Sync */}
           <div id="cloud" style={{ scrollMarginTop: 56 }}>
             <CollapsibleSection
               title="Cloud Sync"
               icon="☁"
               isExpanded={expandedSection === 'cloud'}
-              onToggle={() => scrollToSection('cloud')}
+              onToggle={() => toggleSection('cloud')}
               admin
               isAdmin={isAdmin}
             >
@@ -387,7 +404,7 @@ export default function SettingsPage() {
               icon="◐"
               subtitle="Oserus Browser is a custom Chromium build — like Opera GX, it ships with its own features baked in. Also detects connected phones over USB."
               isExpanded={expandedSection === 'browser'}
-              onToggle={() => scrollToSection('browser')}
+              onToggle={() => toggleSection('browser')}
               admin
               isAdmin={isAdmin}
             >
@@ -432,14 +449,20 @@ function CollapsibleSection({ title, icon, subtitle, isExpanded, onToggle, child
           {isExpanded ? '▾' : '▸'}
         </span>
       </button>
-      {isExpanded && !gated && (
+      {isExpanded && (
         <div className="section-content" style={{ paddingLeft: 4 }}>
           {subtitle && (
-            <div className="muted" style={{ fontSize: 12, margin: '6px 0 14px', maxWidth: 760, lineHeight: 1.5, paddingLeft: 38 }}>
+            <div className="muted" style={{ fontSize: 'var(--text-sm)', margin: '6px 0 14px', maxWidth: 760, lineHeight: 1.5, paddingLeft: 38 }}>
               {subtitle}
             </div>
           )}
-          {children}
+          {gated ? (
+            <div style={{ padding: '14px 0', paddingLeft: 38, fontSize: 12, color: 'var(--text-3)', lineHeight: 1.6, fontStyle: 'italic' }}>
+              This section is configured by your team admin. Contact them to set up {title.toLowerCase()} settings.
+            </div>
+          ) : (
+            children
+          )}
         </div>
       )}
     </div>
@@ -533,18 +556,8 @@ function Subcard({ title, description, badge, children }) {
 }
 
 function Pill({ tone, children }) {
-  const tones = {
-    ok:      { background: 'rgba(122,154,90,0.18)',  color: '#bdd5a3' },
-    rec:     { background: 'rgba(212,166,74,0.18)',  color: 'var(--gold-bright)' },
-    neutral: { background: 'rgba(255,255,255,0.06)', color: 'var(--text-2)' },
-  };
-  return (
-    <span style={{
-      ...tones[tone] || tones.neutral,
-      fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
-      letterSpacing: '0.04em', padding: '2px 8px', borderRadius: 4,
-    }}>{children}</span>
-  );
+  const t = tone === 'ok' ? 'green' : tone === 'rec' ? 'gold' : 'neutral';
+  return <Tag tone={t}>{children}</Tag>;
 }
 
 function Toggle({ active, label, onClick, disabled }) {
@@ -578,7 +591,7 @@ function ComingSoonProviders() {
         {slots.map((p) => (
           <span key={p.v} title={`${p.label} — provider slot coming soon`} style={{
             background: 'var(--bg-1)', border: '1px dashed var(--border)',
-            borderRadius: 999, padding: '4px 12px', fontSize: 11, fontWeight: 600,
+            borderRadius: 'var(--radius-pill)', padding: '4px 12px', fontSize: 11, fontWeight: 600,
             color: 'var(--text-3)', display: 'inline-flex', alignItems: 'center', gap: 6,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: p.color, opacity: 0.55 }} />
@@ -586,6 +599,32 @@ function ComingSoonProviders() {
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+function BrowserModesSection() {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+        <Subcard title="⚡ Electron mode" badge="Default">
+          <p style={cardDesc}>
+            The default for most accounts. Runs inside Oserus Browser, our own Chromium
+            build — fast to start, no extra setup, and it already includes fingerprint
+            protection, proxy rotation, and extension support.
+          </p>
+        </Subcard>
+        <Subcard title="👻 CloakManager mode">
+          <p style={cardDesc}>
+            An alternative antidetect engine some models are configured to use instead,
+            for accounts that need stronger profile-level fingerprint isolation. Requires
+            the CloakManager backend below to be running before those accounts will
+            launch. Which mode a model uses is set on that model's profile page — this
+            section only shows whether the CloakManager backend itself is available.
+          </p>
+        </Subcard>
+      </div>
+      <CloakManagerStatus />
     </div>
   );
 }
@@ -770,7 +809,7 @@ function CloudSyncSection() {
     setBusy(true);
     try {
       const r = await window.api.cloud.setConfig({ url: cfg.url, anonKey: cfg.anonKey, deviceName: cfg.deviceName, enabled: true });
-      if (r && r.ok === false) setSaveMsg({ kind: 'err', text: r.error || 'Save failed.' });
+      if (r?.ok === false) setSaveMsg({ kind: 'err', text: r.error || 'Save failed.' });
       else setSaveMsg({ kind: 'ok', text: 'Saved. Connecting…' });
       const c = await window.api.cloud.getConfig();
       if (c) setCfg((prev) => ({ ...prev, ...c, anonKey: '' }));
@@ -794,10 +833,6 @@ function CloudSyncSection() {
     }
   }
 
-  const pillBg = status.connected ? 'rgba(122,154,90,0.18)'
-    : status.lastError ? 'rgba(200,90,90,0.18)' : 'rgba(255,255,255,0.06)';
-  const pillColor = status.connected ? '#bdd5a3'
-    : status.lastError ? '#e8b4b4' : 'var(--text-2)';
   const pillText = status.connected ? 'Connected'
     : status.lastError ? 'Error' : 'Disconnected';
 
@@ -805,16 +840,10 @@ function CloudSyncSection() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <Subcard title="Supabase">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-          <span
-            title={status.lastError || ''}
-            style={{
-              background: pillBg, color: pillColor,
-              fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
-              letterSpacing: '0.04em', padding: '3px 10px', borderRadius: 4,
-            }}
-          >
-            {pillText}
-          </span>
+          <StatusPill
+            status={status.connected ? 'ready' : status.lastError ? 'failed' : 'paused'}
+            label={pillText}
+          />
           <span className="mono" style={{ fontSize: 11, color: 'var(--text-3)' }}>
             Pushed {status.pushed || 0} · Pulled {status.pulled || 0}
             {status.lastSyncAt ? ` · Last sync ${relTime(status.lastSyncAt)}` : ''}
@@ -830,9 +859,9 @@ function CloudSyncSection() {
             blank Pushed/Pulled counter. */}
         {!status.connected && cfg.url && !cfg.anonKey && (
           <div style={{
-            background: 'rgba(231,196,120,0.10)',
+            background: 'var(--gold-soft)',
             border: '1px solid var(--gold)',
-            borderRadius: 6,
+            borderRadius: 'var(--radius)',
             padding: '10px 12px',
             marginBottom: 12,
             fontSize: 12,
@@ -845,9 +874,9 @@ function CloudSyncSection() {
         )}
         {!status.connected && !cfg.url && (
           <div style={{
-            background: 'rgba(231,196,120,0.10)',
+            background: 'var(--gold-soft)',
             border: '1px solid var(--gold)',
-            borderRadius: 6,
+            borderRadius: 'var(--radius)',
             padding: '10px 12px',
             marginBottom: 12,
             fontSize: 12,
@@ -873,9 +902,9 @@ function CloudSyncSection() {
 
         {cfg.source === 'baked' && !overrideMode && (
           <div style={{
-            background: 'rgba(122,154,90,0.08)',
+            background: 'var(--green-soft)',
             border: '1px solid var(--border)',
-            borderRadius: 6,
+            borderRadius: 'var(--radius)',
             padding: 12,
             marginBottom: 12,
           }}>
@@ -1037,11 +1066,11 @@ function TableSyncDiagnostic() {
       </div>
       <div style={{
         display: 'inline-flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '4px 10px',
-        borderRadius: 999, background: running === true ? 'rgba(122,154,90,0.18)' : running === false ? 'rgba(180,90,90,0.18)' : 'rgba(255,255,255,0.06)',
-        color: running === true ? '#bdd5a3' : running === false ? '#e8b4b4' : 'var(--text-2)',
+        borderRadius: 'var(--radius-pill)', background: running === true ? 'rgba(122,154,90,0.18)' : running === false ? 'rgba(180,90,90,0.18)' : 'rgba(255,255,255,0.06)',
+        color: running === true ? 'var(--success-fg)' : running === false ? 'var(--danger-fg)' : 'var(--text-2)',
         fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', fontFamily: 'var(--font-mono)',
       }}>
-        <span style={{ width: 7, height: 7, borderRadius: '50%', background: running === true ? 'var(--ok)' : running === false ? '#e2a3a3' : 'var(--text-3)' }} />
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: running === true ? 'var(--ok)' : running === false ? 'var(--danger-fg)' : 'var(--text-3)' }} />
         SYNC LOOP {running === true ? 'RUNNING' : running === false ? 'STOPPED' : '…'}
       </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -1052,7 +1081,7 @@ function TableSyncDiagnostic() {
         <button className="ghost"   type="button" disabled={busy} onClick={onProbe} title="Run a full self-diagnosis: config, runtime state, live round-trip against Supabase. Output is copy-pasteable for support.">{busy ? '…' : '🔬 Diagnose'}</button>
       </div>
       {probeOut && (
-        <div style={{ marginBottom: 14, padding: 12, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <div style={{ marginBottom: 14, padding: 12, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)' }}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6, gap: 8 }}>
             <strong style={{ fontSize: 12 }}>Diagnostic report</strong>
             <span className="muted" style={{ fontSize: 11 }}>Copy this and paste in the chat — every line is a checkpoint, "FAIL" or "THROW" lines point at the broken step.</span>
@@ -1079,7 +1108,7 @@ function TableSyncDiagnostic() {
           </div>
         )}
         {rows.map((r) => {
-          const color = r.ok === true ? 'var(--ok)' : r.ok === false ? '#e2a3a3' : 'var(--text-3)';
+          const color = r.ok === true ? 'var(--ok)' : r.ok === false ? 'var(--danger-fg)' : 'var(--text-3)';
           const last = r.lastError ? `✗ ${r.lastError}`
             : r.lastPushAt ? `pushed ${relTime(r.lastPushAt)}`
             : r.lastPullAt ? `pulled ${relTime(r.lastPullAt)}`
@@ -1087,12 +1116,12 @@ function TableSyncDiagnostic() {
           return (
             <React.Fragment key={r.table}>
               <div title={r.ok === false ? 'Last attempt errored' : r.ok === true ? 'OK' : 'No activity yet'} style={{ alignSelf: 'center' }}>
-                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: color }} />
+                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 'var(--radius-sm)', background: color }} />
               </div>
               <div style={{ alignSelf: 'center', color: 'var(--text-1)' }}>{r.table}</div>
               <div style={{ alignSelf: 'center', textAlign: 'right' }}>{r.pushed || 0}</div>
               <div style={{ alignSelf: 'center', textAlign: 'right' }}>{r.pulled || 0}</div>
-              <div style={{ alignSelf: 'center', color: r.lastError ? '#e2a3a3' : 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.lastError || ''}>
+              <div style={{ alignSelf: 'center', color: r.lastError ? 'var(--danger-fg)' : 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.lastError || ''}>
                 {last}
               </div>
             </React.Fragment>
@@ -1134,16 +1163,16 @@ const sessionRow = {
 };
 const platformChip = {
   fontFamily: 'var(--font-mono)', fontSize: 10, marginRight: 6,
-  padding: '1px 5px', background: 'var(--bg-2)', borderRadius: 3,
+  padding: '1px 5px', background: 'var(--bg-2)', borderRadius: 'var(--radius-sm)',
   textTransform: 'uppercase', color: 'var(--text-3)',
 };
 const styles = {
   ok: {
     background: 'rgba(122,154,90,0.12)',
     border: '1px solid var(--ok)',
-    color: '#bdd5a3',
+    color: 'var(--success-fg)',
     padding: '10px 14px',
-    borderRadius: 4,
+    borderRadius: 'var(--radius-sm)',
     marginBottom: 12,
   },
 };
@@ -1151,13 +1180,13 @@ const styles = {
 function Feature({ icon, title, body }) {
   return (
     <div style={{
-      padding: 12, borderRadius: 8,
+      padding: 12, borderRadius: 'var(--radius-lg)',
       background: 'var(--bg-elev)', border: '1px solid var(--border)',
       display: 'flex', flexDirection: 'column', gap: 6,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{
-          width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+          width: 22, height: 22, borderRadius: 'var(--radius)', flexShrink: 0,
           background: 'var(--gold-soft)', color: 'var(--gold)',
           display: 'grid', placeItems: 'center',
           fontSize: 13, fontWeight: 700,

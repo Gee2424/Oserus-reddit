@@ -1,31 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
+import { StatusPill } from './ui.jsx';
 
 const MODE_STYLES = {
   electron: { bg: 'rgba(74,144,226,0.2)', color: '#7aa8e0', label: 'EB' },
   cloakmanager: { bg: 'rgba(155,89,182,0.2)', color: '#c9a3d9', label: 'CM' },
 };
-
-const STATUS_COLORS = {
-  completed: { bg: 'rgba(122,154,90,0.15)', fg: '#bdd5a3' },
-  failed: { bg: 'rgba(180,90,90,0.15)', fg: '#e2a3a3' },
-  running: { bg: 'rgba(212,166,74,0.15)', fg: 'var(--gold)' },
-  queued: { bg: 'rgba(255,255,255,0.05)', fg: 'var(--text-3)' },
-  skipped: { bg: 'rgba(255,255,255,0.05)', fg: 'var(--text-3)' },
-};
-
-function StatusPill({ status }) {
-  const s = STATUS_COLORS[status] || STATUS_COLORS.queued;
-  return (
-    <span style={{
-      display: 'inline-block', padding: '2px 8px', borderRadius: 999,
-      fontSize: 10, fontWeight: 700,
-      background: s.bg, color: s.fg,
-    }}>
-      {status.toUpperCase()}
-    </span>
-  );
-}
 
 export default function RunHistory() {
   const { token } = useAuth();
@@ -70,7 +50,7 @@ export default function RunHistory() {
           <select
             value={filter.status}
             onChange={e => { setFilter(f => ({ ...f, status: e.target.value })); setLoading(true); }}
-            style={{ fontSize: 11, padding: '4px 8px', background: 'var(--bg-2)', color: 'var(--text-0)', border: '1px solid var(--border)', borderRadius: 6, maxWidth: 140 }}
+            style={{ fontSize: 'var(--text-xs)', padding: '4px 8px', background: 'var(--bg-2)', color: 'var(--text-0)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', maxWidth: 140 }}
           >
             <option value="">All statuses</option>
             {statuses.map(s => <option key={s} value={s}>{s}</option>)}
@@ -78,7 +58,7 @@ export default function RunHistory() {
           <select
             value={filter.runType}
             onChange={e => { setFilter(f => ({ ...f, runType: e.target.value })); setLoading(true); }}
-            style={{ fontSize: 11, padding: '4px 8px', background: 'var(--bg-2)', color: 'var(--text-0)', border: '1px solid var(--border)', borderRadius: 6, maxWidth: 140 }}
+            style={{ fontSize: 'var(--text-xs)', padding: '4px 8px', background: 'var(--bg-2)', color: 'var(--text-0)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', maxWidth: 140 }}
           >
             <option value="">All types</option>
             {runTypes.map(t => <option key={t} value={t}>{t}</option>)}
@@ -109,7 +89,7 @@ export default function RunHistory() {
                 >
                   <StatusPill status={r.status} />
                   <span style={{
-                    fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
+                    fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 'var(--radius-sm)',
                     background: (MODE_STYLES[r.browser_mode] || MODE_STYLES.electron).bg,
                     color: (MODE_STYLES[r.browser_mode] || MODE_STYLES.electron).color,
                   }}>
@@ -132,7 +112,7 @@ export default function RunHistory() {
                 {expanded === r.id && (
                   <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--bg-2)', fontSize: 11 }}>
                     {r.error && (
-                      <div style={{ color: '#e2a3a3', marginBottom: 4 }}>
+                      <div style={{ color: 'var(--danger-fg)', marginBottom: 4 }}>
                         Error: {r.error}
                       </div>
                     )}

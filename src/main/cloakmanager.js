@@ -19,9 +19,16 @@ class CloakManagerClient {
     this.baseUrl = CLOAKMANAGER_API;
     this.available = null; // Cache availability status
 
-    // WebSocket setup
+    // WebSocket setup. `_wsState` is the single source of truth for the
+    // connection ('idle' | 'connecting' | 'connected'); every path that wants
+    // the socket up calls `connectWebSocket()`, which is a no-op unless idle.
+    // `_wantConnected` gates the auto-reconnect so a deliberate
+    // disconnectWebSocket() doesn't immediately reconnect itself.
     this.ws = null;
     this.wsConnected = false;
+    this._wsState = 'idle';
+    this._wantConnected = false;
+    this._reconnectTimer = null;
     this.reconnectAttempts = 0;
     this.eventHandlers = new Map(); // event listeners
     this.clientId = 'osertus_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -37,11 +44,11 @@ class CloakManagerClient {
     this.baseUrl = newUrl;
     this.available = null; // Reset availability cache
 
-    // Reconnect WebSocket with new URL
-    if (this.wsConnected) {
-      console.log('[CloakManager] Reconnecting WebSocket with new URL...');
+    // Point the socket at the new URL. One teardown + one reconnect.
+    if (this._wsState !== 'idle' || this._wantConnected) {
+      console.log('[CloakManager] Rebinding WebSocket to new URL…');
       this.disconnectWebSocket();
-      setTimeout(() => this.connectWebSocket(), 1000);
+      setTimeout(() => this.connectWebSocket(), 500);
     }
   }
 
@@ -83,48 +90,35 @@ class CloakManagerClient {
   }
 
   /**
-   * Create a CloakManager profile for an account
-   * Backend auto-generates everything from profile name
-   * @param {string} accountUsername - Reddit account username
-   * @param {Object} accountConfig - Optional config (mostly ignored, backend auto-generates)
+   * Create a CloakManager profile
+   * @param {string} profileName - Profile name (model-level: model-{id}-{name})
+   * @param {Object} accountConfig - Optional config
    * @param {Object} proxyConfig - Optional proxy configuration
    * @returns {Promise<Object>} Profile creation result
    */
-  async createProfile(accountUsername, accountConfig = {}, proxyConfig = null) {
-    console.log('[CloakManager] createProfile called with:', accountUsername, accountConfig, proxyConfig);
+  async createProfile(profileName, accountConfig = {}, proxyConfig = null) {
+    console.log('[CloakManager] createProfile called with:', profileName, accountConfig, proxyConfig);
 
     if (!await this.isAvailable()) {
-      console.error('[CloakManager] ❌ Not available');
+      console.error('[CloakManager] Not available');
       throw new Error('CloakManager is not available');
     }
 
-    const platformPrefix = accountConfig.platform || 'reddit';
-    const profileName = `${platformPrefix}-${accountUsername}`;
-    console.log('[CloakManager] Profile name:', profileName, 'platform:', platformPrefix);
-
     try {
-      // ANTI-CAPTCHA PROFILE CREATION
-      // Critical for avoiding CAPTCHA on new accounts
       const payload = {
         name: profileName,
-        headless: false,  // CDP cannot project from headless
-        browser_brand: "Chrome",  // REQUIRED, must be capitalized
-
-        // ===== ANTI-CAPTCHA FEATURES =====
-        warmup_enabled: true,  // CRITICAL: warm up profile to avoid CAPTCHA
+        headless: false,
+        browser_brand: "Chrome",
+        warmup_enabled: true,
         warmup_sites: [
           "https://www.google.com",
           "https://www.wikipedia.org",
           "https://www.youtube.com",
           "https://www.reddit.com"
         ],
-
-        // ===== FINGERPRINT IDENTITY =====
-        seed_name: `${accountConfig.os || 'windows'}-chrome-us`,  // Use consistent seed
-        os: accountConfig.os || 'windows',  // windows, mac, or linux
-
-        // ===== OPTIONAL OVERRIDES =====
-        browser_theme: "light"  // Less suspicious than dark mode
+        seed_name: `${accountConfig.os || 'windows'}-chrome-us`,
+        os: accountConfig.os || 'windows',
+        browser_theme: "light"
       };
 
       // Add proxy if provided (with auto_geoip for timezone/locale detection)
@@ -475,50 +469,68 @@ class CloakManagerClient {
   }
 
   /**
-   * Connect to CloakManager WebSocket for real-time events
+   * Connect to CloakManager WebSocket for real-time events.
+   * The single entry point — safe to call from anywhere, any number of times.
+   * A no-op unless the socket is idle.
    */
   connectWebSocket() {
-    if (this.wsConnected) return;
+    this._wantConnected = true;
+    if (this._wsState !== 'idle') return; // already connecting or connected
+    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
 
-    // Extract host and port from baseUrl for WebSocket connection
-    // baseUrl is like "http://127.0.0.1:41091" -> wsUrl should be "ws://127.0.0.1:41091/ws/..."
     const wsUrl = this.baseUrl.replace('http://', 'ws://').replace('https://', 'wss://') + `/ws/${this.clientId}`;
     console.log('[CloakManager WS] Connecting to:', wsUrl);
+    this._wsState = 'connecting';
 
+    let ws;
     try {
-      this.ws = new WebSocket(wsUrl);
-
-      this.ws.on('open', () => {
-        console.log('[CloakManager WS] ✅ Connected');
-        this.wsConnected = true;
-        this.reconnectAttempts = 0;
-        this._emit('connected');
-      });
-
-      this.ws.on('message', (data) => {
-        try {
-          const event = JSON.parse(data);
-          console.log('[CloakManager WS] Event:', event.type, event.profile || event.extension);
-          this._handleWebSocketEvent(event);
-        } catch (error) {
-          console.error('[CloakManager WS] Failed to parse message:', error);
-        }
-      });
-
-      this.ws.on('close', () => {
-        console.log('[CloakManager WS] Disconnected, reconnecting...');
-        this.wsConnected = false;
-        this._emit('disconnected');
-        this._scheduleReconnect();
-      });
-
-      this.ws.on('error', (error) => {
-        console.error('[CloakManager WS] Error:', error);
-      });
+      ws = new WebSocket(wsUrl);
     } catch (error) {
       console.error('[CloakManager WS] Failed to create WebSocket:', error);
+      this._wsState = 'idle';
       this._emit('fallback_to_polling');
+      this._scheduleReconnect();
+      return;
     }
+    this.ws = ws;
+
+    ws.on('open', () => {
+      if (this.ws !== ws) { try { ws.close(); } catch {} return; } // superseded
+      console.log('[CloakManager WS] ✅ Connected');
+      this._wsState = 'connected';
+      this.wsConnected = true;
+      this.reconnectAttempts = 0;
+      this._emit('connected');
+    });
+
+    ws.on('message', (data) => {
+      if (this.ws !== ws) return;
+      try {
+        const event = JSON.parse(data);
+        console.log('[CloakManager WS] Event:', event.type, event.profile || event.extension);
+        this._handleWebSocketEvent(event);
+      } catch (error) {
+        console.error('[CloakManager WS] Failed to parse message:', error);
+      }
+    });
+
+    ws.on('close', () => {
+      if (this.ws !== ws) return; // an old socket we already replaced
+      this.ws = null;
+      this.wsConnected = false;
+      this._wsState = 'idle';
+      this._emit('disconnected');
+      if (this._wantConnected) {
+        console.log('[CloakManager WS] Disconnected — will reconnect');
+        this._scheduleReconnect();
+      } else {
+        console.log('[CloakManager WS] Disconnected (intentional)');
+      }
+    });
+
+    ws.on('error', (error) => {
+      if (this.ws === ws) console.error('[CloakManager WS] Error:', error.message || error);
+    });
   }
 
   /**
@@ -572,23 +584,32 @@ class CloakManagerClient {
    * Retries forever — the CM backend may be started later.
    */
   _scheduleReconnect() {
-    // Cap backoff at 30s but retry indefinitely
+    if (!this._wantConnected || this._reconnectTimer || this._wsState !== 'idle') return;
     const delay = Math.min(1000 * Math.pow(2, Math.min(this.reconnectAttempts, 6)), 30000);
     this.reconnectAttempts++;
     console.log(`[CloakManager WS] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-    setTimeout(() => this.connectWebSocket(), delay);
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null;
+      this.connectWebSocket();
+    }, delay);
   }
 
   /**
-   * Disconnect WebSocket and cleanup
+   * Disconnect WebSocket and stop auto-reconnect until connectWebSocket() is
+   * called again.
    */
   disconnectWebSocket() {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-      this.wsConnected = false;
-    }
+    this._wantConnected = false;
+    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null; }
+    const ws = this.ws;
+    this.ws = null;
+    this.wsConnected = false;
+    this._wsState = 'idle';
     this.reconnectAttempts = 0;
+    if (ws) {
+      try { ws.removeAllListeners(); } catch {}
+      try { ws.close(); } catch {}
+    }
   }
 }
 

@@ -36,7 +36,7 @@ export default function CloakManagerStatus() {
           padding: '16px',
           background: 'var(--accent-soft)',
           border: '1px solid var(--border)',
-          borderRadius: 6,
+          borderRadius: 'var(--radius)',
           fontSize: 13,
           color: 'var(--text-2)',
           display: 'flex',
@@ -248,7 +248,7 @@ export default function CloakManagerStatus() {
     <div style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
       <div style={{
         width: 8, height: 8, borderRadius: '50%',
-        background: '#f59e0b',
+        background: 'var(--gold-orange)',
         boxShadow: '0 0 0 2px rgba(245,158,11,0.2)'
       }} />
       <div style={{ flex: 1 }}>
@@ -267,9 +267,9 @@ export default function CloakManagerStatus() {
           fontSize: 12,
           fontWeight: 500,
           background: 'var(--accent)',
-          color: '#1a0d08',
+          color: 'var(--bg-0)',
           border: 'none',
-          borderRadius: 4,
+          borderRadius: 'var(--radius-sm)',
           cursor: starting ? 'not-allowed' : 'pointer',
           opacity: starting ? 0.6 : 1
         }}
@@ -330,7 +330,7 @@ export default function CloakManagerStatus() {
           fontSize: 12,
           background: 'var(--bg-0)',
           border: '1px solid var(--border)',
-          borderRadius: 4,
+          borderRadius: 'var(--radius-sm)',
           color: 'var(--text-2)',
           cursor: stopping ? 'not-allowed' : 'pointer',
           opacity: stopping ? 0.6 : 1
@@ -345,7 +345,7 @@ export default function CloakManagerStatus() {
     <div style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
       <div style={{
         width: 8, height: 8, borderRadius: '50%',
-        background: '#f59e0b',
+        background: 'var(--gold-orange)',
         boxShadow: '0 0 0 2px rgba(245,158,11,0.2)'
       }} />
       <div style={{ flex: 1 }}>
@@ -364,9 +364,9 @@ export default function CloakManagerStatus() {
           fontSize: 12,
           fontWeight: 500,
           background: 'var(--accent)',
-          color: '#1a0d08',
+          color: 'var(--bg-0)',
           border: 'none',
-          borderRadius: 4,
+          borderRadius: 'var(--radius-sm)',
           cursor: starting ? 'not-allowed' : 'pointer',
           opacity: starting ? 0.6 : 1
         }}
@@ -380,7 +380,7 @@ export default function CloakManagerStatus() {
     <div style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
       <div style={{
         width: 8, height: 8, borderRadius: '50%',
-        background: '#ef4444',
+        background: 'var(--danger)',
         boxShadow: '0 0 0 2px rgba(239,68,68,0.2)'
       }} />
       <div style={{ flex: 1 }}>
@@ -399,9 +399,9 @@ export default function CloakManagerStatus() {
           fontSize: 12,
           fontWeight: 500,
           background: 'var(--accent)',
-          color: '#1a0d08',
+          color: 'var(--bg-0)',
           border: 'none',
-          borderRadius: 4,
+          borderRadius: 'var(--radius-sm)',
           cursor: starting ? 'not-allowed' : 'pointer',
           opacity: starting ? 0.6 : 1
         }}
@@ -415,7 +415,7 @@ export default function CloakManagerStatus() {
     <div style={{ padding: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
       <div style={{
         width: 8, height: 8, borderRadius: '50%',
-        background: '#ef4444',
+        background: 'var(--danger)',
         boxShadow: '0 0 0 2px rgba(239,68,68,0.2)'
       }} />
       <div style={{ flex: 1 }}>
@@ -434,9 +434,9 @@ export default function CloakManagerStatus() {
           fontSize: 12,
           fontWeight: 500,
           background: 'var(--accent)',
-          color: '#1a0d08',
+          color: 'var(--bg-0)',
           border: 'none',
-          borderRadius: 4,
+          borderRadius: 'var(--radius-sm)',
           cursor: starting ? 'not-allowed' : 'pointer',
           opacity: starting ? 0.6 : 1
         }}
@@ -467,7 +467,7 @@ export default function CloakManagerStatus() {
         padding: 16,
         background: 'var(--bg-1)',
         border: '1px solid var(--border)',
-        borderRadius: 6,
+        borderRadius: 'var(--radius)',
         marginBottom: 16
       }}>
         {displayState === 'loading' && renderLoading()}
@@ -492,17 +492,6 @@ export default function CloakManagerStatus() {
           {' '}• Version: {status.currentVersion.backendVersion || status.currentVersion.version || 'unknown'}
         </div>
       )}
-
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   );
 }

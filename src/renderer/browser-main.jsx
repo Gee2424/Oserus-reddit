@@ -32,7 +32,7 @@ class ChromeErrorBoundary extends React.Component {
           style={{
             marginTop: 14, padding: '6px 12px',
             background: '#fff', color: '#5a1e1a', border: 'none',
-            borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+            borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'inherit',
           }}
         >Retry</button>
       </div>

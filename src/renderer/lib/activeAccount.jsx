@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useAuth } from './auth.jsx';
 import { useCloudReload } from './cloudReload.jsx';
+import { PLATFORMS } from './platforms.js';
 
 const ActiveAccountCtx = createContext(null);
 
@@ -15,20 +16,24 @@ export function pickPreferredAccount(accounts) {
 }
 
 // Each platform tracks its own active account independently.
-// localStorage keys: activeAccount_reddit, activeAccount_redgifs
+// localStorage keys: activeAccount_reddit, activeAccount_redgifs, etc.
 function loadActive(platform) {
   const v = localStorage.getItem(`activeAccount_${platform}`);
   return v ? Number(v) : null;
 }
 
-const KNOWN_PLATFORMS = ['reddit', 'redgifs', 'x', 'instagram', 'tiktok'];
+// Derive from loaded platforms instead of hardcoding.
+// PLATFORMS is populated by loadPlatforms() in App.jsx before this renders.
+function getKnownPlatforms() {
+  return PLATFORMS.length > 0 ? PLATFORMS.map(p => p.v) : ['reddit', 'redgifs', 'x', 'instagram', 'tiktok'];
+}
 
 export function ActiveAccountProvider({ children }) {
   const { token, user, activeTeamId } = useAuth();
   const [accounts, setAccounts] = useState([]);
   const [activeIds, setActiveIds] = useState(() => {
     const o = {};
-    for (const p of KNOWN_PLATFORMS) o[p] = loadActive(p);
+    for (const p of getKnownPlatforms()) o[p] = loadActive(p);
     return o;
   });
   const [loading, setLoading] = useState(false);
@@ -42,7 +47,7 @@ export function ActiveAccountProvider({ children }) {
       setAccounts(res.accounts);
       setActiveIds(prev => {
         const next = { ...prev };
-        for (const plat of KNOWN_PLATFORMS) {
+        for (const plat of getKnownPlatforms()) {
           if (next[plat] && !res.accounts.find(a => a.id === next[plat])) {
             next[plat] = null;
             localStorage.removeItem(`activeAccount_${plat}`);

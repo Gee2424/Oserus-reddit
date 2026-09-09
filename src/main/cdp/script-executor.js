@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const { getDb } = require('../db');
 const { sleep } = require('./connection-manager');
+const { toCdpError, ScriptError } = require('./errors');
 
 /**
  * Script cache to avoid repeated file reads
@@ -172,53 +173,37 @@ async function executeScript(scriptId, context = {}, options = {}) {
       return result;
 
     } catch (error) {
-      lastError = error;
-      console.error('[CDP Script Executor] ❌ Script execution attempt', attempt, 'failed:', error.message);
+      // Classify. Anything that could be a credentials / 2FA / challenge /
+      // rate-limit signal is NOT retryable — retrying a login is exactly what
+      // gets an account locked. Only pre-interaction transport failures retry.
+      const cdpErr = toCdpError(error);
+      lastError = cdpErr;
+      console.error(
+        `[CDP Script Executor] ❌ ${scriptId} attempt ${attempt} failed [${cdpErr.code}${cdpErr.retryable ? ', retryable' : ''}]:`,
+        cdpErr.message
+      );
 
-      // Don't retry on certain errors
-      if (error.message.includes('connection failed') ||
-          error.message.includes('CDP connection failed') ||
-          error.message.includes('Script not found') ||
-          error.message.includes('Script format') ||
-          error.message.includes('Target closed') ||
-          error.message.includes('Session closed') ||
-          error.message.includes('INCORRECT_CREDENTIALS') ||
-          error.message.includes('incorrect password') ||
-          error.message.includes('wrong password')) {
-        console.log('[CDP Script Executor] Non-retryable error, stopping retries');
+      if (!cdpErr.retryable) {
+        console.log('[CDP Script Executor] Non-retryable, stopping:', cdpErr.code);
         break;
       }
 
-      // Check for rate limiting errors - use longer backoff
-      const isRateLimitError = error.message.includes('429') ||
-                               error.message.includes('too many requests') ||
-                               error.message.includes('rate limit') ||
-                               error.message.includes('Try again later') ||
-                               error.message.includes('prove you are human');
-
-      // Retry with exponential backoff
       if (attempt < MAX_RETRY_ATTEMPTS) {
-        // Longer delay for rate limits (5s, 10s, 20s instead of 1s, 2s, 4s)
-        const baseDelay = isRateLimitError ? 5000 : 1000;
-        const delay = baseDelay * Math.pow(2, attempt - 1);
-
-        // Add some randomness to avoid synchronized retries
-        const jitter = Math.random() * 1000;
-        const totalDelay = delay + jitter;
-
-        console.log(`[CDP Script Executor] ${isRateLimitError ? '⚠️ Rate limit detected' : 'Retrying'} in ${(totalDelay/1000).toFixed(1)}s...`);
-        await sleep(totalDelay);
+        const delay = 1000 * Math.pow(2, attempt - 1) + Math.random() * 1000;
+        console.log(`[CDP Script Executor] Retrying in ${(delay / 1000).toFixed(1)}s…`);
+        await sleep(delay);
       }
     }
   }
 
   // All retries exhausted
-  const finalError = lastError || new Error('Script execution failed after all retries');
+  const finalError = lastError || new ScriptError('Script execution failed after all retries');
 
   executionHistory.set(executionId, {
     scriptId,
     result: null,
     error: finalError.message,
+    code: finalError.code || null,
     timestamp: new Date().toISOString(),
     executionTime: null,
     attempt: MAX_RETRY_ATTEMPTS
@@ -228,30 +213,56 @@ async function executeScript(scriptId, context = {}, options = {}) {
 }
 
 /**
- * Execute a launch script sequence for a profile
+ * Execute a launch script sequence for a profile.
+ *
+ * Reads shared configuration from model_launch_scripts (one config for the
+ * model's whole CloakManager profile — shared or a per-account override
+ * instance alike, resolved via cloakmanager_profiles.profile_id). If no
+ * config exists yet, seeds defaults from script-discovery.
+ *
+ * accountId may be null — a launch that wasn't targeted at any specific
+ * account (e.g. the model-level generic "Open Browser" button). In that
+ * case, only scripts NOT marked accountScoped run (shared setup like
+ * cookie-warming/bookmarks); identity-scoped scripts (login, inbox-setup)
+ * are skipped, since there's no account to act as.
+ *
+ * Supports:
+ *   - Disk scripts (loaded from cdp-scripts/launch/)
+ *   - Custom scripts (loaded from custom_cdp_scripts table — prefixed 'custom:')
+ *   - run_mode 'once' — skips if previously completed successfully
+ *   - run_mode 'always' — runs every launch
  *
  * @param {string} profileName - Profile name
- * @param {number} accountId - Account ID
- * @param {string} platform - Platform name
- * @returns {Promise<Object>} Launch sequence result
+ * @param {number|null} accountId - Account ID this launch was targeted at, or null
+ * @param {string} [platform] - Platform of the targeted account, if any
+ * @returns {Promise<Object>} Launch sequence result keyed by script_id
  */
 async function executeLaunchSequence(profileName, accountId, platform) {
   const db = getDb();
 
-  console.log('[CDP Script Executor] Starting launch sequence for profile:', profileName);
+  console.log('[CDP Script Executor] Starting dynamic launch sequence for profile:', profileName, 'account:', accountId ?? '(none — model-level launch)');
 
-  // Use the correct function that retrieves CDP info and connects
   const connectionManager = require('./connection-manager');
-  const connection = await connectionManager.getConnectionForAccount(accountId);
+  const connection = accountId
+    ? await connectionManager.getConnectionForAccount(accountId)
+    : await connectionManager.getConnectionForProfile(profileName);
   if (!connection) {
-    throw new Error(`Failed to get connection for account: ${accountId} (profile: ${profileName})`);
+    throw new Error(`Failed to get connection for profile: ${profileName}`);
   }
 
-  // Get account credentials for login
-  const account = db.prepare('SELECT username, password_encrypted FROM reddit_accounts WHERE id = ?').get(accountId);
-  const credentials = account && account.password_encrypted
-    ? { username: account.username, password: decryptSecret(account.password_encrypted) }
-    : null;
+  let credentials = null;
+  if (accountId) {
+    const account = db.prepare('SELECT username FROM reddit_accounts WHERE id = ?').get(accountId);
+    const { credentialVaultGet } = require('../db');
+    let password = credentialVaultGet('account_password', accountId);
+    if (!password) {
+      const row = db.prepare('SELECT password_encrypted FROM reddit_accounts WHERE id = ?').get(accountId);
+      password = row?.password_encrypted ? decryptSecret(row.password_encrypted) : null;
+    }
+    credentials = account && password
+      ? { username: account.username, password }
+      : null;
+  }
 
   const context = {
     profileName,
@@ -261,68 +272,160 @@ async function executeLaunchSequence(profileName, accountId, platform) {
     credentials
   };
 
-  const results = {
-    login: { success: false, error: null },
-    navigation: { success: false, error: null },
-    tiles: { success: false, error: null },
-    inbox: { success: false, error: null },
-    environment: { success: false, error: null }
-  };
+  const results = {};
 
   try {
-    // Helper: random delay to appear more human and avoid rate limiting
     const randomDelay = (min, max) => {
       const delay = min + Math.random() * (max - min);
       console.log(`[CDP Script Executor] ⏱️ Waiting ${(delay/1000).toFixed(1)}s before next script...`);
       return sleep(delay);
     };
 
-    // 1. Auto-login script
-    if (platform === 'reddit' && credentials) {
-      console.log('[CDP Script Executor] Step 1/5: Reddit login');
-      const loginResult = await executeScript('launch/authentication/reddit-login', context);
-      results.login = { success: true, error: null };
-
-      // Random delay before next script (2-4 seconds)
-      await randomDelay(2000, 4000);
+    const owner = db.prepare('SELECT profile_id FROM cloakmanager_profiles WHERE profile_name = ?').get(profileName);
+    if (!owner) {
+      console.warn('[CDP Script Executor] No model found for profile, skipping launch sequence:', profileName);
+      return results;
     }
 
-    // 2. Initial navigation script
-    console.log('[CDP Script Executor] Step 2/5: Initial navigation');
-    const navResult = await executeScript('launch/navigation/initial', context);
-    results.navigation = { success: true, error: null };
+    const { seedDefaultsForModel, discoverLaunchScripts } = require('./script-discovery');
+    const modelPlatforms = db.prepare('SELECT DISTINCT platform FROM reddit_accounts WHERE profile_id = ?')
+      .all(owner.profile_id).map(r => r.platform);
+    seedDefaultsForModel(owner.profile_id, modelPlatforms);
 
-    // Random delay (1.5-3 seconds)
-    await randomDelay(1500, 3000);
+    const diskScripts = discoverLaunchScripts();
+    const accountScopedIds = new Set(diskScripts.filter(s => s.accountScoped).map(s => s.id));
+    const scriptPlatform = new Map(diskScripts.map(s => [s.id, s.platform]));
 
-    // 3. Homepage tiles script
-    console.log('[CDP Script Executor] Step 3/5: Homepage tiles setup');
-    const tilesResult = await executeScript('launch/setup/homepage-tiles', context);
-    results.tiles = { success: true, error: null };
+    const scripts = db.prepare(`
+      SELECT script_id, enabled, run_mode, sort_order
+      FROM model_launch_scripts
+      WHERE profile_id = ?
+      ORDER BY sort_order ASC, id ASC
+    `).all(owner.profile_id);
 
-    // Random delay (1-2 seconds)
-    await randomDelay(1000, 2000);
+    console.log('[CDP Script Executor] Configured scripts:', scripts.map(s => `${s.script_id} (${s.run_mode})`));
 
-    // 4. Inbox setup script
-    console.log('[CDP Script Executor] Step 4/5: Inbox setup');
-    const inboxResult = await executeScript('launch/setup/inbox-setup', context);
-    results.inbox = { success: true, error: null };
+    for (let i = 0; i < scripts.length; i++) {
+      const cfg = scripts[i];
+      const scriptKey = cfg.script_id;
 
-    // Random delay (1-2 seconds)
-    await randomDelay(1000, 2000);
+      if (!cfg.enabled) {
+        console.log(`[CDP Script Executor] Step ${i + 1}: ${scriptKey} — DISABLED, skipping`);
+        results[scriptKey] = { success: false, skipped: true, reason: 'disabled' };
+        continue;
+      }
 
-    // 5. Environment setup script
-    console.log('[CDP Script Executor] Step 5/5: Environment setup');
-    const envResult = await executeScript('launch/setup/environment', context);
-    results.environment = { success: true, error: null };
+      if (accountScopedIds.has(scriptKey)) {
+        if (!accountId) {
+          console.log(`[CDP Script Executor] Step ${i + 1}: ${scriptKey} — account-scoped, no account targeted by this launch, skipping`);
+          results[scriptKey] = { success: false, skipped: true, reason: 'no_account_targeted' };
+          continue;
+        }
+        const declaredPlatform = scriptPlatform.get(scriptKey);
+        if (declaredPlatform && declaredPlatform !== 'all' && declaredPlatform !== platform) {
+          console.log(`[CDP Script Executor] Step ${i + 1}: ${scriptKey} — for ${declaredPlatform}, this launch is ${platform}, skipping`);
+          results[scriptKey] = { success: false, skipped: true, reason: 'platform_mismatch' };
+          continue;
+        }
+      }
+
+      if (cfg.run_mode === 'once') {
+        const priorSuccess = db.prepare(`
+          SELECT 1 FROM cdp_script_executions
+          WHERE profile_name = ? AND script_id = ? AND status = 'completed'
+          LIMIT 1
+        `).get(profileName, scriptKey);
+
+        if (priorSuccess) {
+          console.log(`[CDP Script Executor] Step ${i + 1}: ${scriptKey} — already completed (once), skipping`);
+          results[scriptKey] = { success: true, skipped: true, reason: 'already_completed' };
+          continue;
+        }
+      }
+
+      try {
+        console.log(`[CDP Script Executor] Step ${i + 1}/${scripts.length}: ${scriptKey}`);
+
+        if (scriptKey.startsWith('custom:')) {
+          const customId = parseInt(scriptKey.replace('custom:', ''), 10);
+          const customScript = db.prepare(
+            'SELECT * FROM custom_cdp_scripts WHERE id = ?'
+          ).get(customId);
+
+          if (!customScript) {
+            console.error('[CDP Script Executor] Custom script not found:', scriptKey);
+            results[scriptKey] = { success: false, error: 'Custom script not found' };
+            continue;
+          }
+
+          await executeCustomScript(customScript, context);
+        } else {
+          await executeScript(scriptKey, context);
+        }
+
+        results[scriptKey] = { success: true, error: null };
+
+        await recordExecution(profileName, scriptKey, 'launch', { success: true });
+      } catch (error) {
+        const cdpErr = toCdpError(error);
+        console.error(`[CDP Script Executor] ${scriptKey} failed [${cdpErr.code}]:`, cdpErr.message);
+        results[scriptKey] = { success: false, error: cdpErr.message, code: cdpErr.code };
+
+        await recordExecution(profileName, scriptKey, 'launch', null, cdpErr.message);
+
+        // A hard auth/challenge failure means every later identity-scoped
+        // script (inbox, etc.) will fail too, and hammering them risks the
+        // account. Stop the sequence here — the orchestrator flags the
+        // account off the result.
+        if (cdpErr.attention) {
+          console.warn('[CDP Script Executor] Aborting remaining launch scripts —', cdpErr.code);
+          break;
+        }
+      }
+
+      if (i < scripts.length - 1) {
+        await randomDelay(1500, 4000);
+      }
+    }
 
   } catch (error) {
     console.error('[CDP Script Executor] Launch sequence error:', error.message);
-    // Record which step failed
-    // (in production, individual script failures should be logged)
   }
 
   return results;
+}
+
+/**
+ * Execute a custom inline CDP script from the database.
+ * Wraps the stored code body in a full async function module.
+ *
+ * @param {Object} customScript - Row from custom_cdp_scripts table
+ * @param {Object} context - Execution context
+ * @returns {Promise<any>} Execution result
+ */
+async function executeCustomScript(customScript, context) {
+  const connection = context.connection;
+
+  let nativeConnection;
+  if (connection.native) {
+    nativeConnection = connection.native;
+  } else {
+    nativeConnection = { page: connection.page, context: connection.context, browser: connection.browser };
+  }
+
+  const wrappedCode = `
+    return (async (nativeConnection, context) => {
+      const { page, context: browserContext, browser } = nativeConnection;
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      ${customScript.code}
+    })(nativeConnection, context);
+  `;
+
+  const fn = new Function('nativeConnection', 'context', wrappedCode);
+  const result = await fn(nativeConnection, context);
+
+  console.log('[CDP Script Executor] Custom script executed:', customScript.name);
+  return result;
 }
 
 /**

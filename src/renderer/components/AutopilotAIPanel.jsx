@@ -90,7 +90,7 @@ export default function AutopilotAIPanel({ token }) {
     <div className="card" style={{ marginBottom: 22, borderColor: cfg.hasKey ? 'var(--ok)' : 'var(--border)' }}>
       <h3 style={{ marginBottom: 6 }}>
         Autopilot AI {cfg.hasKey && <span className="mono" style={{ fontSize: 11, color: 'var(--ok)', marginLeft: 8 }}>✓ configured</span>}
-        <span className="mono" style={{ fontSize: 10, marginLeft: 8, padding: '2px 6px', borderRadius: 4, background: 'rgba(180,140,80,0.15)', color: '#e0b070' }}>SEPARATE KEY</span>
+        <span className="mono" style={{ fontSize: 'var(--text-xs)', marginLeft: 8, padding: '2px 6px', borderRadius: 'var(--radius-sm)', background: 'rgba(180,140,80,0.15)', color: 'var(--gold-bright)' }}>SEPARATE KEY</span>
       </h3>
       <div className="muted" style={{ fontSize: 13, marginBottom: 14 }}>
         Dedicated Anthropic key for autopilot only — keeps autopilot spend isolated from the composer / research API. If this key isn't set, autopilot will <strong>fail closed</strong> (no fallback to the main Anthropic key). Train the autopilot below by editing the system prompt per job, globally or per model.
@@ -163,7 +163,7 @@ export default function AutopilotAIPanel({ token }) {
               ))}
             </select>
             {activeOverride && (
-              <span className="mono" style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(122,154,90,0.15)', color: '#bdd5a3' }}>OVERRIDE ACTIVE</span>
+              <span className="mono" style={{ fontSize: 'var(--text-xs)', padding: '2px 6px', borderRadius: 'var(--radius-sm)', background: 'rgba(122,154,90,0.15)', color: 'var(--success-fg)' }}>OVERRIDE ACTIVE</span>
             )}
           </div>
 
@@ -175,7 +175,7 @@ export default function AutopilotAIPanel({ token }) {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             spellCheck={false}
-            style={{ width: '100%', minHeight: 280, fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12, lineHeight: 1.45, padding: 10, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text)', boxSizing: 'border-box' }}
+            style={{ width: '100%', minHeight: 280, fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 'var(--text-sm)', lineHeight: 1.45, padding: 10, background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text-0)', boxSizing: 'border-box' }}
           />
 
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>

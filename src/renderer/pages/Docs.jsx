@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
+import { EmptyState } from '../components/ui.jsx';
+import PageHeader from '../components/PageHeader.jsx';
 
 export default function DocsPage() {
   const { token, activeTeamId } = useAuth();
@@ -73,24 +75,14 @@ export default function DocsPage() {
 
   return (
     <div>
-      <div className="title-block" style={{ justifyContent: 'space-between' }}>
-        <div>
-          <div className="eyebrow">Knowledge base</div>
-          <h1>Documentation</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Team notes — playbooks, SOPs, per-model strategy, anything the VAs need to read.
-          </div>
-        </div>
+      <PageHeader eyebrow="Knowledge base" title="Documentation" subtitle="Team notes — playbooks, SOPs, per-model strategy, anything the VAs need to read.">
         <button className="primary" onClick={newDoc}>+ New doc</button>
-      </div>
+      </PageHeader>
 
       <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 18, alignItems: 'start' }}>
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           {docs.length === 0 ? (
-            <div style={{ padding: 28, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)' }}>
-              <div style={{ fontSize: 28, marginBottom: 6, color: 'var(--text-3)' }}>◫</div>
-              <div style={{ fontSize: 13, color: 'var(--text-2)' }}>No docs yet. Create the first one.</div>
-            </div>
+            <EmptyState icon="◫" title="No docs yet" hint="Create the first one." />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {docs.map(d => (
@@ -155,12 +147,7 @@ export default function DocsPage() {
               </div>
             </div>
           ) : (
-            <div style={{ padding: 48, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)' }}>
-              <div style={{ fontSize: 36, marginBottom: 8, color: 'var(--text-3)' }}>◫</div>
-              <div style={{ fontSize: 14, color: 'var(--text-2)', lineHeight: 1.6 }}>
-                Pick a doc on the left, or click <strong>+ New doc</strong> to write one.
-              </div>
-            </div>
+            <EmptyState icon="◫" title="No doc selected" hint="Pick a doc on the left, or click + New doc to write one." />
           )}
         </div>
       </div>

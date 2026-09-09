@@ -32,8 +32,6 @@ export function InboxLiveProvider({ children }) {
     if (!a || a.status === 'banned' || (a.platform || 'reddit') !== 'reddit') return;
     // CM accounts need their browser profile running — skip auto-poll
     // unless the profile happens to be running (opportunistic polling).
-    // resolved_browser_mode correctly resolves inherit→cloakmanager
-    // when the user's default is CloakManager.
     if (!force && a.resolved_browser_mode === 'cloakmanager') {
       if (!a.cloak_actual_name || !isAccountRunning(a.cloak_actual_name)) return;
     }

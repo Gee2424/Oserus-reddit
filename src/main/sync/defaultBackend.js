@@ -19,12 +19,12 @@
 // new installs auto-enable sync on first launch using these values
 // unless an admin has overridden them locally.
 
-const SUPABASE_URL = 'https://zjqnblddfcumknjepynp.supabase.co';
+const SUPABASE_URL = 'https://thlfdkrjcokthewgvjks.supabase.co';
 
 // Paste the anon (public) JWT here. Safe to ship — it's the same key
 // the Supabase JS SDK uses in any web client; row-level-security on
 // the project is what actually gates access.
-const SUPABASE_ANON_KEY = 'sb_publishable_NBraLlnQnrDF93JMIM_FLg_ZPIPFeBu';
+const SUPABASE_ANON_KEY = 'sb_publishable_oOAS2_nQwMjRsqjkqX1oiw_7QEs1UQc';
 
 module.exports = {
   SUPABASE_URL,

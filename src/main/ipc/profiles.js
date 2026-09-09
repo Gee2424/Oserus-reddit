@@ -125,22 +125,33 @@ function register(ipcMain) {
     } catch (err) { return { ok: false, error: err.message }; }
   });
 
-  ipcMain.handle('profiles:create', (_e, args) => {
+  ipcMain.handle('profiles:create', async (_e, args) => {
     try {
-      const { token, name, assignedUserId, niche, brandVoice, notes, avatarColor, teamId } = args;
+      const { token, name, assignedUserId, niche, brandVoice, notes, avatarColor, teamId, browserMode } = args;
       requireManagerOrAdmin(token);
+      const mode = browserMode === 'cloakmanager' ? 'cloakmanager' : 'electron';
       const info = getDb()
         .prepare(
-          'INSERT INTO model_profiles (name, assigned_user_id, niche, brand_voice, notes, avatar_color, team_id) VALUES (?,?,?,?,?,?,?)'
+          'INSERT INTO model_profiles (name, assigned_user_id, niche, brand_voice, notes, avatar_color, team_id, browser_mode) VALUES (?,?,?,?,?,?,?,?)'
         )
-        .run(name, assignedUserId || null, niche || null, brandVoice || null, notes || null, avatarColor || null, teamId || null);
-      return { ok: true, id: info.lastInsertRowid };
+        .run(name, assignedUserId || null, niche || null, brandVoice || null, notes || null, avatarColor || null, teamId || null, mode);
+
+      let cmProfile;
+      if (mode === 'cloakmanager') {
+        // Actually provisions the shared CloakManager browser profile via
+        // the CM API — a model with zero linked accounts still gets a real,
+        // launchable instance, not just a name written to the database.
+        const { ensureModelCmProfile } = require('./cloakmanager');
+        cmProfile = await ensureModelCmProfile(info.lastInsertRowid, {});
+      }
+
+      return { ok: true, id: info.lastInsertRowid, cmProfile };
     } catch (err) {
       return { ok: false, error: err.message };
     }
   });
 
-  ipcMain.handle('profiles:update', (_e, { token, profileId, updates, teamId }) => {
+  ipcMain.handle('profiles:update', async (_e, { token, profileId, updates, teamId }) => {
     try {
       requireManagerOrAdmin(token);
       const allowed = ['name', 'assigned_user_id', 'niche', 'brand_voice', 'notes', 'avatar_color', 'proxy_id', 'main_email'];
@@ -151,15 +162,57 @@ function register(ipcMain) {
           params.push(updates[k]);
         }
       }
-      if (!sets.length) return { ok: true };
-      params.push(profileId);
-      if (teamId) {
-        params.push(teamId);
-        getDb().prepare(`UPDATE model_profiles SET ${sets.join(', ')} WHERE id = ? AND team_id = ?`).run(...params);
-      } else {
-        getDb().prepare(`UPDATE model_profiles SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+
+      // Handle browser_mode change
+      let switchingToCm = false;
+      if (updates.browser_mode !== undefined) {
+        const mode = updates.browser_mode === 'cloakmanager' ? 'cloakmanager' : 'electron';
+        sets.push('browser_mode = ?');
+        params.push(mode);
+
+        if (mode === 'cloakmanager') {
+          switchingToCm = true;
+        } else {
+          // Switching to electron — clear CM profile name and clean up CM profile rows
+          sets.push('cloak_profile_name = ?');
+          params.push(null);
+          try {
+            getDb().prepare('DELETE FROM cloakmanager_profiles WHERE profile_id = ?').run(profileId);
+          } catch (e) { console.warn('[profiles] CM profile cleanup skipped:', e?.message); }
+        }
       }
-      return { ok: true };
+
+      if (sets.length) {
+        params.push(profileId);
+        if (teamId) {
+          params.push(teamId);
+          getDb().prepare(`UPDATE model_profiles SET ${sets.join(', ')} WHERE id = ? AND team_id = ?`).run(...params);
+        } else {
+          getDb().prepare(`UPDATE model_profiles SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+        }
+      }
+
+      // The model's proxy is what CloakManager actually uses (its one
+      // shared browser profile has one proxy, same as it has one
+      // fingerprint) — if the proxy changed on a model already in
+      // CloakManager mode, push that to CloakManager too, not just the DB.
+      let reprovisionForProxy = false;
+      if (!switchingToCm && updates.proxy_id !== undefined) {
+        const current = getDb().prepare('SELECT browser_mode FROM model_profiles WHERE id = ?').get(profileId);
+        reprovisionForProxy = current?.browser_mode === 'cloakmanager';
+      }
+
+      let cmProfile;
+      if (switchingToCm || reprovisionForProxy) {
+        // Actually provisions (or repairs) the model's shared CloakManager
+        // profile via the CM API, independent of whether this model has any
+        // accounts yet, on any platform — the account-existence dependency
+        // that used to leave a model "configured" but not really launchable.
+        const { ensureModelCmProfile } = require('./cloakmanager');
+        cmProfile = await ensureModelCmProfile(profileId, {});
+      }
+
+      return { ok: true, cmProfile };
     } catch (err) {
       return { ok: false, error: err.message };
     }

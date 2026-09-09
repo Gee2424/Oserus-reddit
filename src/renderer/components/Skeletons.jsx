@@ -30,7 +30,7 @@ export function DashboardSkeleton() {
           <div style={{ marginTop: 6 }}><SkeletonLine width={200} height={22} /></div>
           <div style={{ marginTop: 6 }}><SkeletonLine width={260} height={12} /></div>
         </div>
-        <SkeletonBlock width={80} height={30} borderRadius={999} />
+        <SkeletonBlock width={80} height={30} borderRadius='var(--radius-pill)' />
       </div>
 
       {/* Org strip */}
@@ -74,7 +74,7 @@ export function ProfilesSkeleton() {
           <div key={i} className="card" style={{ padding: 18, borderLeft: '3px solid var(--border)' }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
               <SkeletonLine width={100} height={18} />
-              <SkeletonBlock width={60} height={20} borderRadius={999} />
+              <SkeletonBlock width={60} height={20} borderRadius='var(--radius-pill)' />
             </div>
             <SkeletonLine width={180} height={12} />
             <div style={{ marginTop: 8 }}><SkeletonLine width="90%" height={12} /></div>
@@ -96,7 +96,7 @@ export function ModelDetailSkeleton() {
           <div style={{ marginTop: 4 }}><SkeletonLine width={160} height={24} /></div>
           <div style={{ marginTop: 6 }}><SkeletonLine width={280} height={12} /></div>
         </div>
-        <SkeletonBlock width={90} height={36} borderRadius={999} />
+        <SkeletonBlock width={90} height={36} borderRadius='var(--radius-pill)' />
       </div>
 
       {/* Tab bar */}
@@ -105,7 +105,7 @@ export function ModelDetailSkeleton() {
         <SkeletonBlock width={100} height={32} borderRadius="6px 6px 0 0" />
         <SkeletonBlock width={90} height={32} borderRadius="6px 6px 0 0" />
         <div style={{ flex: 1 }} />
-        <SkeletonBlock width={140} height={32} borderRadius={999} />
+        <SkeletonBlock width={140} height={32} borderRadius='var(--radius-pill)' />
       </div>
 
       {/* Account rows */}
@@ -121,8 +121,8 @@ export function ModelDetailSkeleton() {
               <SkeletonLine width={160} height={14} />
               <div style={{ marginTop: 4 }}><SkeletonLine width={100} height={11} /></div>
             </div>
-            <SkeletonBlock width={110} height={26} borderRadius={6} />
-            <SkeletonBlock width={60} height={26} borderRadius={6} />
+            <SkeletonBlock width={110} height={26} borderRadius='var(--radius)' />
+            <SkeletonBlock width={60} height={26} borderRadius='var(--radius)' />
           </div>
         ))}
       </div>
@@ -148,7 +148,7 @@ export function InboxSkeleton() {
 
       {/* Middle column — conversation list */}
       <div style={{ padding: 12, background: 'var(--bg-elev)' }}>
-        <SkeletonBlock width="100%" height={80} borderRadius={10} />
+        <SkeletonBlock width="100%" height={80} borderRadius='var(--radius-lg)' />
         <div style={{ marginTop: 12 }}>
           {[...Array(5)].map((_, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 8px' }}>
@@ -168,7 +168,7 @@ export function InboxSkeleton() {
         {[...Array(3)].map((_, i) => (
           <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 16, justifyContent: i % 2 === 0 ? 'flex-start' : 'flex-end' }}>
             {i % 2 === 0 && <SkeletonCircle size={24} />}
-            <SkeletonBlock width={200} height={40} borderRadius={14} />
+            <SkeletonBlock width={200} height={40} borderRadius='var(--radius-lg)' />
             {i % 2 !== 0 && <SkeletonCircle size={24} />}
           </div>
         ))}

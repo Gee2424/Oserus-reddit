@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
+import { th, td, EmptyState } from './ui.jsx';
 
 // Chrome-extension registry. Each row is an unpacked extension folder
 // (point at the dir containing manifest.json). Enabled extensions are
@@ -63,9 +64,7 @@ export default function ExtensionsPanel() {
       {err && <div className="error-banner" style={{ marginBottom: 14 }}>{err}</div>}
 
       {rows.length === 0 ? (
-        <div style={{ padding: 24, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)', fontSize: 12, color: 'var(--text-3)' }}>
-          No extensions installed.
-        </div>
+        <EmptyState title="" hint="No extensions installed. Click 'Add extension' to point to an unpacked extension folder." compact />
       ) : (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -103,5 +102,3 @@ export default function ExtensionsPanel() {
   );
 }
 
-const th = { textAlign: 'left', padding: '10px 14px', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)', fontWeight: 500 };
-const td = { padding: '10px 14px' };

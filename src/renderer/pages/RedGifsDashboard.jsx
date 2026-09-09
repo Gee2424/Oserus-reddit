@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '../lib/auth.jsx';
-import { Banner } from '../components/ui.jsx';
+import { Banner, EmptyState } from '../components/ui.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
+import PageHeader from '../components/PageHeader.jsx';
 
 function fmt(n) { if (n == null) return '—'; if (n >= 1000000) return (n/1000000).toFixed(1)+'M'; if (n >= 1000) return (n/1000).toFixed(1)+'k'; return n.toLocaleString(); }
 
@@ -47,32 +48,16 @@ export default function RedGifsDashboardPage({ navigate }) {
 
   return (
     <div>
-      <div className="title-block">
-        <div>
-          <div className="eyebrow">RedGIFs</div>
-          <h1>RedGIFs Dashboard</h1>
-          <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
-            Your RedGIFs accounts at a glance — followers, views, and uploaded videos. Refresh pulls live data from RedGIFs.
-          </div>
-        </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <PopOutButton route="redgifs-dashboard" title="RedGIFs" />
-          <button className="primary" onClick={refreshAll} disabled={loading}>{loading ? 'Refreshing…' : '↻ Refresh All'}</button>
-        </div>
-      </div>
+      <PageHeader eyebrow="RedGIFs" title="RedGIFs Dashboard" subtitle="Your RedGIFs accounts at a glance — followers, views, and uploaded videos. Refresh pulls live data from RedGIFs.">
+        <PopOutButton route="redgifs-dashboard" title="RedGIFs" />
+        <button className="primary" onClick={refreshAll} disabled={loading}>{loading ? 'Refreshing…' : '↻ Refresh All'}</button>
+      </PageHeader>
 
       {err && <Banner kind="err">{err}</Banner>}
       {msg && <Banner kind="ok">{msg}</Banner>}
 
       {accounts.length === 0 ? (
-        <div style={{ padding: 48, textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 'var(--radius-lg)', background: 'var(--bg-1)' }}>
-          <div style={{ fontSize: 44, marginBottom: 10, color: 'var(--text-3)' }}>▮</div>
-          <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-1)', marginBottom: 6 }}>No RedGIFs accounts yet</div>
-          <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 16, maxWidth: 360, margin: '0 auto 16px', lineHeight: 1.6 }}>
-            Add a RedGIFs account under <strong>Add Accounts</strong> to see followers, views, and videos at a glance.
-          </div>
-          {navigate && <button className="primary" onClick={() => navigate('add-accounts')}>+ Add Accounts</button>}
-        </div>
+        <EmptyState icon="▮" title="No RedGIFs accounts yet" hint="Add a RedGIFs account under Add Accounts to see followers, views, and videos at a glance." action={navigate && <button className="primary" onClick={() => navigate('add-accounts')}>+ Add Accounts</button>} />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 14 }}>
           {accounts.map((a) => <AccountCard key={a.id} a={a} busy={busyAccount === a.id} onRefresh={() => refreshOne(a)} />)}
@@ -92,7 +77,7 @@ function AccountCard({ a, busy, onRefresh }) {
         <button onClick={onRefresh} disabled={busy} title="Refresh from RedGIFs" style={iconBtnGreen}>
           {busy ? '…' : '↻'}
         </button>
-        <a href={p.url || `https://www.redgifs.com/users/${a.username}`} target="_blank" rel="noreferrer" style={{ ...iconBtn, color: '#e2a3a3', borderColor: 'rgba(180,90,90,0.4)' }} title="Open on RedGIFs">↗</a>
+        <a href={p.url || `https://www.redgifs.com/users/${a.username}`} target="_blank" rel="noreferrer" style={{ ...iconBtn, color: 'var(--danger-fg)', borderColor: 'rgba(180,90,90,0.4)' }} title="Open on RedGIFs">↗</a>
       </div>
 
       {/* avatar + name */}
@@ -142,7 +127,7 @@ function AccountCard({ a, busy, onRefresh }) {
 function Stat({ icon, value, title }) {
   return (
     <div style={{
-      flex: 1, background: '#1a1a1c', border: '1px solid var(--border)', borderRadius: 8,
+      flex: 1, background: '#1a1a1c', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
       padding: '8px 6px', textAlign: 'center', display: 'flex', alignItems: 'center',
       justifyContent: 'center', gap: 6,
     }} title={title}>
@@ -160,7 +145,7 @@ const card = {
 const iconBtn = {
   display: 'inline-grid', placeItems: 'center', width: 26, height: 26,
   background: 'transparent', border: '1px solid var(--border-strong)',
-  borderRadius: 6, cursor: 'pointer', fontSize: 12, textDecoration: 'none',
+  borderRadius: 'var(--radius)', cursor: 'pointer', fontSize: 12, textDecoration: 'none',
 };
 const iconBtnGreen = { ...iconBtn, color: 'var(--green-bright)', borderColor: 'rgba(79,138,100,0.4)' };
 const avatarImg = {
@@ -182,7 +167,7 @@ const verifiedBadge = {
 const statsRow = { display: 'flex', gap: 6, marginBottom: 10 };
 const classRow = {
   background: 'var(--bg-1)', border: '1px solid var(--border)',
-  borderRadius: 8, padding: '8px 10px',
+  borderRadius: 'var(--radius-lg)', padding: '8px 10px',
   display: 'flex', alignItems: 'center', gap: 8,
 };
 const footerLink = {

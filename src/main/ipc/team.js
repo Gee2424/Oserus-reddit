@@ -4,6 +4,7 @@ const { requirePermission, hasPermission } = require('../permissions');
 const { getDb } = require('../db');
 const { initTeamKey, loadTeamKey, setSharedCredential,
         getSharedCredential, deleteSharedCredential, clearTeamKeyCache } = require('../sharedCredentials');
+const { withJwtRetry } = require('../lib/retry');
 
 function withTimeout(promise, ms = 10000) {
   return Promise.race([
@@ -152,7 +153,9 @@ function register(ipcMain) {
       const me = auth();
       const client = getAuthedClient();
       if (!client) return { ok: false, error: 'Supabase not configured' };
-      const { data, error } = await client.from('team_invitations').select('*, teams(name)').eq('email', me.email).eq('status', 'pending');
+      const { data, error } = await withJwtRetry(() =>
+        client.from('team_invitations').select('*, teams(name)').eq('email', me.email).eq('status', 'pending')
+      );
       if (error) return { ok: false, error: error.message };
       return { ok: true, invitations: data || [] };
     } catch (e) {
@@ -298,7 +301,9 @@ function register(ipcMain) {
       auth();
       const client = getAuthedClient();
       if (!client) return { ok: false, error: 'Supabase not configured' };
-      const { data, error } = await withTimeout(client.from('teams').select('*'));
+      const { data, error } = await withTimeout(
+        withJwtRetry(() => client.from('teams').select('*'))
+      );
       if (error) return { ok: false, error: error.message };
       return { ok: true, teams: data || [] };
     } catch (e) {

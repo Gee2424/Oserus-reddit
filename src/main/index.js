@@ -72,6 +72,7 @@ const registerAutopilotProtocolHandlers = require('./ipc/autopilotProtocol');
 const registerAutomationHandlers = require('./ipc/automation').register;
 const registerCloudHandlers = require('./ipc/cloud');
 const registerDeviceHandlers = require('./ipc/devices');
+const registerPlatformHandlers = require('./ipc/platforms');
 const coordinator = require('./services/coordinator');
 const oserusBrowser = require('./browser');
 const { buildAutofillScript } = require('./autofill');
@@ -311,36 +312,30 @@ function registerOserusBrowserHandlers() {
 
     // Check browser mode for this account
     const db = getDb();
-    const account = db.prepare('SELECT username FROM reddit_accounts WHERE id = ?').get(accountId);
+    const account = db.prepare('SELECT username, platform FROM reddit_accounts WHERE id = ?').get(accountId);
     if (!account) return { ok: false, error: 'Account not found' };
 
     const { resolveBrowserMode } = require('./lib/browserMode');
-    const user = userFromToken(token);
-    const { mode: finalMode, profileName } = resolveBrowserMode(accountId, user.id);
+    const { mode: finalMode, profileName } = resolveBrowserMode(accountId);
 
-    // If CloakManager mode, launch CloakManager profile instead of Electron browser
+    // If CloakManager mode, launch via the orchestrator instead of the
+    // Electron browser. The orchestrator is the single owner of the launch
+    // lifecycle (launch → CDP connect → run the model's setup scripts,
+    // including login for THIS account) and is idempotent per profile.
     if (finalMode === 'cloakmanager') {
       try {
-        const { getCloakManagerClient } = require('./cloakmanager');
-        const cloakManager = getCloakManagerClient();
-
-        // Ensure we have the latest CloakManager URL from user settings
-        const user = userFromToken(token);
-        const userSettings = db.prepare(`
-          SELECT cloakmanager_url FROM user_browser_settings WHERE user_id = ?
-        `).get(user.id);
-
-        if (userSettings?.cloakmanager_url) {
-          cloakManager.updateBaseUrl(userSettings.cloakmanager_url);
-        }
-
-        const result = await cloakManager.launchProfile(profileName);
+        const cdpOrchestrator = require('./cdp/orchestrator');
+        const result = await cdpOrchestrator.ensureProfileRunning(profileName, {
+          accountId,
+          platform: account.platform || null,
+          reason: 'manual',
+          waitForScripts: false, // return once the browser is up; login runs in the background
+        });
 
         if (result.ok) {
           return { ok: true, mode: 'cloakmanager', profileName, cdpPort: result.cdpPort, cdpUrl: result.cdpUrl };
-        } else {
-          return { ok: false, error: result.error || 'Failed to launch CloakManager profile' };
         }
+        return { ok: false, error: result.error || 'Failed to launch CloakManager profile', code: result.code };
       } catch (err) {
         return { ok: false, error: err.message || 'CloakManager launch failed' };
       }
@@ -348,6 +343,40 @@ function registerOserusBrowserHandlers() {
 
     // Proceed with normal Electron browser
     return oserusBrowser.openForAccount(accountId);
+  });
+
+  // Launch a model's shared CloakManager browser directly, with no
+  // accountId — CloakManager mode means one profile (one fingerprint, one
+  // proxy) for the whole model, so this needs to work even before any
+  // account is linked on any platform. There's no Electron-mode
+  // equivalent: Electron sessions are inherently per-account.
+  ipcMain.handle('oserus-browser:openModel', async (_e, { token, profileId } = {}) => {
+    if (!userFromToken(token)) return { ok: false, error: 'Not authenticated' };
+
+    const db = getDb();
+    const model = db.prepare('SELECT id, browser_mode, cloak_profile_name FROM model_profiles WHERE id = ?').get(profileId);
+    if (!model) return { ok: false, error: 'Model not found' };
+    if (model.browser_mode !== 'cloakmanager') {
+      return { ok: false, error: 'This model is not in CloakManager mode' };
+    }
+    if (!model.cloak_profile_name) {
+      return { ok: false, error: 'No CloakManager profile configured for this model yet' };
+    }
+
+    try {
+      const cdpOrchestrator = require('./cdp/orchestrator');
+      const result = await cdpOrchestrator.ensureProfileRunning(model.cloak_profile_name, {
+        accountId: null,
+        reason: 'model',
+        waitForScripts: false,
+      });
+      if (result.ok) {
+        return { ok: true, mode: 'cloakmanager', profileName: model.cloak_profile_name, cdpPort: result.cdpPort, cdpUrl: result.cdpUrl };
+      }
+      return { ok: false, error: result.error || 'Failed to launch CloakManager profile', code: result.code };
+    } catch (err) {
+      return { ok: false, error: err.message || 'CloakManager launch failed' };
+    }
   });
 
   ipcMain.handle('oserus-browser:openAllForProfile', async (_e, { token, profileId } = {}) => {
@@ -455,6 +484,7 @@ app.whenReady().then(async () => {
   registerAutomationHandlers(ipcMain);
   registerCloudHandlers(ipcMain);
   registerDeviceHandlers(ipcMain);
+  registerPlatformHandlers(ipcMain);
 
   // Oserus Browser (v0.62 soft-cut: optional, launched on demand from
   // Management). The module manages a single window — picker or session
@@ -624,6 +654,12 @@ app.on('before-quit', (event) => {
       const { shutdownAll } = require('./services/ipv4Bridge');
       shutdownAll().catch(() => {});
     } catch {}
+    // Close pooled CDP connections to CloakManager profiles.
+    try {
+      await require('./cdp/orchestrator').shutdown();
+    } catch (e) {
+      elog.warn('[CDP Orchestrator] shutdown error:', e?.message);
+    }
     // Cleanup spawned Cloak Manager backend (if we auto-started it)
     if (global.cloakManagerBinary) {
       try {

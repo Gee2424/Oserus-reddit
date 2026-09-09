@@ -417,19 +417,27 @@ function initDatabase() {
       updated_at TEXT DEFAULT (datetime('now'))
     );
 
-    -- User-level browser mode preferences
-    CREATE TABLE IF NOT EXISTS user_browser_settings (
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      default_browser_mode TEXT NOT NULL CHECK(default_browser_mode IN ('electron', 'cloakmanager')) DEFAULT 'electron',
-      cloakmanager_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:7331',
+    -- Platform definitions (built-in + admin-configured)
+    CREATE TABLE IF NOT EXISTS platforms (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      key TEXT NOT NULL UNIQUE,
+      label TEXT NOT NULL,
+      short TEXT,
+      color TEXT DEFAULT '#888888',
+      home_url TEXT,
+      login_url TEXT,
+      username_prefix TEXT DEFAULT '@',
+      icon TEXT,
+      is_builtin INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
-    -- Account-level browser mode overrides
+    -- Per-account settings (autopilot skip, per-account CM profile override)
     CREATE TABLE IF NOT EXISTS account_browser_settings (
       account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
-      browser_mode TEXT NOT NULL CHECK(browser_mode IN ('electron', 'cloakmanager', 'inherit')) DEFAULT 'inherit',
-      cloak_profile_name TEXT,
+      cloak_profile_override TEXT,
+      autopilot_skip INTEGER DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -710,6 +718,21 @@ function initDatabase() {
       console.log('[db] team_id column added to reddit_accounts.');
     }
 
+    // needs_attention — set by the CDP orchestrator when a CloakManager
+    // launch/task hits a hard wall that a human must resolve (wrong
+    // password, 2FA prompt, captcha, logged-out). The autopilot and
+    // scheduler skip flagged accounts until an operator clears the flag
+    // (accounts:clearAttention). Distinct from the timed circuit breaker
+    // in services/coordinator.js — this one does not auto-expire.
+    // status has a CHECK constraint we can't ALTER, so this is a separate
+    // column rather than a new status value.
+    if (!cols.some((c) => c.name === 'needs_attention')) {
+      db.exec("ALTER TABLE reddit_accounts ADD COLUMN needs_attention INTEGER NOT NULL DEFAULT 0");
+      db.exec("ALTER TABLE reddit_accounts ADD COLUMN attention_reason TEXT");
+      db.exec("ALTER TABLE reddit_accounts ADD COLUMN attention_at TEXT");
+      console.log('[db] needs_attention columns added to reddit_accounts.');
+    }
+
     // Per-profile fingerprint. A real person has ONE device, not a
     // separate one per platform — so the fingerprint, OS profile, and
     // proxy-geo cache live on model_profiles and get reused by every
@@ -758,6 +781,30 @@ function initDatabase() {
     const ins = db.prepare('INSERT INTO warmup_subreddits (name, vibe, description) VALUES (?,?,?)');
     for (const d of defaults) ins.run(d.name, d.vibe, d.description);
     console.log(`[db] Seeded ${defaults.length} default warm-up subreddits`);
+  }
+
+  // Seed built-in platforms if the table is empty.
+  try {
+    const platCount = db.prepare('SELECT COUNT(*) AS c FROM platforms').get().c;
+    if (platCount === 0) {
+      const builtins = [
+        { key: 'reddit',    label: 'Reddit',    short: 'R',  color: '#ff4500', home: 'https://www.reddit.com/',           login: 'https://www.reddit.com/login',                    prefix: 'u/',  icon: '🔴', order: 1 },
+        { key: 'redgifs',   label: 'RedGIFs',   short: 'G',  color: '#ff2e74', home: 'https://www.redgifs.com/',          login: 'https://www.redgifs.com/signin',                   prefix: '@',   icon: '🟠', order: 2 },
+        { key: 'x',         label: 'X',         short: '𝕏', color: '#1d9bf0', home: 'https://x.com/home',                login: 'https://x.com/login',                              prefix: '@',   icon: '🔵', order: 3 },
+        { key: 'instagram', label: 'Instagram', short: 'IG', color: '#e1306c', home: 'https://www.instagram.com/',        login: 'https://www.instagram.com/accounts/login/',         prefix: '@',   icon: '🟣', order: 4 },
+        { key: 'tiktok',    label: 'TikTok',    short: 'TT', color: '#25f4ee', home: 'https://www.tiktok.com/foryou',     login: 'https://www.tiktok.com/login',                      prefix: '@',   icon: '⚫', order: 5 },
+      ];
+      const ins = db.prepare(`
+        INSERT INTO platforms (key, label, short, color, home_url, login_url, username_prefix, icon, is_builtin, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+      `);
+      for (const p of builtins) {
+        ins.run(p.key, p.label, p.short, p.color, p.home, p.login, p.prefix, p.icon, p.order);
+      }
+      console.log(`[db] Seeded ${builtins.length} built-in platforms`);
+    }
+  } catch (e) {
+    console.warn('[db] Platform seeding skipped:', e?.message);
   }
 
   // Lightweight schema migrations for tables already in users' DBs.
@@ -976,15 +1023,19 @@ function initDatabase() {
         console.warn('[db] content_sources backfill skipped:', e?.message);
       }
     }
+  } catch (e) {
+    console.warn('[db] content_sources backfill skipped:', e?.message);
+  }
 
   // Migration: add CloakManager integration tables if missing
   try {
     const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
     const tableNames = tables.map(t => t.name);
 
-    // Create user_browser_settings if missing
+    // Kept for backward compatibility during upgrades only.
+    // user_browser_settings is no longer used by active code.
     if (!tableNames.includes('user_browser_settings')) {
-      console.log('[db] Creating user_browser_settings table...');
+      console.log('[db] Creating user_browser_settings table (legacy compat)...');
       db.exec(`
         CREATE TABLE user_browser_settings (
           user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -993,17 +1044,16 @@ function initDatabase() {
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
       `);
-      console.log('[db] user_browser_settings table created.');
     }
 
-    // Create account_browser_settings if missing
+    // Create account_browser_settings if missing (new schema)
     if (!tableNames.includes('account_browser_settings')) {
       console.log('[db] Creating account_browser_settings table...');
       db.exec(`
         CREATE TABLE account_browser_settings (
           account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
-          browser_mode TEXT NOT NULL CHECK(browser_mode IN ('electron', 'cloakmanager', 'inherit')) DEFAULT 'inherit',
-          cloak_profile_name TEXT,
+          cloak_profile_override TEXT,
+          autopilot_skip INTEGER DEFAULT 0,
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
       `);
@@ -1099,9 +1149,7 @@ function initDatabase() {
     } catch (e) { console.warn('[db] autopilot_skip migration failed:', e?.message); }
     // Create indexes for better performance
     db.exec(`
-      CREATE INDEX IF NOT EXISTS idx_user_browser_settings_user_id ON user_browser_settings(user_id);
       CREATE INDEX IF NOT EXISTS idx_account_browser_settings_account_id ON account_browser_settings(account_id);
-      CREATE INDEX IF NOT EXISTS idx_cloakmanager_profiles_account_id ON cloakmanager_profiles(account_id);
       CREATE INDEX IF NOT EXISTS idx_cloakmanager_profiles_profile_name ON cloakmanager_profiles(profile_name);
       CREATE INDEX IF NOT EXISTS idx_automation_runs_account ON automation_runs(account_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_automation_runs_status ON automation_runs(status, created_at);
@@ -1109,45 +1157,243 @@ function initDatabase() {
     // Ensure account_browser_settings has a UNIQUE constraint on account_id
     // for ON CONFLICT(account_id) upserts in autopilot skip handler.
     db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_account_browser_settings_account_unique ON account_browser_settings(account_id)`);
+
+    // Create account_launch_scripts if missing — per-account CDP launch script configuration
+    if (!tableNames.includes('account_launch_scripts')) {
+      console.log('[db] Creating account_launch_scripts table...');
+      db.exec(`
+        CREATE TABLE account_launch_scripts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+          script_id TEXT NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          run_mode TEXT NOT NULL CHECK(run_mode IN ('always','once')) DEFAULT 'always',
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          UNIQUE(account_id, script_id)
+        )
+      `);
+      console.log('[db] account_launch_scripts table created.');
+    } else {
+      try {
+        const cols = db.prepare("PRAGMA table_info(account_launch_scripts)").all();
+        if (!cols.some(c => c.name === 'updated_at')) {
+          db.exec("ALTER TABLE account_launch_scripts ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))");
+          console.log('[db] updated_at column added to account_launch_scripts');
+        }
+      } catch (e) { console.warn('[db] account_launch_scripts migration failed:', e?.message); }
+    }
+
+    // Create model_launch_scripts if missing — shared CDP launch script
+    // configuration for a CloakManager model-level profile (one config for
+    // every account sharing that profile, instead of one copy per account).
+    if (!tableNames.includes('model_launch_scripts')) {
+      console.log('[db] Creating model_launch_scripts table...');
+      db.exec(`
+        CREATE TABLE model_launch_scripts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          profile_id INTEGER NOT NULL REFERENCES model_profiles(id) ON DELETE CASCADE,
+          script_id TEXT NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          run_mode TEXT NOT NULL CHECK(run_mode IN ('always','once')) DEFAULT 'always',
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          UNIQUE(profile_id, script_id)
+        )
+      `);
+      console.log('[db] model_launch_scripts table created.');
+    }
+
+    // Create custom_cdp_scripts if missing — user-authored inline CDP scripts
+    if (!tableNames.includes('custom_cdp_scripts')) {
+      console.log('[db] Creating custom_cdp_scripts table...');
+      db.exec(`
+        CREATE TABLE custom_cdp_scripts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          account_id INTEGER,
+          name TEXT NOT NULL,
+          description TEXT,
+          platform TEXT NOT NULL DEFAULT 'all',
+          code TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      console.log('[db] custom_cdp_scripts table created.');
+    } else {
+      try {
+        const cols = db.prepare("PRAGMA table_info(custom_cdp_scripts)").all();
+        if (!cols.some(c => c.name === 'updated_at')) {
+          db.exec("ALTER TABLE custom_cdp_scripts ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))");
+          console.log('[db] updated_at column added to custom_cdp_scripts');
+        }
+      } catch (e) { console.warn('[db] custom_cdp_scripts migration failed:', e?.message); }
+    }
+
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_launch_scripts_account ON account_launch_scripts(account_id);
+      CREATE INDEX IF NOT EXISTS idx_launch_scripts_profile ON model_launch_scripts(profile_id);
+      CREATE INDEX IF NOT EXISTS idx_custom_scripts_account ON custom_cdp_scripts(account_id);
+    `);
+
     console.log('[db] CloakManager integration migration complete.');
   } catch (e) {
     console.error('[db] CloakManager migration failed:', e.message);
   }
 
-  // Migration: fix NULL cloak_profile_name values in account_browser_settings
-  // This ensures all accounts have a profile name set for CDP orchestrator to find
+  // Migration: move browser_mode from per-account to per-model-profile
+  // and add cloak_profile_override for per-account CM instance overrides.
   try {
-    const nullCount = db.prepare(`
-      SELECT COUNT(*) as count FROM account_browser_settings
-      WHERE cloak_profile_name IS NULL
-    `).get();
+    const pcols = db.prepare('PRAGMA table_info(model_profiles)').all();
+    const pHave = (n) => pcols.some((c) => c.name === n);
 
-    if (nullCount.count > 0) {
-      console.log(`[db] Found ${nullCount.count} accounts with NULL cloak_profile_name, fixing...`);
-      db.exec(`
-        -- Update NULL values to computed defaults
-        UPDATE account_browser_settings
-        SET cloak_profile_name = 'reddit-' || (
-          SELECT username FROM reddit_accounts WHERE id = account_browser_settings.account_id
-        )
-        WHERE cloak_profile_name IS NULL
-          AND account_id IN (SELECT id FROM reddit_accounts WHERE platform = 'reddit');
-
-        -- Handle other platforms too
-        UPDATE account_browser_settings
-        SET cloak_profile_name = (
-          SELECT platform || '-' || username FROM reddit_accounts WHERE id = account_browser_settings.account_id
-        )
-        WHERE cloak_profile_name IS NULL;
-      `);
-      console.log('[db] Fixed NULL cloak_profile_name values.');
+    // Add browser_mode + cloak_profile_name to model_profiles
+    if (!pHave('browser_mode')) {
+      db.exec("ALTER TABLE model_profiles ADD COLUMN browser_mode TEXT NOT NULL DEFAULT 'electron'");
+      console.log('[db] browser_mode column added to model_profiles.');
     }
-  } catch (e) {
-    console.warn('[db] Failed to fix NULL cloak_profile_name values:', e.message);
-  }
+    if (!pHave('cloak_profile_name')) {
+      db.exec('ALTER TABLE model_profiles ADD COLUMN cloak_profile_name TEXT');
+      console.log('[db] cloak_profile_name column added to model_profiles.');
+    }
 
+    // Add cloak_profile_override to account_browser_settings
+    try {
+      const absCols = db.prepare('PRAGMA table_info(account_browser_settings)').all();
+      if (!absCols.some(c => c.name === 'cloak_profile_override')) {
+        db.exec('ALTER TABLE account_browser_settings ADD COLUMN cloak_profile_override TEXT');
+        console.log('[db] cloak_profile_override column added to account_browser_settings.');
+      }
+    } catch (e) { console.warn('[db] cloak_profile_override migration skipped:', e?.message); }
+
+    // Migrate existing data: pick the most common browser_mode per profile
+    // and set model_profiles accordingly. Also compute model-level CM profile names.
+    try {
+      const profiles = db.prepare('SELECT id, name, assigned_user_id FROM model_profiles').all();
+      const modeCount = db.prepare(`
+        SELECT browser_mode, COUNT(*) AS cnt
+        FROM account_browser_settings
+        WHERE account_id IN (SELECT id FROM reddit_accounts WHERE profile_id = ?)
+          AND browser_mode != 'inherit'
+        GROUP BY browser_mode
+        ORDER BY cnt DESC
+      `);
+      // Fallback: check the profile owner's user_browser_settings default
+      const userDefault = db.prepare(
+        'SELECT default_browser_mode FROM user_browser_settings WHERE user_id = ?'
+      );
+      const setProfile = db.prepare(`
+        UPDATE model_profiles SET browser_mode = ?, cloak_profile_name = ? WHERE id = ?
+      `);
+      for (const p of profiles) {
+        const top = modeCount.get(p.id);
+        let mode = top?.browser_mode;
+        if (!mode) {
+          // All accounts were 'inherit' (or had no row) — check user default
+          const ud = p.assigned_user_id ? userDefault.get(p.assigned_user_id) : null;
+          mode = ud?.default_browser_mode || 'electron';
+        }
+        const cmName = mode === 'cloakmanager' ? `model-${p.id}-${p.name}` : null;
+        setProfile.run(mode, cmName, p.id);
+      }
+      console.log(`[db] Migrated browser_mode for ${profiles.length} profiles.`);
+    } catch (e) { console.warn('[db] Profile browser_mode migration skipped:', e?.message); }
+
+    // Migrate cloakmanager_profiles: add profile_id column, backfill from account_id,
+    // then rebuild table to make account_id nullable.
+    try {
+      const cpCols = db.prepare('PRAGMA table_info(cloakmanager_profiles)').all();
+      if (!cpCols.some(c => c.name === 'profile_id')) {
+        db.exec('ALTER TABLE cloakmanager_profiles ADD COLUMN profile_id INTEGER REFERENCES model_profiles(id) ON DELETE CASCADE');
+        // Backfill: find the profile_id for each cloakmanager_profile via account_id
+        db.exec(`
+          UPDATE cloakmanager_profiles
+          SET profile_id = (
+            SELECT ra.profile_id FROM reddit_accounts ra WHERE ra.id = cloakmanager_profiles.account_id
+          )
+          WHERE profile_id IS NULL
+        `);
+        console.log('[db] profile_id column added to cloakmanager_profiles and backfilled.');
+      }
+
+      // Re-read columns after ALTER TABLE to get the fresh schema
+      const updatedCpCols = db.prepare('PRAGMA table_info(cloakmanager_profiles)').all();
+      const hasCdpWsUrl = updatedCpCols.some(c => c.name === 'cdp_ws_url');
+      const hasProfileId = updatedCpCols.some(c => c.name === 'profile_id');
+
+      // Rebuild cloakmanager_profiles to make account_id nullable
+      // (SQLite can't ALTER COLUMN to drop NOT NULL)
+      if (hasProfileId) {
+        const wsUrlCol = hasCdpWsUrl ? 'cdp_ws_url TEXT,' : '';
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS cloakmanager_profiles_new (
+            profile_id INTEGER NOT NULL REFERENCES model_profiles(id) ON DELETE CASCADE,
+            account_id INTEGER REFERENCES reddit_accounts(id) ON DELETE SET NULL,
+            profile_name TEXT NOT NULL UNIQUE,
+            cdp_port INTEGER,
+            cdp_url TEXT,
+            ${wsUrlCol}
+            fp_seed TEXT,
+            status TEXT NOT NULL CHECK(status IN ('created', 'running', 'stopped', 'error')) DEFAULT 'created',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+          )
+        `);
+        const wsUrlSelect = hasCdpWsUrl ? 'cdp_ws_url,' : '';
+        db.exec(`
+          INSERT INTO cloakmanager_profiles_new (profile_id, account_id, profile_name, cdp_port, cdp_url, ${hasCdpWsUrl ? 'cdp_ws_url,' : ''} fp_seed, status, created_at)
+          SELECT profile_id, account_id, profile_name, cdp_port, cdp_url, ${wsUrlSelect} fp_seed, status, created_at
+          FROM cloakmanager_profiles
+        `);
+        db.exec('DROP TABLE cloakmanager_profiles');
+        db.exec('ALTER TABLE cloakmanager_profiles_new RENAME TO cloakmanager_profiles');
+        console.log('[db] Rebuilt cloakmanager_profiles with nullable account_id.');
+      }
+    } catch (e) { console.warn('[db] cloakmanager_profiles migration skipped:', e?.message); }
+
+    // Rebuild account_browser_settings for existing installs that still have
+    // the old schema with browser_mode and cloak_profile_name columns.
+    try {
+      const absCols = db.prepare('PRAGMA table_info(account_browser_settings)').all();
+      if (absCols.some(c => c.name === 'browser_mode')) {
+        console.log('[db] Rebuilding account_browser_settings (removing dead columns)...');
+        db.exec(`
+          CREATE TABLE account_browser_settings_new (
+            account_id INTEGER NOT NULL REFERENCES reddit_accounts(id) ON DELETE CASCADE,
+            cloak_profile_override TEXT,
+            autopilot_skip INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+          )
+        `);
+        // Preserve existing data: copy cloak_profile_override if it exists,
+        // otherwise copy cloak_profile_name as the override for accounts
+        // that had an explicit (non-auto-filled) value.
+        const hasOverride = absCols.some(c => c.name === 'cloak_profile_override');
+        const hasSkip = absCols.some(c => c.name === 'autopilot_skip');
+        const overrideSelect = hasOverride ? 'cloak_profile_override' : 'NULL';
+        const skipSelect = hasSkip ? 'autopilot_skip' : '0';
+        db.exec(`
+          INSERT INTO account_browser_settings_new (account_id, cloak_profile_override, autopilot_skip, created_at)
+          SELECT account_id, ${overrideSelect}, ${skipSelect}, created_at
+          FROM account_browser_settings
+        `);
+        db.exec('DROP TABLE account_browser_settings');
+        db.exec('ALTER TABLE account_browser_settings_new RENAME TO account_browser_settings');
+        console.log('[db] Rebuilt account_browser_settings.');
+      }
+    } catch (e) { console.warn('[db] account_browser_settings rebuild skipped:', e?.message); }
+
+    // Update indexes
+    try {
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_cloakmanager_profiles_profile_id ON cloakmanager_profiles(profile_id);
+      `);
+    } catch (e) { console.warn('[db] Index update skipped:', e?.message); }
+
+    console.log('[db] Browser mode migration to model_profiles complete.');
   } catch (e) {
-    console.warn('[db] content_sources backfill skipped:', e?.message);
+    console.error('[db] Browser mode migration failed:', e.message);
   }
 }
 

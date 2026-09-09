@@ -2,20 +2,22 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan, usePermissions } from '../lib/permissions.jsx';
 import logoUrl from '../assets/logo.png';
+import ActivityDrawer from './ActivityDrawer.jsx';
 
-const NAV = [
-  { key: 'dashboard',     label: 'Dashboard',           icon: '⬢', group: 'Overview',  perm: 'page.dashboard' },
-  { key: 'profiles',      label: 'Models',              icon: '◇', group: 'Overview',  perm: 'page.profiles' },
-  { key: 'analytics',     label: 'Analytics',           icon: '◧', group: 'Overview',  perm: 'page.analytics' },
-  { key: 'inbox',         label: 'Account Manager Pro', icon: '✉', group: 'Workspace', perm: 'page.reddit-api' },
-  { key: 'automation',    label: 'Automation',          icon: '⟳', group: 'Workspace', perm: 'page.autopilot' },
-  { key: 'intel',         label: 'Intelligence',        icon: '◎', group: 'Workspace', perm: 'page.intel' },
-  { key: 'team',          label: 'Team',                icon: '⚑', group: 'Team',      perm: 'page.team' },
-  { key: 'docs',          label: 'Documentation',       icon: '◫', group: 'Team',      perm: 'page.docs' },
-  { key: 'settings',      label: 'Configuration',       icon: '⚙', group: 'Configure', perm: 'page.settings' },
+export const NAV = [
+  { key: 'dashboard',     label: 'Dashboard',     icon: '⬢', group: 'Overview',  perm: 'page.dashboard' },
+  { key: 'profiles',      label: 'Models',        icon: '◇', group: 'Overview',  perm: 'page.profiles' },
+  { key: 'analytics',     label: 'Analytics',     icon: '◧', group: 'Overview',  perm: 'page.analytics' },
+  { key: 'inbox',         label: 'Inbox',         icon: '✉', group: 'Workspace', perm: 'page.reddit-api' },
+  { key: 'automation',    label: 'Automation',    icon: '⟳', group: 'Workspace', perm: 'page.autopilot' },
+  { key: 'intel',         label: 'Intelligence',  icon: '◎', group: 'Workspace', perm: 'page.intel' },
+  { key: 'scripts',       label: 'Scripts',       icon: '◫', group: 'Workspace', perm: 'page.intel' },
+  { key: 'team',          label: 'Team',          icon: '⚑', group: 'Team',      perm: 'page.team' },
+  { key: 'settings',      label: 'Configuration', icon: '⚙', group: 'Configure', perm: 'page.settings' },
+  { key: 'platforms',     label: 'Platforms',     icon: '🌐', group: 'Configure', perm: 'page.settings' },
 ];
 
-export default function Shell({ route, navigate, children }) {
+export default function Shell({ route, navigate, children, goBack, canGoBack }) {
   const { user, logout, activeTeamId, setActiveTeam } = useAuth();
   const can = useCan();
   const { previewing, effectiveRole, exitPreview } = usePermissions();
@@ -206,7 +208,7 @@ export default function Shell({ route, navigate, children }) {
             <div style={styles.cloudRow} className="mono" title={cloudConnected ? 'Cloud synced' : 'Offline'}>
               <span style={{
                 width: 6, height: 6, borderRadius: '50%',
-                background: cloudConnected ? '#7a9a5a' : '#555',
+                background: cloudConnected ? 'var(--online-green)' : 'var(--text-3)',
                 boxShadow: cloudConnected ? '0 0 6px rgba(122,154,90,0.8)' : 'none',
               }} />
               <span>{cloudConnected ? 'Cloud' : 'Offline'}</span>
@@ -225,6 +227,26 @@ export default function Shell({ route, navigate, children }) {
             <button className="ghost" onClick={exitPreview} style={{ marginLeft: 'auto', fontSize: 11 }}>Exit preview</button>
           </div>
         )}
+        <div style={styles.contextBar}>
+          <button
+            className="ghost"
+            onClick={goBack}
+            disabled={!canGoBack}
+            style={{ ...styles.backBtn, opacity: canGoBack ? 1 : 0.35, cursor: canGoBack ? 'pointer' : 'default' }}
+            title="Back"
+          >← Back</button>
+          <span style={styles.crumb}>
+            {(NAV.find((n) => n.key === route)?.label) || route}
+          </span>
+          {currentTeam && (
+            <span style={styles.teamCrumb} className="mono" title="Active team">
+              {currentTeam.name}
+            </span>
+          )}
+          <div style={{ marginLeft: currentTeam ? 0 : 'auto' }}>
+            <ActivityDrawer navigate={navigate} />
+          </div>
+        </div>
         <section style={styles.content}>{children}</section>
       </main>
     </div>
@@ -295,6 +317,18 @@ const styles = {
     fontSize: 10, color: 'var(--text-2)', gap: 6,
   },
   main: { flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 },
+  contextBar: {
+    display: 'flex', alignItems: 'center', gap: 12,
+    padding: '8px 24px', borderBottom: '1px solid var(--border)',
+    background: 'var(--bg-1)', flexShrink: 0,
+  },
+  backBtn: { fontSize: 11, padding: '4px 10px' },
+  crumb: { fontSize: 12, color: 'var(--text-1)', fontWeight: 600 },
+  teamCrumb: {
+    marginLeft: 'auto', fontSize: 10, color: 'var(--text-3)',
+    border: '1px solid var(--border)', borderRadius: 'var(--radius-pill)',
+    padding: '2px 10px',
+  },
   previewBanner: {
     background: 'linear-gradient(90deg, rgba(212,166,74,0.18), rgba(79,138,100,0.12))',
     borderBottom: '1px solid var(--gold)', color: 'var(--gold-bright)',

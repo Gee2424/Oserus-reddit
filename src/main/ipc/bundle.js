@@ -34,6 +34,8 @@ function register(ipcMain) {
           brand_voice: profile.brand_voice,
           notes: profile.notes,
           avatar_color: profile.avatar_color,
+          browser_mode: profile.browser_mode || 'electron',
+          cloak_profile_name: profile.cloak_profile_name || null,
         },
         accounts: accounts.map(a => ({
           platform: a.platform || 'reddit',
@@ -130,7 +132,7 @@ function register(ipcMain) {
 
         // Insert profile
         const profInfo = db.prepare(
-          'INSERT INTO model_profiles (name, assigned_user_id, niche, brand_voice, notes, avatar_color, team_id) VALUES (?,?,?,?,?,?,?)'
+          'INSERT INTO model_profiles (name, assigned_user_id, niche, brand_voice, notes, avatar_color, team_id, browser_mode, cloak_profile_name) VALUES (?,?,?,?,?,?,?,?,?)'
         ).run(
           bundle.profile.name,
           assignedUserId || null,
@@ -139,6 +141,8 @@ function register(ipcMain) {
           bundle.profile.notes,
           bundle.profile.avatar_color,
           teamId || null,
+          bundle.profile.browser_mode || 'electron',
+          bundle.profile.cloak_profile_name || null,
         );
         const newProfileId = profInfo.lastInsertRowid;
 
