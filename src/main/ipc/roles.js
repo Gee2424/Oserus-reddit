@@ -41,7 +41,9 @@ function register() {
     try {
       const user = userFromToken(token);
       requirePermission(user, 'roles.manage');
-      return { ok: true, roles: listRoles(), permissions: PERMISSIONS };
+      // Hide reserved legacy keys from the editor — they still validate.
+      const editable = PERMISSIONS.filter((p) => p.group !== 'Legacy');
+      return { ok: true, roles: listRoles(), permissions: editable };
     } catch (err) { return { ok: false, error: err.message }; }
   });
 

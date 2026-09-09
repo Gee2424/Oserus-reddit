@@ -9,7 +9,7 @@ export default function RedditApiPage({ navigate }) {
   const [platform, setPlatform] = useState("reddit");
   return (
     <div>
-      <PageHeader eyebrow="Workspace" title="Account Manager Pro" subtitle="DMs and modmail across every platform. Sessions stay per-account. Scheduling lives in the Scheduler." />
+      <PageHeader eyebrow="Messages" title="Inbox" subtitle="DMs and modmail across every platform. Sessions stay per-account. Scheduling lives in the Scheduler." />
       <div
         style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}
       >

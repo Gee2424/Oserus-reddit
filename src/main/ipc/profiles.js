@@ -1,6 +1,7 @@
 const { getDb } = require('../db');
 const { userFromToken, requireManagerOrAdmin } = require('./auth');
 const { hasPermission } = require('../permissions');
+const { profileScopeClause } = require('../lib/assignments');
 
 
 // Add proxy_id to model_profiles so a single proxy can be inherited by every
@@ -51,6 +52,7 @@ function register(ipcMain) {
 
     // Non-managers see profiles they're either the legacy primary assignee on
     // OR a member of via profile_assignments.
+    const scope = profileScopeClause(user, 'p');
     const rows = teamId
       ? getDb()
           .prepare(
@@ -59,10 +61,10 @@ function register(ipcMain) {
                     (SELECT COUNT(*) FROM reddit_accounts WHERE profile_id = p.id AND status = 'ready') AS ready_count
              FROM model_profiles p
              LEFT JOIN users u ON u.id = p.assigned_user_id
-             WHERE p.team_id = ?
+             WHERE p.team_id = ? AND ${scope.sql}
              ORDER BY p.created_at DESC`
           )
-          .all(teamId)
+          .all(teamId, ...scope.params)
       : hasPermission(user, 'profiles.manage')
         ? getDb()
             .prepare(

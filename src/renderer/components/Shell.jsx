@@ -11,7 +11,7 @@ export const NAV = [
   { key: 'inbox',         label: 'Inbox',         icon: '✉', group: 'Workspace', perm: 'page.reddit-api' },
   { key: 'automation',    label: 'Automation',    icon: '⟳', group: 'Workspace', perm: 'page.autopilot' },
   { key: 'intel',         label: 'Intelligence',  icon: '◎', group: 'Workspace', perm: 'page.intel' },
-  { key: 'scripts',       label: 'Scripts',       icon: '◫', group: 'Workspace', perm: 'page.intel' },
+  { key: 'scripts',       label: 'Scripts',       icon: '◫', group: 'Workspace', perm: 'page.scripts' },
   { key: 'team',          label: 'Team',          icon: '⚑', group: 'Team',      perm: 'page.team' },
   { key: 'settings',      label: 'Configuration', icon: '⚙', group: 'Configure', perm: 'page.settings' },
   { key: 'platforms',     label: 'Platforms',     icon: '🌐', group: 'Configure', perm: 'page.settings' },

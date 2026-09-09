@@ -649,28 +649,53 @@ function initDatabase() {
         }
       }
     }
-    // admin is the safety floor — top up every perm on every launch.
+    // admin + owner are the safety floor — top up every code-defined perm on
+    // every launch (never delete here, so custom edits to owner survive).
     try {
-      const adminPerms = (BUILTIN_ROLES.find((r) => r.key === 'admin') || {}).permissions || [];
-      for (const p of adminPerms) insertRolePerm.run('admin', p);
-    } catch (e) {
-      console.error('[db] Admin top-up failed:', e.message);
-    }
-
-    // Migrate away from the old manager/reddit_va/chatter builtins.
-    // Unused → delete. In use → unflag is_builtin so the owner can edit/delete.
-    try {
-      const legacy = ['manager', 'reddit_va', 'chatter'];
-      const usedStmt = db.prepare('SELECT 1 FROM users WHERE role = ? LIMIT 1');
-      const dropRole = db.prepare('DELETE FROM roles WHERE key = ? AND is_builtin = 1');
-      const dropPerms = db.prepare('DELETE FROM role_permissions WHERE role_key = ?');
-      const unflag = db.prepare('UPDATE roles SET is_builtin = 0 WHERE key = ?');
-      for (const k of legacy) {
-        if (usedStmt.get(k)) unflag.run(k);
-        else { dropRole.run(k); dropPerms.run(k); }
+      for (const key of ['admin', 'owner']) {
+        const perms = (BUILTIN_ROLES.find((r) => r.key === key) || {}).permissions || [];
+        for (const p of perms) insertRolePerm.run(key, p);
       }
     } catch (e) {
-      console.error('[db] Legacy role migration failed:', e.message);
+      console.error('[db] admin/owner perm top-up failed:', e.message);
+    }
+
+    // Role model v2 (appflow.md): Owner / Admin / Manager / Chatter / VA.
+    //  - retire the old 'operator' starter role → remap its users to 'manager'
+    //  - drop the dead 'reddit_va' builtin (or unflag if still in use)
+    //  - (re)seed manager / chatter / va once so their permission rows match
+    //    the code exactly; guarded by an app_kv flag so later admin edits stick.
+    try {
+      const seeded = db.prepare("SELECT value FROM app_kv WHERE key = 'roles_v2_seeded'").get();
+      if (!seeded || seeded.value !== '1') {
+        db.prepare("UPDATE users SET role = 'manager' WHERE role = 'operator'").run();
+        db.prepare("DELETE FROM roles WHERE key = 'operator'").run();
+        db.prepare("DELETE FROM role_permissions WHERE role_key = 'operator'").run();
+
+        const usedStmt = db.prepare('SELECT 1 FROM users WHERE role = ? LIMIT 1');
+        if (usedStmt.get('reddit_va')) {
+          db.prepare("UPDATE roles SET is_builtin = 0 WHERE key = 'reddit_va'").run();
+        } else {
+          db.prepare("DELETE FROM roles WHERE key = 'reddit_va'").run();
+          db.prepare("DELETE FROM role_permissions WHERE role_key = 'reddit_va'").run();
+        }
+
+        for (const key of ['manager', 'chatter', 'va']) {
+          const def = BUILTIN_ROLES.find((r) => r.key === key);
+          if (!def) continue;
+          insertRole.run(key, def.label, def.description);
+          db.prepare('UPDATE roles SET is_builtin = 1 WHERE key = ?').run(key);
+          db.prepare('DELETE FROM role_permissions WHERE role_key = ?').run(key);
+          for (const p of def.permissions) insertRolePerm.run(key, p);
+        }
+        db.prepare(
+          `INSERT INTO app_kv (key, value, updated_at) VALUES ('roles_v2_seeded', '1', datetime('now'))
+           ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = datetime('now')`
+        ).run();
+        console.log('[db] Role model v2 seeded (owner/admin/manager/chatter/va).');
+      }
+    } catch (e) {
+      console.error('[db] Role model v2 migration failed:', e.message);
     }
   } catch (e) {
     console.error('[db] Roles seed failed:', e.message);

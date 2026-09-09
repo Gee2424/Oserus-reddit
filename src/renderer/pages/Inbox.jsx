@@ -193,7 +193,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
     setMessages((prev) => [...prev, local]);
   }
   async function popOut() {
-    await window.api.windows.openPopout({ route: 'inbox', title: 'Account Manager Pro', width: 1180, height: 760 });
+    await window.api.windows.openPopout({ route: 'inbox', title: 'Inbox', width: 1180, height: 760 });
   }
 
   // Analytics strip — derive stats from inbox live data
@@ -211,7 +211,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
         <div className="title-block">
           <div>
             <div className="eyebrow">Messages</div>
-            <h1>Account Manager Pro</h1>
+            <h1>Inbox</h1>
           </div>
         </div>
       )}
@@ -247,7 +247,7 @@ export default function InboxPage({ embedded, standalone, navigate }) {
 
         {/* Top action bar */}
         <div style={topBar}>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Account Manager Pro</h2>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Inbox</h2>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
             <button className="ghost" onClick={load} disabled={loading || !isLive}>↻ Refresh Account</button>
             <button className="ghost" disabled={!isLive} onClick={async () => {
