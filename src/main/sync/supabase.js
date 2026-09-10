@@ -9,7 +9,7 @@ const { getAnonClient, getAuthClient } = require('../supabaseClient');
 const TABLES = [
   'teams', 'team_members', 'account_assignments', 'machine_sessions', 'post_locks',
   'reddit_accounts', 'model_profiles', 'proxies', 'post_events', 'activity_log',
-  'scheduled_posts', 'content_sources', 'docs',
+  'scheduled_posts', 'content_sources', 'docs', 'engagement_runs',
 ];
 
 const PRESENCE_CHANNEL = 'oserus:presence';
@@ -209,6 +209,7 @@ function populateCache() {
     { local: 'content_sources', remote: 'content_sources' },
     { local: 'docs', remote: 'docs' },
     { local: 'settings', remote: 'settings' },
+    { local: 'engagement_runs', remote: 'engagement_runs' },
   ];
 
   for (const t of localCache) {

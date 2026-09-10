@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import SchedulerProPage, { AISettings } from './SchedulerPro.jsx';
 import AutopilotPage from './Autopilot.jsx';
+import EngagementRunsPanel from './AutomationRuns.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
 import { Banner } from '../components/ui.jsx';
 import PopOutButton from '../components/PopOutButton.jsx';
@@ -105,7 +106,7 @@ function StatsBar() {
 
 export default function AutomationPage({ navigate, initialSection }) {
   const { token } = useAuth();
-  const [section, setSection] = useState(initialSection || 'scheduler');
+  const [section, setSection] = useState(initialSection || 'runs');
   const [aiMsg, setAiMsg] = useState(null);
   const [aiErr, setAiErr] = useState(null);
 
@@ -125,9 +126,10 @@ export default function AutomationPage({ navigate, initialSection }) {
 
       <TabBar
         items={[
+          { key: 'runs', label: 'Runs', hint: 'Named, reusable engagement presets. Build them here; the Browser side panel only picks from saved runs.' },
           { key: 'scheduler', label: 'Scheduler', hint: 'Schedule posts for a specific account. Due posts fire automatically while the app is open.' },
-          { key: 'autopilot', label: 'Autopilot', hint: 'One protocol per platform — posts-to-comments pacing + content mix, runs in the background.' },
-          { key: 'ai', label: 'AI Settings', hint: 'Pick the Grok model, tune the persona, and decide which platforms use AI-generated content.' },
+          { key: 'autopilot', label: 'Autopilot', hint: 'One protocol per platform — engagement pacing + content mix, runs in the background.' },
+          { key: 'ai', label: 'AI Settings', hint: 'Pick the model, tune the persona, and decide which platforms use AI-generated content.' },
           { key: 'history', label: 'Run History', hint: 'Automation execution log across all platforms' },
         ]}
         activeKey={section}
@@ -135,6 +137,7 @@ export default function AutomationPage({ navigate, initialSection }) {
         style={{ marginBottom: 18 }}
       />
 
+      {section === 'runs' && <ErrorBoundary label="Runs"><EngagementRunsPanel /></ErrorBoundary>}
       {section === 'scheduler' && <ErrorBoundary label="Scheduler"><SchedulerProPage navigate={navigate} /></ErrorBoundary>}
       {section === 'autopilot' && <ErrorBoundary label="Autopilot"><AutopilotPage /></ErrorBoundary>}
       {section === 'ai' && (

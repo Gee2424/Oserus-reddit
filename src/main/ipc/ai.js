@@ -43,7 +43,7 @@ function register(ipcMain) {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       requirePermission(user, 'ai.admin');
-      const map = { anthropic: 'anthropic_api_key', grok: 'grok_api_key', openai: 'openai_api_key' };
+      const map = { anthropic: 'anthropic_api_key', grok: 'grok_api_key', openai: 'openai_api_key', cupid: 'cupid_api_key' };
       const key = map[provider];
       if (!key) throw new Error('Unknown provider');
       setSetting(key, apiKey ? encryptSecret(apiKey) : null);
@@ -60,6 +60,7 @@ function register(ipcMain) {
         anthropic: { hasKey: !!getSetting('anthropic_api_key'), model: getSetting('anthropic_model') || 'claude-haiku-4-5' },
         grok: { hasKey: !!getSetting('grok_api_key'), model: getSetting('grok_model') || 'grok-2-latest' },
         openai: { hasKey: !!getSetting('openai_api_key'), model: getSetting('openai_model') || 'gpt-4o-mini' },
+        cupid: { hasKey: !!getSetting('cupid_api_key'), model: getSetting('cupid_model') || '', base: getSetting('cupid_api_base') || '' },
       };
     } catch (err) { return { ok: false, error: err.message }; }
   });
@@ -72,6 +73,19 @@ function register(ipcMain) {
       if (provider) setSetting('ai_provider', provider);
       if (anthropicModel) setSetting('anthropic_model', anthropicModel);
       if (grokModel) setSetting('grok_model', grokModel);
+      return { ok: true };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  // Non-secret Cupid AI config (base URL + model). The key goes through
+  // ai:setProviderKey like the other providers.
+  ipcMain.handle('ai:setCupidConfig', (_e, { token, base, model }) => {
+    try {
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
+      requirePermission(user, 'ai.admin');
+      if (base !== undefined) setSetting('cupid_api_base', base ? String(base).trim() : null);
+      if (model !== undefined) setSetting('cupid_model', model ? String(model).trim() : null);
       return { ok: true };
     } catch (err) { return { ok: false, error: err.message }; }
   });

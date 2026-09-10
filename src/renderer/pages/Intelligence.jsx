@@ -408,22 +408,39 @@ function DiscoverPanel({ token, activeTeamId, accountId, profileId, platform, la
 
       {posts.length > 0 && (
         <details style={{ marginTop: 18, border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '8px 12px', background: 'var(--bg-elev)' }}>
-          <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--text-2)', padding: '4px 0' }}>
-            {lang.resultUnit[0].toUpperCase() + lang.resultUnit.slice(1)} scraped · {posts.length}
+          <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--text-2)', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span>{lang.resultUnit[0].toUpperCase() + lang.resultUnit.slice(1)} scraped · {posts.length}</span>
+            <button
+              className="ghost"
+              style={{ fontSize: 11, padding: '2px 8px' }}
+              onClick={(e) => {
+                e.preventDefault();
+                const links = posts.map((p) => p.permalink || p.url).filter(Boolean);
+                navigator.clipboard.writeText(links.join('\n')).then(() => onMsg(`Copied ${links.length} links`)).catch(() => {});
+              }}
+            >Copy all links</button>
           </summary>
           <div style={{ marginTop: 10, maxHeight: 280, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
             {posts.slice(0, 60).map((p) => (
-              <a key={p.id || p.url || p.title} href={p.url} target="_blank" rel="noreferrer" style={resultRow}>
-                <span className="mono" style={{ minWidth: 60, color: 'var(--gold)' }}>
-                  {(p.score ?? 0).toLocaleString()}{platform === 'reddit' ? '↑' : ''}
+              <div key={p.id || p.url || p.title} style={{ ...resultRow, alignItems: 'center' }}>
+                <span className="mono" style={{ minWidth: 56, color: 'var(--gold)', textAlign: 'right' }}>
+                  {p.score != null ? p.score.toLocaleString() : '—'}{p.score != null && platform === 'reddit' ? '↑' : ''}
                 </span>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span className="dim mono" style={{ minWidth: 56, textAlign: 'right' }}>
+                  {p.num_comments != null ? `${p.num_comments.toLocaleString()} 💬` : '—'}
+                </span>
+                <a href={p.url} target="_blank" rel="noreferrer" style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'inherit', textDecoration: 'none' }}>
                   {p.title || '(no caption)'}
-                </span>
-                <span className="dim" style={{ minWidth: 70, textAlign: 'right' }}>
+                </a>
+                <span className="dim" style={{ minWidth: 64, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {p.author ? `@${p.author}` : ''}
                 </span>
-              </a>
+                <button
+                  className="ghost"
+                  style={{ fontSize: 11, padding: '2px 8px', flexShrink: 0 }}
+                  onClick={() => navigator.clipboard.writeText(p.permalink || p.url).then(() => onMsg('Link copied')).catch(() => {})}
+                >Copy</button>
+              </div>
             ))}
           </div>
         </details>

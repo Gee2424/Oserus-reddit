@@ -387,6 +387,48 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_autopilot_protocols_due
       ON autopilot_protocols (enabled, last_run_at);
 
+    -- Saved engagement "runs": a named, reusable preset with the same
+    -- tunables as an autopilot_protocols row (minus the enabled flag), keyed
+    -- by its own id so a model can keep a library of them. Built on the
+    -- Automation page; the Browser side panel only picks from saved runs.
+    -- engagement.runSession merges a run's knobs over the model's protocol
+    -- row for one session.
+    CREATE TABLE IF NOT EXISTS engagement_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      team_id    TEXT,
+      profile_id INTEGER REFERENCES model_profiles(id) ON DELETE CASCADE,  -- NULL = reusable across models
+      platform   TEXT,                                                     -- NULL = any platform
+      name       TEXT NOT NULL,
+      sessions_per_day    INTEGER NOT NULL DEFAULT 3,
+      session_minutes_min INTEGER NOT NULL DEFAULT 6,
+      session_minutes_max INTEGER NOT NULL DEFAULT 14,
+      like_rate_pct        INTEGER NOT NULL DEFAULT 18,
+      follow_rate_pct      INTEGER NOT NULL DEFAULT 4,
+      watch_full_rate_pct  INTEGER NOT NULL DEFAULT 25,
+      comment_rate_pct     INTEGER NOT NULL DEFAULT 0,
+      comment_videos_only  INTEGER NOT NULL DEFAULT 1,
+      hashtags_json       TEXT,
+      follow_list_json    TEXT,
+      target_filter_json  TEXT,
+      target_subs_json    TEXT,
+      comment_persona     TEXT,
+      comment_prompt      TEXT,
+      min_upvote_ratio    REAL    NOT NULL DEFAULT 0,
+      min_post_score      INTEGER NOT NULL DEFAULT 0,
+      nsfw_only           INTEGER NOT NULL DEFAULT 0,
+      hours_between_min   REAL    NOT NULL DEFAULT 0,
+      hours_between_max   REAL    NOT NULL DEFAULT 0,
+      daily_cap_comments  INTEGER NOT NULL DEFAULT 0,
+      daily_cap_posts     INTEGER NOT NULL DEFAULT 0,
+      quiet_start         INTEGER,
+      quiet_end           INTEGER,
+      ai_provider         TEXT NOT NULL DEFAULT 'claude',
+      last_run_at         TEXT,
+      created_by_user_id  INTEGER,
+      created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     -- Editable per-job system prompts for the autopilot AI. NULL profile_id
     -- is the global default for that job; a row with a profile_id overrides
     -- for that model only. job ∈ ('post_sfw','post_nsfw','comment').
@@ -848,6 +890,9 @@ function initDatabase() {
     }
     if (!have('engagement_sessions', 'comments')) {
       db.exec('ALTER TABLE engagement_sessions ADD COLUMN comments INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!have('engagement_sessions', 'run_id')) {
+      db.exec('ALTER TABLE engagement_sessions ADD COLUMN run_id INTEGER');
     }
     const apAdds = [
       ['min_upvote_ratio',      'REAL NOT NULL DEFAULT 0'],

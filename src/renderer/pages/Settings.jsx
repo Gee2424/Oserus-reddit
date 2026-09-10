@@ -127,6 +127,21 @@ export default function SettingsPage() {
     await window.api.ai.setApiKey({ token, apiKey: null });
     await refreshAI();
   }
+  const [cupidBase, setCupidBase] = useState('');
+  useEffect(() => { setCupidBase(providers.cupid?.base || ''); }, [providers.cupid?.base]);
+  async function saveCupid(key) {
+    const r = await window.api.ai.setProviderKey({ token, provider: 'cupid', apiKey: key });
+    if (!r.ok) throw new Error(r.error);
+    await refreshAI();
+  }
+  async function clearCupid() {
+    await window.api.ai.setProviderKey({ token, provider: 'cupid', apiKey: null });
+    await refreshAI();
+  }
+  async function saveCupidBase() {
+    await window.api.ai.setCupidConfig({ token, base: cupidBase });
+    await refreshAI();
+  }
   async function saveOpenAI(key) {
     const r = await window.api.ai.setProviderKey({ token, provider: 'openai', apiKey: key });
     if (!r.ok) throw new Error(r.error);
@@ -249,6 +264,18 @@ export default function SettingsPage() {
             >
               {isAdmin && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <KeyCard
+                    title="Cupid AI"
+                    configured={providers.cupid?.hasKey && !!providers.cupid?.base}
+                    description="Chat-AI provider named in appflow.md for the Automation engagement comments. Needs its API base URL (below) plus a key. Until both are set, picking 'Cupid AI' on the Automation page falls through to a clear 'not configured' error rather than a silent switch to Claude."
+                    placeholder="cupid-…" onSave={saveCupid} onClear={clearCupid} />
+                  <div style={{ marginTop: -4, marginBottom: 4, display: 'flex', gap: 6, alignItems: 'flex-end' }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ fontSize: 11 }}>Cupid AI base URL</label>
+                      <input value={cupidBase} onChange={(e) => setCupidBase(e.target.value)} placeholder="https://api.cupid.example/v1" />
+                    </div>
+                    <button className="ghost" onClick={saveCupidBase} style={{ fontSize: 12 }}>Save URL</button>
+                  </div>
                   <KeyCard
                     title="Anthropic (Claude)" recommended
                     configured={providers.anthropic?.hasKey}

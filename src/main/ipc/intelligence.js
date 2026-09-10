@@ -9,6 +9,18 @@ const { userFromToken } = require('./auth');
 const { getDb } = require('../db');
 const { partitionFor, request } = require('../services/redditSession');
 const { prepareSessionForAccount } = require('../services/sessionPrep');
+const { canAccessProfile } = require('../lib/assignments');
+
+// Every scrape runs through a chosen account's logged-in session, so a
+// Chatter/VA must not be able to drive an account on a model they aren't
+// assigned to. Called right after the auth check in each account-scoped handler.
+function assertAccountAccess(user, accountId) {
+  if (!accountId) return;
+  const row = getDb().prepare('SELECT profile_id FROM reddit_accounts WHERE id = ?').get(accountId);
+  if (!row || !canAccessProfile(user, row.profile_id)) {
+    throw new Error('Not authorized for this account');
+  }
+}
 
 function ensureTable() {
   getDb().exec(`
@@ -147,9 +159,11 @@ function register(ipcMain) {
   // on the account's session and scrapes the platform's search/hashtag page.
   ipcMain.handle('intel:discoverScrape', async (_e, { token, accountId, platform, keyword }) => {
     try {
-      if (!userFromToken(token)) throw new Error('Not authenticated');
+      const user = userFromToken(token);
+      if (!user) throw new Error('Not authenticated');
       if (!accountId) throw new Error('Pick a scraper account');
       if (!platform) throw new Error('Platform required');
+      assertAccountAccess(user, accountId);
       const { scrape } = require('../services/discover');
       const res = await scrape({ accountId, platform, keyword });
       return res;
@@ -181,6 +195,7 @@ function register(ipcMain) {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       if (!accountId) throw new Error('Pick a scraper account');
+      assertAccountAccess(user, accountId);
       // Re-apply the account's UA + proxy on its partitioned session before the
       // scrape so this works without the renderer remembering to prep first.
       try { await prepareSessionForAccount(accountId); } catch {}
@@ -241,6 +256,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
+      assertAccountAccess(user, accountId);
       try { if (accountId) await prepareSessionForAccount(accountId); } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
@@ -276,6 +292,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
+      assertAccountAccess(user, accountId);
       try { if (accountId) await prepareSessionForAccount(accountId); } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
@@ -313,6 +330,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
+      assertAccountAccess(user, accountId);
       try { if (accountId) await prepareSessionForAccount(accountId); } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
@@ -339,6 +357,7 @@ function register(ipcMain) {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
       if (!Array.isArray(findings) || !findings.length) throw new Error('No findings selected');
+      if (profileId && !canAccessProfile(user, profileId)) throw new Error('Not authorized for this model');
       const { callAI, getSetting } = require('../services/postgen');
       if (!getSetting('anthropic_api_key') && !getSetting('grok_api_key')) {
         throw new Error('No AI API key configured — set Anthropic or Grok in Configuration first');
@@ -383,14 +402,16 @@ function register(ipcMain) {
         model: 'claude-sonnet-4-6',
         effort: 'medium',
       });
+      let savedDocId = null;
       if (save && profileId) {
         try {
-          getDb().prepare(
+          const ins = getDb().prepare(
             "INSERT INTO docs (profile_id, title, body, created_by_user_id) VALUES (?,?,?,?)"
           ).run(profileId, `Content research · ${new Date().toISOString().slice(0,10)}`, text, user.id);
+          savedDocId = ins.lastInsertRowid;
         } catch {}
       }
-      return { ok: true, plan: text };
+      return { ok: true, plan: text, savedDocId };
     } catch (err) {
       return { ok: false, error: err.message };
     }
@@ -401,6 +422,7 @@ function register(ipcMain) {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
+      assertAccountAccess(user, accountId);
       try { if (accountId) await prepareSessionForAccount(accountId); } catch {}
       const acct = partitionFor(accountId);
       if (!acct) throw new Error('Pick a scraper account');
@@ -462,17 +484,19 @@ function register(ipcMain) {
         totalComments += Number(p.num_comments) || 0;
       }
       const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25)
-        .map(([word, n]) => ({ word, n }));
+        .map(([word, n]) => ({ word, count: n }));
       const avgScore = posts.length ? Math.round(totalScore / posts.length) : 0;
       const avgComments = posts.length ? Math.round(totalComments / posts.length) : 0;
       const hourAvg = hours.map((s, i) => ({ hour: i, avg: hoursN[i] ? Math.round(s / hoursN[i]) : 0 }));
       const bestHourUTC = hourAvg.reduce((b, x) => (x.avg > b.avg ? x : b), { hour: 0, avg: 0 });
+      const anyHourData = hoursN.some((n) => n > 0);
       return {
         ok: true,
         sample: posts.length,
         avgScore, avgComments,
         topWords: top,
         bestHourUTC,
+        bestHour: anyHourData ? bestHourUTC.hour : null,
         hourly: hourAvg,
       };
     } catch (err) {

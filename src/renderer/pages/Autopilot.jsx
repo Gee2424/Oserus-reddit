@@ -709,12 +709,15 @@ function ProtocolEditor({ proto, platform, onChange, onSave, busy, canManage }) 
                   onChange={(e) => onChange({ ai_provider: e.target.value })}
                   disabled={!canManage}
                   style={{ fontSize: 12 }}>
+            <option value="cupid">Cupid AI</option>
             <option value="claude">Claude (Anthropic)</option>
             <option value="openai">OpenAI</option>
             <option value="grok">Grok (xAI)</option>
           </select>
           <span className="muted" style={{ fontSize: 11 }}>
-            Falls back to the Autopilot Anthropic key if the chosen provider isn't configured.
+            {proto.ai_provider === 'cupid'
+              ? 'Add the Cupid AI base URL + key in Configuration → AI.'
+              : "Falls back to the Autopilot Anthropic key if the chosen provider isn't configured."}
           </span>
         </div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
@@ -1016,7 +1019,9 @@ function RecentActivity({ events }) {
 // the editor doesn't drown the user in 400+ rows of inputs on first
 // open. Pacing + Engagement rates default open (every operator needs
 // them); Targeting / AI persona / Lists default closed.
-function Section({ title, children, collapsible = false, defaultOpen = true }) {
+// Shared form primitives — also used by the Automation "Runs" tab
+// (src/renderer/pages/AutomationRuns.jsx).
+export function Section({ title, children, collapsible = false, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen);
   if (!collapsible) {
     return (
@@ -1048,10 +1053,10 @@ function Section({ title, children, collapsible = false, defaultOpen = true }) {
     </div>
   );
 }
-function Grid({ cols = 2, gap = 12, children }) {
+export function Grid({ cols = 2, gap = 12, children }) {
   return <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap }}>{children}</div>;
 }
-function NumField({ label, value, onChange, min, max, step, placeholder, disabled }) {
+export function NumField({ label, value, onChange, min, max, step, placeholder, disabled }) {
   return (
     <div>
       <label>{label}</label>
@@ -1063,7 +1068,7 @@ function NumField({ label, value, onChange, min, max, step, placeholder, disable
     </div>
   );
 }
-function CheckLabel({ checked, onChange, disabled, children }) {
+export function CheckLabel({ checked, onChange, disabled, children }) {
   return (
     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} disabled={disabled} />

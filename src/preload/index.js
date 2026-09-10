@@ -163,6 +163,7 @@ const api = {
     setProviderKey: (data) => ipcRenderer.invoke('ai:setProviderKey', data),
     getProviders: (data) => ipcRenderer.invoke('ai:getProviders', data),
     setProvider: (data) => ipcRenderer.invoke('ai:setProvider', data),
+    setCupidConfig: (data) => ipcRenderer.invoke('ai:setCupidConfig', data),
     suggestPost: (data) => ipcRenderer.invoke('ai:suggestPost', data),
     improveTitle: (data) => ipcRenderer.invoke('ai:improveTitle', data),
   },
@@ -245,6 +246,14 @@ const api = {
   // CRUD (listForProfile / get / set). The runNow handler is shared by
   // both layers (the same IPC accepts {profileId, platform, accountId,
   // dryRun} and runs one engagement session).
+  engagementRuns: {
+    list:   (data) => ipcRenderer.invoke('engagementRuns:list', data),
+    get:    (data) => ipcRenderer.invoke('engagementRuns:get', data),
+    upsert: (data) => ipcRenderer.invoke('engagementRuns:upsert', data),
+    delete: (data) => ipcRenderer.invoke('engagementRuns:delete', data),
+    apply:  (data) => ipcRenderer.invoke('engagementRuns:apply', data),
+    runNow: (data) => ipcRenderer.invoke('engagementRuns:runNow', data),
+  },
   autopilot: {
     status:         (data) => ipcRenderer.invoke('autopilot:status', data),
     setEnabled:     (data) => ipcRenderer.invoke('autopilot:setEnabled', data),

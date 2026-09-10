@@ -219,6 +219,45 @@ create table if not exists autopilot_protocols (
   updated_at bigint not null default 0
 );
 
+-- Saved engagement "runs": named, reusable engagement presets (see
+-- src/main/services/engagementRuns.js). Same tunables as autopilot_protocols,
+-- keyed by their own id.
+create table if not exists engagement_runs (
+  id bigint primary key,
+  team_id text,
+  profile_id bigint,
+  platform text,
+  name text,
+  sessions_per_day integer,
+  session_minutes_min integer,
+  session_minutes_max integer,
+  like_rate_pct integer,
+  follow_rate_pct integer,
+  watch_full_rate_pct integer,
+  comment_rate_pct integer,
+  comment_videos_only integer,
+  hashtags_json text,
+  follow_list_json text,
+  target_filter_json text,
+  target_subs_json text,
+  comment_persona text,
+  comment_prompt text,
+  min_upvote_ratio real,
+  min_post_score integer,
+  nsfw_only integer,
+  hours_between_min real,
+  hours_between_max real,
+  daily_cap_comments integer,
+  daily_cap_posts integer,
+  quiet_start integer,
+  quiet_end integer,
+  ai_provider text,
+  last_run_at text,
+  created_by_user_id bigint,
+  created_at text,
+  updated_at bigint not null default 0
+);
+
 create table if not exists scheduled_posts (
   id bigint primary key,
   account_id bigint,
@@ -840,7 +879,7 @@ begin
     'activity_log','post_events','auto_comment_runs','engagement_sessions',
     'users','model_profiles','reddit_accounts','proxies',
     'autopilot_protocols','engagement_protocols','auto_comment_protocols',
-    'posting_protocols','scheduled_posts',
+    'posting_protocols','engagement_runs','scheduled_posts',
     'content_sources','warmup_subreddits','promo_subreddits','homepage_tiles',
     'messaging_templates','messaging_rules','schedule_templates','docs',
     'roles','role_permissions','settings'
@@ -865,7 +904,7 @@ begin
     'activity_log','post_events','auto_comment_runs','engagement_sessions',
     'users','model_profiles','reddit_accounts','proxies',
     'autopilot_protocols','engagement_protocols','auto_comment_protocols',
-    'posting_protocols','scheduled_posts',
+    'posting_protocols','engagement_runs','scheduled_posts',
     'content_sources','warmup_subreddits','promo_subreddits','homepage_tiles',
     'messaging_templates','messaging_rules','schedule_templates','docs',
     'roles','role_permissions','settings',

@@ -192,7 +192,7 @@ function register(ipcMain) {
   //     calls when an account is selected.
   //   • System-wide: caller didn't pass profileId — run a full
   //     coordinator pass over every eligible account.
-  ipcMain.handle('autopilot:runNow', async (_e, { token, profileId, platform, accountId, dryRun }) => {
+  ipcMain.handle('autopilot:runNow', async (_e, { token, profileId, platform, accountId, dryRun, runId }) => {
     try {
       const user = userFromToken(token);
       if (!user) throw new Error('Not authenticated');
@@ -225,7 +225,7 @@ function register(ipcMain) {
           id = row.id;
         }
         const { runSession } = require('../services/engagement');
-        const res = await runSession(id, { dryRun: !!dryRun });
+        const res = await runSession(id, { dryRun: !!dryRun, runId: runId ? Number(runId) : null });
         // runSession returns { ok, error?, stats, seconds, sessionId }
         // — surface its error verbatim to the UI rather than masking
         // a useful message behind a successful IPC envelope.

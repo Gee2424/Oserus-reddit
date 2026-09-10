@@ -153,6 +153,7 @@ function buildScript(platform, opts) {
         reply = await window.oserus?.requestComment?.({
           platform: ${JSON.stringify(platform)},
           protocolId: cfg.protocolId,
+          runId: cfg.runId,
           caption, creator, followers, verified,
           topReplies: [],
         });
@@ -280,29 +281,32 @@ function registerBridge() {
   ipcMain.handle('engagement:requestComment', async (_e, payload = {}) => {
     try {
       const { callAutopilotAI } = require('./postgen');
-      const { platform, caption, creator, topReplies, protocolId, followers, verified } = payload;
+      const { platform, caption, creator, topReplies, protocolId, runId, followers, verified } = payload;
       if (!caption && !creator) return { ok: false, error: 'no context' };
 
-      // Look up the protocol row so we get the persona + target filter
-      // fresh on every comment, not stale from session start.
-      let proto = null;
+      // Persona + target filter source: a saved run when one is active,
+      // otherwise the (profile, platform) protocol row. Looked up fresh on
+      // every comment so a mid-session edit is honored. Both tables carry
+      // comment_persona / comment_prompt / target_filter_json / ai_provider.
+      let src = null;
       let modelCtx = null;
-      if (protocolId) {
-        proto = getDb().prepare('SELECT * FROM autopilot_protocols WHERE id = ?').get(protocolId);
-        // Pull the model profile so brand voice + niche shape the
-        // comment voice — same model context posts produce.
-        if (proto?.profile_id) {
-          modelCtx = getDb().prepare(
-            'SELECT name, niche, brand_voice FROM model_profiles WHERE id = ?'
-          ).get(proto.profile_id) || null;
-        }
+      if (runId) {
+        src = getDb().prepare('SELECT * FROM engagement_runs WHERE id = ?').get(runId);
+      } else if (protocolId) {
+        src = getDb().prepare('SELECT * FROM autopilot_protocols WHERE id = ?').get(protocolId);
       }
-      if (proto && !autopilotProtocol.passesTargetFilter(proto, { caption, followers, verified })) {
+      // Pull the model profile so brand voice + niche shape the comment voice.
+      if (src?.profile_id) {
+        modelCtx = getDb().prepare(
+          'SELECT name, niche, brand_voice FROM model_profiles WHERE id = ?'
+        ).get(src.profile_id) || null;
+      }
+      if (src && !autopilotProtocol.passesTargetFilter(src, { caption, followers, verified })) {
         return { ok: false, error: 'filtered' };
       }
 
-      const personaSystem = proto
-        ? autopilotProtocol.buildCommentPrompt(proto, modelCtx)
+      const personaSystem = src
+        ? autopilotProtocol.buildCommentPrompt(src, modelCtx)
         : autopilotProtocol.PERSONA_PROMPTS.curious;
       const system = `${personaSystem}\n\nYou are reacting to a ${platform || 'social media'} post. Output ONLY the reply text, nothing else.`;
       const userMsg = [
@@ -316,7 +320,7 @@ function registerBridge() {
         '\nWrite your one-line reaction now.',
       ].filter(Boolean).join('\n');
       const raw = await Promise.race([
-        callAutopilotAI(system, userMsg, { maxTokens: 120, provider: proto?.ai_provider }),
+        callAutopilotAI(system, userMsg, { maxTokens: 120, provider: src?.ai_provider }),
         new Promise((_, rej) => setTimeout(() => rej(new Error('ai timeout')), 12000)),
       ]);
       const text = String(raw || '').trim()
@@ -338,7 +342,7 @@ function registerBridge() {
 // hint: optional theme string carried through to engagement.requestComment
 // so AI replies have a topical anchor when the autopilot adapter
 // generated the session intent.
-async function runSession(accountId, { dryRun = false, hint = null } = {}) {
+async function runSession(accountId, { dryRun = false, hint = null, runId = null } = {}) {
   registerBridge();
   const db = getDb();
   const acct = db.prepare(
@@ -372,21 +376,36 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
     } catch (e) {
       return { ok: false, error: `Could not create autopilot row for ${acct.platform}: ${e.message}` };
     }
-  } else if (!proto.enabled) {
+  } else if (!proto.enabled && !runId) {
     // Operator explicitly disabled it for this scope. Don't silently
     // re-enable on Run Now — just tell them why nothing happens.
+    // (A saved run is an explicit "run this now", so it isn't gated by
+    // the per-scope enable toggle.)
     return { ok: false, error: `Autopilot is paused for this ${acct.platform} scope. Toggle the per-scope switch in Engagement settings.` };
   }
 
+  // A saved run overlays its knobs onto the model's protocol row for this
+  // one session. proto keeps its real id (the bridge + markRan need it).
+  let run = null;
+  if (runId) {
+    try { run = require('./engagementRuns').get(runId); } catch {}
+  }
+  const eff = { ...proto };
+  if (run) {
+    for (const k of require('./engagementRuns').COLS) {
+      if (run[k] != null) eff[k] = run[k];
+    }
+  }
+
   const url = urlFor(acct.platform);
-  const minMin = Math.max(1, proto.session_minutes_min || 6);
-  const maxMin = Math.max(minMin, proto.session_minutes_max || 14);
+  const minMin = Math.max(1, eff.session_minutes_min || 6);
+  const maxMin = Math.max(minMin, eff.session_minutes_max || 14);
   const sessionSeconds = pickRandom(minMin, maxMin) * 60;
 
   let followList = [];
   let hashtags = [];
-  try { followList = JSON.parse(proto.follow_list_json || '[]'); } catch {}
-  try { hashtags = JSON.parse(proto.hashtags_json || '[]'); } catch {}
+  try { followList = JSON.parse(eff.follow_list_json || '[]'); } catch {}
+  try { hashtags = JSON.parse(eff.hashtags_json || '[]'); } catch {}
 
   // Pull model context (niche, brand voice) so we can derive niche-
   // targeted landing URLs when no explicit hashtags are configured,
@@ -446,8 +465,8 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
   }
 
   const sessionRow = db.prepare(
-    `INSERT INTO engagement_sessions (account_id, platform) VALUES (?, ?)`
-  ).run(acct.id, acct.platform);
+    `INSERT INTO engagement_sessions (account_id, platform, run_id) VALUES (?, ?, ?)`
+  ).run(acct.id, acct.platform, runId || null);
   const sessionId = sessionRow.lastInsertRowid;
 
   // Mobile-fingerprinted accounts get a phone-sized window so the
@@ -491,15 +510,17 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
     const script = buildScript(acct.platform, {
       sessionSeconds: dryRun ? previewSeconds : sessionSeconds,
       dryRun: !!dryRun,
-      likeRatePct:     Math.max(0, Math.min(100, proto.like_rate_pct ?? 18)),
-      followRatePct:   Math.max(0, Math.min(100, proto.follow_rate_pct ?? 4)),
-      watchFullRatePct:Math.max(0, Math.min(100, proto.watch_full_rate_pct ?? 25)),
-      commentRatePct:  Math.max(0, Math.min(100, proto.comment_rate_pct ?? 0)),
-      commentVideosOnly:(proto.comment_videos_only ?? 1) ? true : false,
+      likeRatePct:     Math.max(0, Math.min(100, eff.like_rate_pct ?? 18)),
+      followRatePct:   Math.max(0, Math.min(100, eff.follow_rate_pct ?? 4)),
+      watchFullRatePct:Math.max(0, Math.min(100, eff.watch_full_rate_pct ?? 25)),
+      commentRatePct:  Math.max(0, Math.min(100, eff.comment_rate_pct ?? 0)),
+      commentVideosOnly:(eff.comment_videos_only ?? 1) ? true : false,
       followList,
-      // Bridge looks the row up fresh to honor the persona + filter
-      // even if the user just edited them.
+      // Bridge looks the persona + target filter up fresh (by run id when a
+      // saved run is active, else by protocol id) so a mid-session edit is
+      // honored.
       protocolId: proto.id,
+      runId: runId || null,
     });
     stats = await win.webContents.executeJavaScript(script);
   } catch (e) {
@@ -535,18 +556,23 @@ async function runSession(accountId, { dryRun = false, hint = null } = {}) {
   );
   // Only stamp last_run_at on a LIVE run. Dry-runs are previews; if
   // we stamp them, the engagement tick thinks this scope ran recently
-  // and silently skips the next live session.
-  if (!dryRun) autopilotProtocol.markRan(acct.profile_id, acct.platform);
+  // and silently skips the next live session. A saved-run pass stamps the
+  // run (for "last used"), not the protocol — a run test shouldn't make the
+  // background tick skip the scope.
+  if (!dryRun) {
+    if (runId) { try { require('./engagementRuns').markRan(runId); } catch {} }
+    else autopilotProtocol.markRan(acct.profile_id, acct.platform);
+  }
 
   // Reddit hybrid: when commenting is enabled on a Reddit protocol we
   // also fire one API-based comment via redditAutoComment in the same
   // session window — DOM-comment selectors on Reddit are too fragile.
   // Errors here are non-fatal; the engagement stats above are still
   // the canonical record.
-  if (!dryRun && acct.platform === 'reddit' && (proto.comment_rate_pct ?? 0) > 0) {
+  if (!dryRun && acct.platform === 'reddit' && (eff.comment_rate_pct ?? 0) > 0) {
     try {
       const { runOnce } = require('./redditAutoComment');
-      await runOnce(acct.id, { dryRun: false, protocol: proto });
+      await runOnce(acct.id, { dryRun: false, protocol: eff });
     } catch (e) {
       elog.warn('[engagement] reddit api-comment failed', { accountId, error: e?.message });
     }

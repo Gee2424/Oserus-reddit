@@ -111,6 +111,33 @@ async function callOpenAI(apiKey, system, userMessage, options = {}) {
   return data.choices?.[0]?.message?.content || '';
 }
 
+// Cupid AI — OnlyFans-chat AI provider named in appflow.md. Stubbed until the
+// user supplies the endpoint / auth scheme / model names. `cupid_api_base` +
+// `cupid_api_key` settings exist so the moment those arrive this becomes a
+// thin OpenAI-compatible client (clone callGrok).
+async function callCupid(apiKey, system, userMessage, options = {}) {
+  const base = getSetting('cupid_api_base');
+  if (!apiKey || !base) {
+    throw new Error('Cupid AI is selected but not configured. Add its API base URL + key in Settings → AI, or pick Claude.');
+  }
+  const body = {
+    model: options.model || getSetting('cupid_model') || 'cupid-default',
+    max_tokens: options.maxTokens || 1500,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: userMessage },
+    ],
+  };
+  const res = await fetch(`${String(base).replace(/\/$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || `Cupid AI error: ${res.status}`);
+  return data.choices?.[0]?.message?.content || '';
+}
+
 // Autopilot AI dispatcher. Provider preference order:
 //   1. options.provider (the autopilot_protocols row's ai_provider)
 //   2. autopilot_ai_provider app_kv setting
@@ -125,7 +152,12 @@ async function callAutopilotAI(system, userMessage, options = {}) {
   const claudeEnc = getSetting('autopilot_anthropic_api_key') || getSetting('anthropic_api_key');
   const openaiEnc = getSetting('autopilot_openai_api_key')    || getSetting('openai_api_key');
   const grokEnc   = getSetting('autopilot_grok_api_key')      || getSetting('grok_api_key');
+  const cupidEnc  = getSetting('autopilot_cupid_api_key')     || getSetting('cupid_api_key');
 
+  if (wanted === 'cupid') {
+    const model = options.model || getSetting('autopilot_cupid_model') || getSetting('cupid_model') || 'cupid-default';
+    return callCupid(cupidEnc ? decryptSecret(cupidEnc) : null, system, userMessage, { ...options, model });
+  }
   if (wanted === 'openai' && openaiEnc) {
     const model = options.model || getSetting('autopilot_openai_model') || 'gpt-4o-mini';
     return callOpenAI(decryptSecret(openaiEnc), system, userMessage, { ...options, model });
@@ -470,7 +502,7 @@ Generate 3 post ideas.`;
 }
 
 module.exports = {
-  generatePost, callGrok, callClaude, callAI, callAutopilotAI,
+  generatePost, callGrok, callClaude, callCupid, callAI, callAutopilotAI,
   tryParseJson, getSetting,
   resolveAutopilotPrompt, interpolatePrompt, DEFAULT_AUTOPILOT_PROMPTS,
 };
