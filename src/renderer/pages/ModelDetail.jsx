@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { useCan } from '../lib/permissions.jsx';
-import { useActiveAccount, pickPreferredAccount } from '../lib/activeAccount.jsx';
+import { useActiveAccount } from '../lib/activeAccount.jsx';
 import { usePlatforms, platformUsernamePrefix } from '../lib/platforms.js';
 import { useCloakManagerLaunch } from '../hooks/useCloakManagerLaunch';
-import { launchAccountBrowser } from '../lib/launchAccount.js';
+import { launchAccountBrowser, launchModelBrowser } from '../lib/launchAccount.js';
 import { Banner } from '../components/ui.jsx';
 import { ModelDetailSkeleton } from '../components/Skeletons.jsx';
 import { useToast } from '../lib/toast.jsx';
@@ -307,60 +307,29 @@ export default function ModelDetailPage({ modelId, navigate }) {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {(model.browser_mode || 'electron') === 'cloakmanager' ? (
-            // One shared browser for the whole model — works even with zero
-            // linked accounts, since CloakManager mode means one profile
-            // (one fingerprint, one proxy) that isn't tied to any account.
-            <>
-              <button
-                title="Open this model's shared CloakManager browser"
-                disabled={launchingId === 'model'}
-                onClick={async () => {
-                  setLaunchingId('model');
-                  try {
-                    const r = await window.api.oserusBrowser.openModel({ token, profileId: Number(modelId) });
-                    if (!r.ok) {
-                      setOperationMessage(`Failed: ${friendlyCmError(r.error)}`);
-                      setTimeout(() => setOperationMessage(null), 4000);
-                    }
-                  } finally {
-                    setLaunchingId(null);
-                  }
-                }}
-                style={{ ...playBtnStyle, opacity: launchingId === 'model' ? 0.6 : 1 }}
-              >{launchingId === 'model' ? '⏳ Launching…' : '▶ Open Browser'}</button>
-              <ModeBadge mode="cloakmanager" />
-            </>
-          ) : (
-            <>
-              {accounts.some(a => a.platform !== 'redgifs') && (
-                <>
-                  <button
-                    title="Open the highest-priority linked account (Reddit / X / Instagram / TikTok) in the browser"
-                    onClick={async () => {
-                      const pick = pickPreferredAccount(accounts.filter(a => a.platform !== 'redgifs'));
-                      if (pick) await start(pick.id);
-                    }}
-                    style={playBtnStyle}
-                  >▶ Open Browser</button>
-                  <ModeBadge mode="electron" />
-                </>
-              )}
-              {accounts.some(a => a.platform === 'redgifs') && (
-                <>
-                  <button
-                    title="Open the first RedGifs account in the browser"
-                    onClick={async () => {
-                      const pick = pickPreferredAccount(accounts.filter(a => a.platform === 'redgifs'));
-                      if (pick) await start(pick.id);
-                    }}
-                    style={playBtnStyle}
-                  >▶ Open RedGifs Browser</button>
-                  <ModeBadge mode="electron" />
-                </>
-              )}
-            </>
-          )}
+          {/* One "Open Browser" for the model. Electron mode: one window,
+              one tab per linked account. CloakManager mode: the model's
+              shared external browser. Mode is resolved server-side. */}
+          <button
+            title={(model.browser_mode || 'electron') === 'cloakmanager'
+              ? "Open this model's shared CloakManager browser"
+              : 'Open one window with a tab per linked account'}
+            disabled={launchingId === 'model'}
+            onClick={async () => {
+              setLaunchingId('model');
+              try {
+                const r = await launchModelBrowser({ token, profileId: Number(modelId) });
+                if (!r.ok) {
+                  setOperationMessage(`Failed: ${friendlyCmError(r.error)}`);
+                  setTimeout(() => setOperationMessage(null), 4000);
+                }
+              } finally {
+                setLaunchingId(null);
+              }
+            }}
+            style={{ ...playBtnStyle, opacity: launchingId === 'model' ? 0.6 : 1 }}
+          >{launchingId === 'model' ? '⏳ Launching…' : '▶ Open Browser'}</button>
+          <ModeBadge mode={(model.browser_mode || 'electron') === 'cloakmanager' ? 'cloakmanager' : 'electron'} />
         </div>
       </div>
 

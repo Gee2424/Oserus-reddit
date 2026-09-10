@@ -46,9 +46,7 @@ export default function BrowserShell() {
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState('');
   const [findResult, setFindResult] = useState({ active: 0, total: 0 });
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [siblings, setSiblings] = useState([]);
-  const [winInfo, setWinInfo] = useState({ accountId: null, platform: null });
+  const [winInfo, setWinInfo] = useState({ profileId: null, activeAccountId: null, activePlatform: null });
   const [proxyOpen, setProxyOpen] = useState(false);
   const [proxyState, setProxyState] = useState({ loading: false, data: null, error: null, checkedAt: null });
   const [addOpen, setAddOpen] = useState(false);
@@ -72,7 +70,7 @@ export default function BrowserShell() {
       setActiveId(s.activeId ?? null);
       setSidebarOpen(!!s.sidebarOpen);
       setFindOpen(!!s.findOpen);
-      setWinInfo({ accountId: s.accountId, platform: s.platform });
+      setWinInfo({ profileId: s.profileId, activeAccountId: s.activeAccountId, activePlatform: s.activePlatform });
       const a = (s.tabs || []).find((t) => t.id === s.activeId);
       if (a && document.activeElement !== omniRef.current) setOmni(a.url || '');
     };
@@ -105,15 +103,6 @@ export default function BrowserShell() {
     e.preventDefault();
     window.oserusBrowser.find(findText, { forward: true, next: true });
   }
-  async function openPicker() {
-    setPickerOpen((v) => !v);
-    if (!pickerOpen) {
-      try {
-        const r = await window.oserusBrowser.siblings();
-        if (r?.ok) setSiblings(r.accounts || []);
-      } catch {}
-    }
-  }
   function goBookmark(url, e) {
     if (e && (e.ctrlKey || e.metaKey || e.button === 1)) {
       window.oserusBrowser.newTab(url);
@@ -133,15 +122,15 @@ export default function BrowserShell() {
     }
   }
 
-  // Auto-run proxy / leak check on mount and whenever the bound account
-  // changes (switchAccount opens a new window so this fires fresh too).
+  // Auto-run proxy / leak check on mount and whenever the active tab account
+  // changes (fires fresh on every tab switch).
   // The check happens silently — the persistent status pill in the
   // chrome row shows the result; the popover only opens on click.
   useEffect(() => {
-    if (!winInfo.accountId) return;
+    if (!winInfo.activeAccountId) return;
     const t = setTimeout(() => runProxyCheck(false), 600);
     return () => clearTimeout(t);
-  }, [winInfo.accountId]);
+  }, [winInfo.activeAccountId]);
 
   // Surface whether the operator can add content (gated by content.add).
   useEffect(() => {
@@ -151,7 +140,7 @@ export default function BrowserShell() {
         setCanAdd(!!(r && r.allowed));
       } catch { setCanAdd(false); }
     })();
-  }, [winInfo.accountId]);
+  }, [winInfo.activeAccountId]);
 
   // Derived: { kind, label, color } describing the current proxy state.
   // Drives the persistent pill in the chrome row.
@@ -176,40 +165,45 @@ export default function BrowserShell() {
         <div style={tabsScroll}>
           {tabs.map((t) => {
             const isActive = t.id === activeId;
+            // Account tabs (pinned) show platform icon + username and can't
+            // be closed — a tab IS a linked account. Ad-hoc "+" tabs keep
+            // the close button.
+            const label = t.pinned ? (t.username || t.platform || t.title) : (t.title || t.url || 'New Tab');
             return (
               <div
                 key={t.id}
                 onClick={() => window.oserusBrowser.switchTab(t.id)}
-                // Middle-click closes the tab (Chrome / Firefox standard).
-                // mousedown preventDefault stops the browser's autoscroll
-                // cursor from showing on middle-click.
                 onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
                 onAuxClick={(e) => {
-                  if (e.button === 1) {
+                  if (e.button === 1 && !t.pinned) {
                     e.preventDefault();
                     e.stopPropagation();
                     window.oserusBrowser.closeTab(t.id);
                   }
                 }}
                 style={{ ...tabStyle, ...(isActive ? tabActive : {}) }}
-                title={t.url || t.title}
+                title={t.pinned ? `${t.username || ''} · ${t.platform || ''}` : (t.url || t.title)}
               >
                 {t.loading
                   ? <span style={spinner} />
-                  : t.favicon
-                    ? <img src={t.favicon} alt="" width={14} height={14} style={favicon} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                    : <span style={faviconDot} />}
-                <span style={tabTitle}>{t.title || t.url || 'New Tab'}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); window.oserusBrowser.closeTab(t.id); }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  style={closeBtn}
-                  title="Close tab"
-                >×</button>
+                  : (t.pinned && t.platformIcon)
+                    ? <span style={{ fontSize: 13, flexShrink: 0 }}>{t.platformIcon}</span>
+                    : t.favicon
+                      ? <img src={t.favicon} alt="" width={14} height={14} style={favicon} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                      : <span style={faviconDot} />}
+                <span style={tabTitle}>{label}</span>
+                {!t.pinned && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); window.oserusBrowser.closeTab(t.id); }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    style={closeBtn}
+                    title="Close tab"
+                  >×</button>
+                )}
               </div>
             );
           })}
-          <button onClick={() => window.oserusBrowser.newTab()} style={addBtn} title="New tab (Ctrl+T)">+</button>
+          <button onClick={() => window.oserusBrowser.newTab()} style={addBtn} title="New tab on the active account (Ctrl+T)">+</button>
         </div>
         {/* Spacer fills the rest of the title bar with drag region. */}
         <div style={tabStripDragFill} />
@@ -247,31 +241,7 @@ export default function BrowserShell() {
           />
         </form>
 
-        {/* Profile picker */}
-        <div style={{ position: 'relative' }}>
-          <button style={navBtn} onClick={openPicker} title="Switch profile">⎘</button>
-          {pickerOpen && (
-            <div style={pickerPanel} onMouseLeave={() => setPickerOpen(false)}>
-              <div style={pickerHead}>Switch account on this profile</div>
-              {siblings.length === 0 && <div style={pickerEmpty}>No sibling accounts</div>}
-              {siblings.map((a) => {
-                const isActive = a.id === winInfo.accountId;
-                return (
-                  <button
-                    key={a.id}
-                    disabled={isActive}
-                    onClick={() => { setPickerOpen(false); window.oserusBrowser.switchAccount(a.id); }}
-                    style={{ ...pickerItem, ...(isActive ? pickerItemActive : {}) }}
-                  >
-                    <span style={pickerPlat}>{a.platform}</span>
-                    <span style={pickerUser}>{a.username}</span>
-                    {isActive && <span style={pickerDot}>●</span>}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        {/* Account switching is the tab strip now — no picker. */}
 
         {/* Persistent proxy/leak status pill. Click to open detail
             popover. Auto-checks on mount; user can re-run from the
@@ -352,7 +322,7 @@ export default function BrowserShell() {
       {/* SIDEBAR (Content List) */}
       {sidebarOpen && (
         <ContentSidebar
-          accountPlatform={winInfo.platform}
+          accountPlatform={winInfo.activePlatform}
           chromeTop={CHROME_HEIGHT + (findOpen ? FIND_BAR_HEIGHT : 0)}
           canAdd={canAdd}
           addOpen={addOpen}

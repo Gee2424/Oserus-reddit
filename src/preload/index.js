@@ -357,6 +357,7 @@ const api = {
   oserusBrowser: {
     openAccount:        (data) => ipcRenderer.invoke('oserus-browser:openAccount', data),
     openModel:          (data) => ipcRenderer.invoke('oserus-browser:openModel', data),
+    openForModel:       (data) => ipcRenderer.invoke('oserus-browser:openForModel', data),
     openAllForProfile:  (data) => ipcRenderer.invoke('oserus-browser:openAllForProfile', data),
   },
   chrome: {

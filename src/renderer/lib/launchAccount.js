@@ -6,3 +6,10 @@ export async function launchAccountBrowser({ token, accountId, startAccount }) {
   await startAccount(accountId);
   return window.api.oserusBrowser.openAccount({ token, accountId });
 }
+
+// Open a MODEL's browser — one window, one tab per linked account (Electron
+// mode) or the shared CloakManager browser (CM mode). Mode resolution is
+// server-side in oserus-browser:openForModel.
+export async function launchModelBrowser({ token, profileId }) {
+  return window.api.oserusBrowser.openForModel({ token, profileId: Number(profileId) });
+}

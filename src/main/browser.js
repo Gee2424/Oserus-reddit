@@ -1,23 +1,25 @@
 // Oserus Browser — AdsPower-style profile browser.
 //
-// One BrowserWindow per account. The window's renderer hosts the
-// chrome UI (tab strip + omnibox + back / forward / reload). Tab
-// content is rendered by NATIVE WebContentsView children of that
-// window, NOT by <webview> tags — so each tab is a real Chromium
-// frame using the account's session partition explicitly. That makes:
+// One BrowserWindow per MODEL (openForModel) with one tab per linked
+// account; openForAccount opens a single-account window for deep links.
+// The window's renderer hosts the chrome UI (tab strip + omnibox +
+// back / forward / reload). Tab content is rendered by NATIVE
+// WebContentsView children of that window, NOT <webview> tags — each
+// tab is a real Chromium frame bound EXPLICITLY to its account's
+// session partition (see the `tab` object). That makes:
 //
 //   • session.setProxy applied by prepareSessionForAccount actually
-//     route the tab. The old <webview> approach used the default
-//     partition and silently bypassed the proxy.
+//     route each tab (per-view partition, not per-window).
 //   • The antidetect preload registered via session.setPreloads run
 //     in every frame.
-//   • Cookies / localStorage stay isolated per account.
-//   • Autofill (services/autofill.js) inject on every tab navigation.
+//   • Cookies / localStorage stay isolated per account, even in the
+//     same window.
+//   • Autofill (services/autofill.js) inject with the right creds per tab.
 //
-// No picker. Launching is initiated from Management:
+// Launching is initiated from Management:
+//   • Model "Open Browser" → oserus-browser:openForModel (CM models go
+//     to the CDP orchestrator instead).
 //   • Account "Launch" button → oserus-browser:openAccount.
-//   • Model "Open all" button → oserus-browser:openAllForProfile,
-//     which spawns one window per account in parallel.
 
 const { BrowserWindow, WebContentsView, Menu, clipboard, ipcMain, shell } = require('electron');
 const path = require('path');
@@ -91,8 +93,16 @@ const FIND_BAR_HEIGHT = 36;
 const CHROME_HEIGHT = 108;
 const TITLE_BAR_HEIGHT = 36;
 
-const accountWindows = new Map();    // accountId -> BrowserWindow
+const accountWindows = new Map();    // accountId -> BrowserWindow (single-account deep links)
+const modelWindows = new Map();      // profileId -> BrowserWindow (one window per model, tab per account)
 const windowState = new WeakMap();   // BrowserWindow -> session state
+//
+// windowState shape (per BrowserWindow):
+//   { profileId, activeAccountId, tabs, activeId, nextTabId, sidebarOpen, findOpen }
+// Each `tab` carries its OWN account identity:
+//   { id, view, title, url, favicon, loading, canBack, canForward,
+//     accountId, partition, platform, username }
+// so one window can host tabs bound to different account sessions.
 
 let prepareSessionForAccount = null;
 let isDev = false;
@@ -322,6 +332,27 @@ function isNewtabUrl(u) {
   return typeof u === 'string' && u.startsWith('data:text/html') && u.includes(encodeURIComponent(NEWTAB_MARKER));
 }
 
+// The tab the window is currently showing (falls back to the first tab so
+// callers during window bring-up don't hit null).
+function activeTabOf(win) {
+  const st = windowState.get(win);
+  if (!st || !st.tabs.length) return null;
+  return st.tabs.find((t) => t.id === st.activeId) || st.tabs[0];
+}
+
+// Cheap cached platform metadata (icon + label) for the tab strip.
+const _platformMeta = new Map();
+function platformMeta(key) {
+  if (_platformMeta.has(key)) return _platformMeta.get(key);
+  let meta = { icon: null, label: key };
+  try {
+    const row = getDb().prepare('SELECT icon, label FROM platforms WHERE key = ?').get(key);
+    if (row) meta = { icon: row.icon || null, label: row.label || key };
+  } catch {}
+  _platformMeta.set(key, meta);
+  return meta;
+}
+
 function platformOfAccount(accountId) {
   const row = getDb().prepare('SELECT platform FROM reddit_accounts WHERE id = ?').get(accountId);
   return row?.platform || null;
@@ -356,6 +387,7 @@ async function openForAccount(accountId) {
   if (!acct) return { ok: false, error: 'Account not found' };
 
   const partition = `persist:${prep.partitionKey}`;
+  const acctTab = { accountId, partition, platform: acct.platform, username: acct.username, pinned: true };
   const title = `${acct.profile_name} · ${acct.platform}/${acct.username}`;
 
   // Frameless: the tab strip IS the title bar with a drag region in
@@ -377,10 +409,9 @@ async function openForAccount(accountId) {
   });
 
   windowState.set(win, {
-    accountId, partition,
-    platform: acct.platform,
     profileId: acct.profile_id || null,
-    tabs: [],           // [{ id, view, title, url, favicon, loading, canBack, canForward }]
+    activeAccountId: accountId,
+    tabs: [],
     activeId: null,
     nextTabId: 1,
     sidebarOpen: false,
@@ -401,18 +432,95 @@ async function openForAccount(accountId) {
 
   loadChromeInto(win, `?account=${encodeURIComponent(accountId)}`);
 
-  // Open the home + inbox tabs once the chrome UI is rendered.
-  // did-finish-load is reliable enough — chrome layout is static.
-  // Order: home is opened SECOND so it ends up active (openTab sets
-  // activeId to the newly created tab). Inbox sits to the left as a
-  // pinned-feeling first tab the operator can click into anytime.
+  // Open the inbox + home tabs once the chrome UI is rendered.
+  // Order: home is opened SECOND so it ends up active. Inbox sits to the left.
   win.webContents.once('did-finish-load', () => {
     const inbox = inboxFor(acct.platform);
-    if (inbox) openTab(win, inbox);
-    openTab(win, homeFor(acct.platform));
+    if (inbox) openTab(win, inbox, acctTab);
+    openTab(win, homeFor(acct.platform), acctTab);
   });
 
   return { ok: true, accountId };
+}
+
+// One frameless window bound to a MODEL, with one tab per non-banned linked
+// account (each tab on its own account session). CloakManager-mode models
+// never reach here — they go through the CDP orchestrator (see index.js
+// oserus-browser:openForModel).
+async function openForModel(profileId) {
+  if (!profileId) return { ok: false, error: 'profileId required' };
+  if (!prepareSessionForAccount) return { ok: false, error: 'browser module not initialized' };
+
+  const existing = modelWindows.get(profileId);
+  if (existing && !existing.isDestroyed()) { existing.focus(); return { ok: true, reused: true }; }
+
+  const model = getDb().prepare(
+    'SELECT id, name, assigned_user_id FROM model_profiles WHERE id = ?'
+  ).get(profileId);
+  if (!model) return { ok: false, error: 'Model not found' };
+
+  const accts = getDb().prepare(
+    `SELECT id, username, platform FROM reddit_accounts
+      WHERE profile_id = ? AND status != 'banned'
+      ORDER BY platform, username`
+  ).all(profileId);
+  if (!accts.length) return { ok: false, error: 'No linkable accounts on this model' };
+
+  // Prep every account's session BEFORE any tab opens — proxy / UA /
+  // antidetect preload must be on each partition before its first navigation.
+  const prepped = [];
+  for (const a of accts) {
+    try {
+      const prep = await prepareSessionForAccount(a.id);
+      if (prep.ok && prep.partitionKey) {
+        prepped.push({ accountId: a.id, username: a.username, platform: a.platform, partition: `persist:${prep.partitionKey}` });
+      }
+    } catch (e) { elog.warn('[browser] openForModel prep failed', { accountId: a.id, error: e?.message }); }
+  }
+  if (!prepped.length) return { ok: false, error: 'Could not prepare any account sessions for this model' };
+
+  const win = new BrowserWindow({
+    width: 1280, height: 860,
+    minWidth: 760, minHeight: 520,
+    backgroundColor: '#0f0d0c',
+    title: model.name,
+    frame: false,
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/browser.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  windowState.set(win, {
+    profileId,
+    activeAccountId: prepped[0].accountId,
+    tabs: [],
+    activeId: null,
+    nextTabId: 1,
+    sidebarOpen: false,
+    findOpen: false,
+  });
+  modelWindows.set(profileId, win);
+  registerBrowserOwner(model.assigned_user_id);
+
+  win.on('closed', () => {
+    const st = windowState.get(win);
+    if (st) for (const t of st.tabs) { try { t.view.webContents.destroy(); } catch {} }
+    if (modelWindows.get(profileId) === win) modelWindows.delete(profileId);
+    unregisterBrowserOwner(model.assigned_user_id);
+  });
+  win.on('resize', () => layoutActiveTab(win));
+
+  loadChromeInto(win, `?model=${encodeURIComponent(profileId)}`);
+
+  win.webContents.once('did-finish-load', () => {
+    // One tab per account — the tab strip IS the account switcher.
+    for (const a of prepped) openTab(win, homeFor(a.platform), { ...a, pinned: true });
+  });
+
+  return { ok: true, profileId, tabs: prepped.length };
 }
 
 // Open every account in a profile as its own window. Returns when all
@@ -463,6 +571,7 @@ function layoutActiveTab(win) {
 
 function tabSnapshot(t) {
   const isNewtab = isNewtabUrl(t.url);
+  const meta = t.platform ? platformMeta(t.platform) : { icon: null };
   return {
     id: t.id,
     // On the new-tab page, prefer 'New Tab' over the raw data: URL/title
@@ -474,53 +583,79 @@ function tabSnapshot(t) {
     loading: t.loading,
     canBack: t.canBack,
     canForward: t.canForward,
+    // Per-tab account identity — the tab strip renders icon + username.
+    accountId: t.accountId || null,
+    username: t.username || null,
+    platform: t.platform || null,
+    platformIcon: meta.icon || null,
+    pinned: !!t.pinned,
   };
 }
 
 function pushState(win) {
   const st = windowState.get(win);
   if (!st || win.isDestroyed()) return;
+  const active = activeTabOf(win);
   try {
     win.webContents.send('oserus-browser:state', {
       tabs: st.tabs.map(tabSnapshot),
       activeId: st.activeId,
       sidebarOpen: !!st.sidebarOpen,
       findOpen: !!st.findOpen,
-      accountId: st.accountId,
       profileId: st.profileId,
-      platform: st.platform,
+      activeAccountId: active?.accountId ?? st.activeAccountId ?? null,
+      activePlatform: active?.platform ?? null,
     });
   } catch {}
 }
 
-function openTab(win, url) {
+// opts: { accountId, partition, platform, username, pinned } — the account this
+// tab is bound to. Omit to inherit the currently-active tab's account (e.g. the
+// "+" button, links opened from a page). `pinned` tabs represent a linked
+// account and can't be closed from the strip; the FIRST tab of a window MUST
+// pass account opts.
+function openTab(win, url, opts = {}) {
   const st = windowState.get(win);
   if (!st) return null;
 
+  const base = activeTabOf(win) || {};
+  const accountId = opts.accountId ?? base.accountId ?? st.activeAccountId ?? null;
+  const partition = opts.partition ?? base.partition;
+  const platform  = opts.platform  ?? base.platform ?? null;
+  const username  = opts.username  ?? base.username ?? null;
+  const pinned    = !!opts.pinned;
+  if (!partition) { elog.warn('[browser] openTab with no partition — refusing'); return null; }
+
   const view = new WebContentsView({
     webPreferences: {
-      partition: st.partition,
+      partition,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
   win.contentView.addChildView(view);
 
-  // Mobile device emulation when the account fingerprint is mobile.
-  // Matches the UA / screen / touch surface the antidetect preload is
-  // reporting — without this, browserscan flags the UA/viewport mismatch.
+  // Mobile device emulation when THIS tab's account fingerprint is mobile.
   try {
-    const fp = require('./fingerprint').loadOrCreate(getDb(), st.accountId);
-    const emu = require('./fingerprint').getDeviceEmulationParams(fp);
-    if (emu) view.webContents.enableDeviceEmulation(emu);
+    if (accountId) {
+      const fp = require('./fingerprint').loadOrCreate(getDb(), accountId);
+      const emu = require('./fingerprint').getDeviceEmulationParams(fp);
+      if (emu) view.webContents.enableDeviceEmulation(emu);
+    }
   } catch (e) { elog.warn('[browser] device emulation failed', e?.message); }
 
   const id = st.nextTabId++;
-  const tab = { id, view, title: url, url, loading: true, canBack: false, canForward: false };
+  const tab = {
+    id, view, title: url, url, loading: true, canBack: false, canForward: false,
+    accountId, partition, platform, username, pinned,
+  };
   st.tabs.push(tab);
   st.activeId = id;
+  st.activeAccountId = accountId;
 
   const wc = view.webContents;
+  // Links / popups opened from THIS tab's page inherit THIS tab's account.
+  const inherit = () => ({ accountId: tab.accountId, partition: tab.partition, platform: tab.platform, username: tab.username });
 
   const nav = () => {
     tab.url = wc.getURL();
@@ -531,7 +666,7 @@ function openTab(win, url) {
     pushState(win);
   };
   wc.on('did-start-loading', () => { tab.loading = true; pushState(win); });
-  wc.on('did-stop-loading',  () => { tab.loading = false; nav(); injectAutofill(st.accountId, wc); });
+  wc.on('did-stop-loading',  () => { tab.loading = false; nav(); injectAutofill(tab.accountId, wc); });
   wc.on('did-navigate', nav);
   wc.on('did-navigate-in-page', nav);
   wc.on('page-title-updated', (_e, t) => { tab.title = t; pushState(win); });
@@ -569,7 +704,7 @@ function openTab(win, url) {
       wc.reload();
       event.preventDefault();
     } else if (ctrl && key === 't') {
-      openTab(win, homeFor(st.platform));
+      openTab(win, homeFor(tab.platform), { accountId: tab.accountId, partition: tab.partition, platform: tab.platform, username: tab.username });
       event.preventDefault();
     } else if (ctrl && key === 'w') {
       closeTab(win, tab.id);
@@ -586,12 +721,12 @@ function openTab(win, url) {
   wc.on('context-menu', (_event, params) => {
     const items = [];
     if (params.linkURL) {
-      items.push({ label: 'Open Link in New Tab', click: () => openTab(win, params.linkURL) });
+      items.push({ label: 'Open Link in New Tab', click: () => openTab(win, params.linkURL, inherit()) });
       items.push({ label: 'Copy Link Address', click: () => clipboard.writeText(params.linkURL) });
       items.push({ type: 'separator' });
     }
     if (params.srcURL && params.mediaType === 'image') {
-      items.push({ label: 'Open Image in New Tab', click: () => openTab(win, params.srcURL) });
+      items.push({ label: 'Open Image in New Tab', click: () => openTab(win, params.srcURL, inherit()) });
       items.push({ label: 'Copy Image Address', click: () => clipboard.writeText(params.srcURL) });
       items.push({ type: 'separator' });
     }
@@ -599,7 +734,7 @@ function openTab(win, url) {
       items.push({ label: 'Copy', role: 'copy' });
       items.push({
         label: `Search Google for "${params.selectionText.slice(0, 40)}"`,
-        click: () => openTab(win, `https://www.google.com/search?q=${encodeURIComponent(params.selectionText)}`),
+        click: () => openTab(win, `https://www.google.com/search?q=${encodeURIComponent(params.selectionText)}`, inherit()),
       });
       items.push({ type: 'separator' });
     }
@@ -613,7 +748,7 @@ function openTab(win, url) {
     items.push({ label: 'Forward', enabled: wc.navigationHistory?.canGoForward() ?? wc.canGoForward(), click: () => wc.goForward() });
     items.push({ label: 'Reload', click: () => wc.reload() });
     items.push({ type: 'separator' });
-    items.push({ label: 'View Page Source', click: () => openTab(win, 'view-source:' + wc.getURL()) });
+    items.push({ label: 'View Page Source', click: () => openTab(win, "view-source:" + wc.getURL(), inherit()) });
     items.push({ label: 'Inspect', click: () => wc.inspectElement(params.x, params.y) });
     Menu.buildFromTemplate(items).popup({ window: win });
   });
@@ -631,7 +766,7 @@ function openTab(win, url) {
   // instead of letting Chromium spawn a popup.
   wc.setWindowOpenHandler(({ url: u, disposition }) => {
     if (['foreground-tab', 'background-tab', 'new-window', 'default'].includes(disposition)) {
-      openTab(win, u);
+      openTab(win, u, inherit());
       return { action: 'deny' };
     }
     shell.openExternal(u).catch(() => {});
@@ -688,6 +823,7 @@ function closeTab(win, tabId) {
   if (!st) return;
   const idx = st.tabs.findIndex((t) => t.id === tabId);
   if (idx === -1) return;
+  if (st.tabs[idx].pinned) return;  // account tabs aren't closable from the strip
   const [tab] = st.tabs.splice(idx, 1);
   try { win.contentView.removeChildView(tab.view); } catch {}
   try { tab.view.webContents.destroy(); } catch {}
@@ -701,8 +837,10 @@ function closeTab(win, tabId) {
 
 function switchTab(win, tabId) {
   const st = windowState.get(win);
-  if (!st || !st.tabs.find((t) => t.id === tabId)) return;
+  const tab = st && st.tabs.find((t) => t.id === tabId);
+  if (!tab) return;
   st.activeId = tabId;
+  st.activeAccountId = tab.accountId;  // re-scopes the side panel + proxy pill
   layoutActiveTab(win);
   pushState(win);
 }
@@ -816,10 +954,11 @@ function registerTabIpc() {
   ipcMain.handle('oserus-browser:checkProxy', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win) return { ok: false, error: 'no window' };
-    const st = windowState.get(win);
-    if (!st) return { ok: false, error: 'no state' };
+    const at = activeTabOf(win);
+    if (!at || !at.partition) return { ok: false, error: 'no active tab' };
+    const acctId = at.accountId;
     const { net, session } = require('electron');
-    const sess = session.fromPartition(st.partition);
+    const sess = session.fromPartition(at.partition);
 
     const fetchJson = (url, timeoutMs = 8000) => new Promise((resolve) => {
       const t = setTimeout(() => { try { req.abort(); } catch {} resolve({ ok: false, error: 'Timed out' }); }, timeoutMs);
@@ -858,7 +997,7 @@ function registerTabIpc() {
            LEFT JOIN model_profiles mp ON mp.id = a.profile_id
           WHERE px.id = COALESCE(a.proxy_id, mp.proxy_id)
           LIMIT 1`
-      ).get(st.accountId);
+      ).get(acctId);
       if (row) proxyExpected = row;
     } catch {}
 
@@ -873,12 +1012,12 @@ function registerTabIpc() {
                   geo_country  = COALESCE(?, geo_country),
                   geo_checked_at = datetime('now')
             WHERE id = ?`
-        ).run(geo?.timezone || null, geo?.country_code || geo?.country || null, st.accountId);
+        ).run(geo?.timezone || null, geo?.country_code || geo?.country || null, acctId);
         // Mark the fingerprint as stale so the next loadOrCreate regenerates
         // with the fresh timezone / language overlay. Cheap — JSON parse + rebuild.
         try {
           const { invalidateFingerprintForGeo } = require('./fingerprint');
-          invalidateFingerprintForGeo(getDb(), st.accountId);
+          invalidateFingerprintForGeo(getDb(), acctId);
         } catch {}
       } catch {}
     }
@@ -913,8 +1052,9 @@ function registerTabIpc() {
     try {
       const win = BrowserWindow.fromWebContents(e.sender);
       if (!win) return { ok: false, error: 'no window' };
-      const st = windowState.get(win);
-      if (!st?.accountId) return { ok: false, error: 'no account on this window' };
+      const at = activeTabOf(win);
+      if (!at?.accountId) return { ok: false, error: 'no account on the active tab' };
+      const acctId = at.accountId;
 
       const { userFromToken } = require('./ipc/auth');
       const { requirePermission } = require('./permissions');
@@ -941,7 +1081,7 @@ function registerTabIpc() {
           `INSERT INTO scheduled_posts
              (account_id, subreddit, title, body, kind, url, scheduled_for, status, created_by_user_id)
            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
-        ).run(st.accountId, subreddit, title, body, kind, url, scheduled_for, user.id);
+        ).run(acctId, subreddit, title, body, kind, url, scheduled_for, user.id);
         return { ok: true, id: info.lastInsertRowid, source: 'scheduled' };
       } else {
         // Draft (no scheduled_for). post_drafts uses link_url not url.
@@ -949,7 +1089,7 @@ function registerTabIpc() {
           `INSERT INTO post_drafts
              (account_id, subreddit, title, body, link_url, kind, status)
            VALUES (?, ?, ?, ?, ?, ?, 'draft')`
-        ).run(st.accountId, subreddit, title, body, url, kind);
+        ).run(acctId, subreddit, title, body, url, kind);
         return { ok: true, id: info.lastInsertRowid, source: 'draft' };
       }
     } catch (err) {
@@ -1020,8 +1160,9 @@ function registerTabIpc() {
     return { ok: true };
   });
 
-  // Profile picker — list every account under the same model_profile,
-  // so the chrome dropdown can render sibling accounts.
+  // Sibling accounts on this window's model — kept for any UI that wants
+  // the list (the old profile-picker dropdown was removed; tab switching
+  // replaced it). Reports the active tab's account as the current one.
   ipcMain.handle('oserus-browser:siblings', (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win) return { ok: false, accounts: [] };
@@ -1033,27 +1174,16 @@ function registerTabIpc() {
         WHERE profile_id = ? AND status != 'banned'
         ORDER BY platform, username`
     ).all(st.profileId);
-    return { ok: true, accounts: rows, activeId: st.accountId };
+    return { ok: true, accounts: rows, activeId: activeTabOf(win)?.accountId ?? null };
   });
 
-  // Switch the window to a different account on the same profile. We
-  // close the current window and open the new one — partitions and
-  // proxy/login handlers are bound at WebContentsView creation, so
-  // reopening guarantees clean isolation.
-  ipcMain.handle('oserus-browser:switchAccount', async (e, { accountId }) => {
-    const win = BrowserWindow.fromWebContents(e.sender);
-    if (!win || !accountId) return { ok: false };
-    try { win.close(); } catch {}
-    return openForAccount(accountId);
-  });
-
-  // Content list for the Content sidebar — scheduled + drafted posts
-  // for THIS window's account, grouped by week, platform-aware.
-  ipcMain.handle('oserus-browser:contentList', (e, { platform } = {}) => {
+  // Content list for the Content sidebar — scheduled + drafted posts for
+  // the ACTIVE TAB's account.
+  ipcMain.handle('oserus-browser:contentList', (e) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win) return { ok: false };
-    const st = windowState.get(win);
-    if (!st?.accountId) return { ok: true, items: [] };
+    const at = activeTabOf(win);
+    if (!at?.accountId) return { ok: true, items: [] };
     const db = getDb();
     const items = [];
     try {
@@ -1062,7 +1192,7 @@ function registerTabIpc() {
            FROM scheduled_posts
           WHERE account_id = ? AND scheduled_for >= datetime('now','-7 days')
           ORDER BY scheduled_for DESC LIMIT 200`
-      ).all(st.accountId);
+      ).all(at.accountId);
       for (const r of scheduled) items.push({ source: 'scheduled', ...r });
     } catch {}
     try {
@@ -1071,10 +1201,10 @@ function registerTabIpc() {
            FROM post_drafts
           WHERE account_id = ?
           ORDER BY created_at DESC LIMIT 200`
-      ).all(st.accountId);
+      ).all(at.accountId);
       for (const r of drafts) items.push({ source: 'draft', ...r });
     } catch {}
-    return { ok: true, platform: st.platform, items };
+    return { ok: true, platform: at.platform, items };
   });
 }
 
@@ -1088,16 +1218,18 @@ function normalizeUrl(raw) {
 }
 
 function closeBrowser() {
-  for (const win of accountWindows.values()) {
+  for (const win of [...accountWindows.values(), ...modelWindows.values()]) {
     try { if (!win.isDestroyed()) win.close(); } catch {}
   }
   accountWindows.clear();
+  modelWindows.clear();
   return { ok: true };
 }
 
 module.exports = {
   init,
   openForAccount,
+  openForModel,
   openAllForProfile,
   closeBrowser,
   setOperatorToken,

@@ -386,6 +386,38 @@ function registerOserusBrowserHandlers() {
     return oserusBrowser.openAllForProfile(profileId);
   });
 
+  // Open a MODEL: one window, one tab per linked account (Electron mode);
+  // or the model's shared CloakManager browser (CM mode).
+  ipcMain.handle('oserus-browser:openForModel', async (_e, { token, profileId } = {}) => {
+    if (!userFromToken(token)) return { ok: false, error: 'Not authenticated' };
+    oserusBrowser.setOperatorToken(token);
+
+    const db = getDb();
+    const model = db.prepare(
+      'SELECT id, browser_mode, cloak_profile_name FROM model_profiles WHERE id = ?'
+    ).get(profileId);
+    if (!model) return { ok: false, error: 'Model not found' };
+
+    if (model.browser_mode === 'cloakmanager') {
+      if (!model.cloak_profile_name) {
+        return { ok: false, error: 'No CloakManager profile configured for this model yet' };
+      }
+      try {
+        const cdpOrchestrator = require('./cdp/orchestrator');
+        const result = await cdpOrchestrator.ensureProfileRunning(model.cloak_profile_name, {
+          accountId: null, reason: 'model', waitForScripts: false,
+        });
+        return result.ok
+          ? { ok: true, mode: 'cloakmanager', profileName: model.cloak_profile_name, cdpPort: result.cdpPort, cdpUrl: result.cdpUrl }
+          : { ok: false, error: result.error || 'Failed to launch CloakManager profile', code: result.code };
+      } catch (err) {
+        return { ok: false, error: err.message || 'CloakManager launch failed' };
+      }
+    }
+
+    return oserusBrowser.openForModel(profileId);
+  });
+
   ipcMain.handle('oserus-browser:close', async () => oserusBrowser.closeBrowser());
 
   // Called by browser.js right after each tab finishes loading. Returns
