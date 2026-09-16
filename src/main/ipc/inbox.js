@@ -61,6 +61,106 @@ function canAccessAccount(user, accountId) {
   return !!assign;
 }
 
+// CloakManager account helpers — use the centralized resolveBrowserMode.
+// Module-scope (not inside register()) so fetchForUser/replyForUser below —
+// shared with the Browser side panel bridge in browser.js — can see them too.
+function isCM(accountId) {
+  const { resolveBrowserMode } = require('../lib/browserMode');
+  return resolveBrowserMode(accountId).mode === 'cloakmanager';
+}
+function cmProfileName(accountId) {
+  const row = getDb().prepare(`
+    SELECT COALESCE(bs.cloak_profile_override, mp.cloak_profile_name) AS effective_cm_name
+    FROM reddit_accounts ra
+    JOIN model_profiles mp ON mp.id = ra.profile_id
+    LEFT JOIN account_browser_settings bs ON bs.account_id = ra.id
+    WHERE ra.id = ?
+  `).get(accountId);
+  return row?.effective_cm_name || null;
+}
+
+// Shared by the ipcMain route above AND the Browser side panel's mini Inbox
+// tab (browser.js), so both fetch messages the exact same way.
+async function fetchForUser(user, { accountId, folder = 'all' }) {
+  if (!user) throw new Error('Not authenticated');
+  if (!accountId) throw new Error('No account selected');
+  if (!canAccessAccount(user, accountId)) {
+    return { ok: false, error: 'Not authorized for this account' };
+  }
+  if (isCM(accountId)) {
+    // NOTE: The CDP inbox-fetch task does not yet implement Cupid AI
+    // auto-reply — that feature only exists on the Electron path below.
+    // CM accounts that need auto-reply require a separate CDP task.
+    const profileName = cmProfileName(accountId);
+    if (!profileName) throw new Error('No CloakManager profile for this account');
+    const cdpOrchestrator = require('../cdp/orchestrator');
+    const result = await cdpOrchestrator.executeTask('tasks/reddit/inbox-fetch', {
+      accountId, profileName, folder,
+    }, { autoLaunch: false });
+    if (!result.ok) {
+      if (result.notRunning) {
+        return { ok: false, notRunning: true, error: 'Profile is not running' };
+      }
+      if (result.error && result.error.includes('NOT_LOGGED_IN')) {
+        return { ok: false, notLoggedIn: true, error: 'This account is not logged into Reddit yet.' };
+      }
+      return { ok: false, error: result.error };
+    }
+    return { ok: true, messages: result.result?.messages || [], username: cmProfileName(accountId) || String(accountId) };
+  }
+  const acct = partitionFor(accountId);
+  if (!acct) throw new Error('Account not found');
+  const url = FOLDERS[folder] || FOLDERS.all;
+  const listing = await request(acct.partition, url);
+  const messages = normalize(listing);
+  // Fire Cupid AI auto-reply rules against this fresh fetch. Runs in the
+  // background — we don't await, so the inbox returns instantly.
+  if (folder === 'all' || folder === 'unread') {
+    runAutoReplyRules(accountId, messages, acct).catch(() => {});
+  }
+  return { ok: true, messages, username: acct.username };
+}
+
+async function replyForUser(user, { accountId, parentFullname, text }) {
+  if (!user) throw new Error('Not authenticated');
+  if (!parentFullname || !text) throw new Error('Message and reply text are required');
+  if (!canAccessAccount(user, accountId)) {
+    return { ok: false, error: 'Not authorized for this account' };
+  }
+  if (isCM(accountId)) {
+    const profileName = cmProfileName(accountId);
+    if (!profileName) throw new Error('No CloakManager profile for this account');
+    const cdpOrchestrator = require('../cdp/orchestrator');
+    const result = await cdpOrchestrator.executeTask('tasks/reddit/inbox-reply', {
+      accountId, profileName, parentFullname, text,
+    }, { autoLaunch: false });
+    if (!result.ok) {
+      if (result.notRunning) throw new Error('Profile is not running');
+      if (result.error?.includes('NOT_LOGGED_IN')) {
+        return { ok: false, notLoggedIn: true, error: 'This account is not logged into Reddit yet.' };
+      }
+      throw new Error(result.error);
+    }
+    log(user, 'inbox.reply', 'account', accountId, `to=${parentFullname}`);
+    return { ok: true };
+  }
+  const acct = partitionFor(accountId);
+  if (!acct) throw new Error('Account not found');
+  const modhash = await modhashFor(acct.partition);
+  if (!modhash) throw new Error('NOT_LOGGED_IN');
+  const data = await request(acct.partition, 'https://www.reddit.com/api/comment', {
+    method: 'POST',
+    modhash,
+    form: new URLSearchParams({
+      api_type: 'json', thing_id: parentFullname, text, uh: modhash,
+    }).toString(),
+  });
+  const errs = data?.json?.errors || [];
+  if (errs.length) throw new Error(errs.map((e) => e[1]).join('; '));
+  log(user, 'inbox.reply', 'account', accountId, `to=${parentFullname}`);
+  return { ok: true };
+}
+
 // Cupid AI matcher — given the account's freshly-fetched unread messages,
 // run any enabled rules against the (subject + body) of each. For matches,
 // fire the linked template via the same /api/comment path and record the
@@ -122,63 +222,10 @@ async function runAutoReplyRules(accountId, messages, acct) {
 }
 
 function register(ipcMain) {
-  // CloakManager account helpers — use the centralized resolveBrowserMode
-  const { resolveBrowserMode } = require('../lib/browserMode');
-
-  function isCM(accountId) {
-    return resolveBrowserMode(accountId).mode === 'cloakmanager';
-  }
-  function cmProfileName(accountId) {
-    const row = getDb().prepare(`
-      SELECT COALESCE(bs.cloak_profile_override, mp.cloak_profile_name) AS effective_cm_name
-      FROM reddit_accounts ra
-      JOIN model_profiles mp ON mp.id = ra.profile_id
-      LEFT JOIN account_browser_settings bs ON bs.account_id = ra.id
-      WHERE ra.id = ?
-    `).get(accountId);
-    return row?.effective_cm_name || null;
-  }
-
   ipcMain.handle('inbox:fetch', async (_e, { token, accountId, folder = 'all' }) => {
     try {
       const user = userFromToken(token);
-      if (!user) throw new Error('Not authenticated');
-      if (!accountId) throw new Error('No account selected');
-      if (!canAccessAccount(user, accountId)) {
-        return { ok: false, error: 'Not authorized for this account' };
-      }
-      if (isCM(accountId)) {
-        // NOTE: The CDP inbox-fetch task does not yet implement Cupid AI
-        // auto-reply — that feature only exists on the Electron path below.
-        // CM accounts that need auto-reply require a separate CDP task.
-        const profileName = cmProfileName(accountId);
-        if (!profileName) throw new Error('No CloakManager profile for this account');
-        const cdpOrchestrator = require('../cdp/orchestrator');
-        const result = await cdpOrchestrator.executeTask('tasks/reddit/inbox-fetch', {
-          accountId, profileName, folder,
-        }, { autoLaunch: false });
-        if (!result.ok) {
-          if (result.notRunning) {
-            return { ok: false, notRunning: true, error: 'Profile is not running' };
-          }
-          if (result.error && result.error.includes('NOT_LOGGED_IN')) {
-            return { ok: false, notLoggedIn: true, error: 'This account is not logged into Reddit yet.' };
-          }
-          return { ok: false, error: result.error };
-        }
-        return { ok: true, messages: result.result?.messages || [], username: cmProfileName(accountId) || String(accountId) };
-      }
-      const acct = partitionFor(accountId);
-      if (!acct) throw new Error('Account not found');
-      const url = FOLDERS[folder] || FOLDERS.all;
-      const listing = await request(acct.partition, url);
-      const messages = normalize(listing);
-      // Fire Cupid AI auto-reply rules against this fresh fetch. Runs in
-      // the background — we don't await, so the inbox returns instantly.
-      if (folder === 'all' || folder === 'unread') {
-        runAutoReplyRules(accountId, messages, acct).catch(() => {});
-      }
-      return { ok: true, messages, username: acct.username };
+      return await fetchForUser(user, { accountId, folder });
     } catch (err) {
       if (err.message === 'NOT_LOGGED_IN') {
         return { ok: false, notLoggedIn: true, error: 'This account is not logged into Reddit yet.' };
@@ -272,43 +319,7 @@ function register(ipcMain) {
   ipcMain.handle('inbox:reply', async (_e, { token, accountId, parentFullname, text }) => {
     try {
       const user = userFromToken(token);
-      if (!user) throw new Error('Not authenticated');
-      if (!parentFullname || !text) throw new Error('Message and reply text are required');
-      if (!canAccessAccount(user, accountId)) {
-        return { ok: false, error: 'Not authorized for this account' };
-      }
-      if (isCM(accountId)) {
-        const profileName = cmProfileName(accountId);
-        if (!profileName) throw new Error('No CloakManager profile for this account');
-        const cdpOrchestrator = require('../cdp/orchestrator');
-        const result = await cdpOrchestrator.executeTask('tasks/reddit/inbox-reply', {
-          accountId, profileName, parentFullname, text,
-        }, { autoLaunch: false });
-        if (!result.ok) {
-          if (result.notRunning) throw new Error('Profile is not running');
-          if (result.error?.includes('NOT_LOGGED_IN')) {
-            return { ok: false, notLoggedIn: true, error: 'This account is not logged into Reddit yet.' };
-          }
-          throw new Error(result.error);
-        }
-        log(user, 'inbox.reply', 'account', accountId, `to=${parentFullname}`);
-        return { ok: true };
-      }
-      const acct = partitionFor(accountId);
-      if (!acct) throw new Error('Account not found');
-      const modhash = await modhashFor(acct.partition);
-      if (!modhash) throw new Error('NOT_LOGGED_IN');
-      const data = await request(acct.partition, 'https://www.reddit.com/api/comment', {
-        method: 'POST',
-        modhash,
-        form: new URLSearchParams({
-          api_type: 'json', thing_id: parentFullname, text, uh: modhash,
-        }).toString(),
-      });
-      const errs = data?.json?.errors || [];
-      if (errs.length) throw new Error(errs.map((e) => e[1]).join('; '));
-      log(user, 'inbox.reply', 'account', accountId, `to=${parentFullname}`);
-      return { ok: true };
+      return await replyForUser(user, { accountId, parentFullname, text });
     } catch (err) {
       if (err.message === 'NOT_LOGGED_IN') {
         return { ok: false, notLoggedIn: true, error: 'This account is not logged into Reddit yet.' };
@@ -319,3 +330,5 @@ function register(ipcMain) {
 }
 
 module.exports = register;
+module.exports.fetchForUser = fetchForUser;
+module.exports.replyForUser = replyForUser;

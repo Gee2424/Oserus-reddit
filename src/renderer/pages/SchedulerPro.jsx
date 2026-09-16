@@ -709,10 +709,8 @@ function Composer({ token, accounts, onDone, onError, preselectAccountId, active
     if (!items.length) { setBusy(false); onError('No (account × preferred sub) pairs to schedule.'); return; }
     const res = await window.api.scheduled.bulkCreate({ token, items });
     setBusy(false);
-    if (res.ok) {
-      load();
-      setMsg(`Scheduled ${items.length} post${items.length !== 1 ? 's' : ''} — view in Queue below.`);
-    } else onError(res.error);
+    if (res.ok) wrappedOnDone();
+    else onError(res.error);
   }
 
   return (

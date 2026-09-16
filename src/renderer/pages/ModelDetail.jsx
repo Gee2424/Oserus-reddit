@@ -122,6 +122,32 @@ export default function ModelDetailPage({ modelId, navigate }) {
     setLoading(false);
   }
 
+  // Provisions (or re-provisions) the model's shared CloakManager profile.
+  // Shared by the mode toggle (fires on electron<->cloakmanager) and the
+  // "Retry profile setup" button (fires with the same 'cloakmanager' value
+  // when already in that mode, since the toggle itself only calls onChange
+  // on an actual value change).
+  async function provisionCmProfile(v) {
+    if (v === 'cloakmanager') setOperationMessage('Creating CloakManager profile...');
+    const res = await window.api.profiles.update({
+      token, profileId: Number(modelId),
+      updates: { browser_mode: v },
+      teamId: activeTeamId,
+    });
+    if (res.ok) {
+      if (v === 'cloakmanager') {
+        const cp = res.cmProfile;
+        if (cp?.ok) setOperationMessage(`CM profile "${cp.profileName}" created`);
+        else setOperationMessage(`Failed: ${friendlyCmError(cp?.error)}`);
+        setTimeout(() => setOperationMessage(null), 4000);
+      }
+      await load();
+    } else {
+      setOperationMessage(`Failed: ${friendlyCmError(res.error)}`);
+      setTimeout(() => setOperationMessage(null), 4000);
+    }
+  }
+
   async function addPromoSub(e) {
     e.preventDefault();
     setPromoSubError(null);
@@ -372,34 +398,25 @@ export default function ModelDetailPage({ modelId, navigate }) {
               { v: 'cloakmanager', label: 'CloakManager', hint: 'External antidetect browser — one shared instance per model, used by every linked account on any platform' },
             ]}
             value={model.browser_mode || 'electron'}
-            onChange={async (v) => {
-              if (v === 'cloakmanager') setOperationMessage('Creating CloakManager profile...');
-              // Provisioning (or clearing) the model's CloakManager profile
-              // happens server-side as part of this call — it works even
-              // for a model with zero linked accounts on any platform yet.
-              const res = await window.api.profiles.update({
-                token, profileId: Number(modelId),
-                updates: { browser_mode: v },
-                teamId: activeTeamId,
-              });
-              if (res.ok) {
-                if (v === 'cloakmanager') {
-                  const cp = res.cmProfile;
-                  if (cp?.ok) setOperationMessage(`CM profile "${cp.profileName}" created`);
-                  else setOperationMessage(`Failed: ${friendlyCmError(cp?.error)}`);
-                  setTimeout(() => setOperationMessage(null), 4000);
-                }
-                await load();
-              } else {
-                setOperationMessage(`Failed: ${friendlyCmError(res.error)}`);
-                setTimeout(() => setOperationMessage(null), 4000);
-              }
-            }}
+            onChange={provisionCmProfile}
           />
           {model.browser_mode === 'cloakmanager' && model.cloak_profile_name && (
             <span className="mono dim" style={{ fontSize: 11 }}>
               Instance: {model.cloak_profile_name}
             </span>
+          )}
+          {canManage && model.browser_mode === 'cloakmanager' && !model.cloak_profile_name && (
+            // The toggle above only fires onChange when the value actually
+            // changes, so once this model is already set to 'cloakmanager'
+            // but profile creation failed (e.g. a transient CloakManager
+            // error), there was no way to retry from here — clicking the
+            // already-selected "CloakManager" option is a no-op. This button
+            // resends the exact same provisioning call explicitly.
+            <button className="ghost" style={{ fontSize: 11, padding: '4px 8px', color: 'var(--danger-fg)' }}
+              onClick={() => provisionCmProfile('cloakmanager')}
+              title="No CloakManager profile was created yet — retry provisioning it">
+              ⚠ Retry profile setup
+            </button>
           )}
           {canManage && model.browser_mode === 'cloakmanager' && (
             <button className="ghost" style={{ fontSize: 11, padding: '4px 8px' }}
@@ -1337,8 +1354,10 @@ const tabBarStyle = {
 
 const tabStyle = {
   background: 'transparent',
-  border: '1px solid transparent',
-  borderBottom: 'none',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'transparent',
+  borderBottomColor: 'transparent',
   color: 'var(--text-2)',
   padding: '8px 14px',
   borderRadius: '6px 6px 0 0',

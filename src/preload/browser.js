@@ -76,4 +76,15 @@ contextBridge.exposeInMainWorld('oserusBrowser', {
   // Add content (drafts / scheduled) from the sidebar
   addContent:     (payload) => safeInvoke('oserus-browser:addContent', payload),
   canAddContent:  ()        => safeInvoke('oserus-browser:canAddContent'),
+
+  // Side panel — Intelligence / Automation (runs) / Inbox / Scripts mini
+  // tabs. Scheduler mini reuses contentList/addContent above.
+  intelSearch:      (payload) => safeInvoke('oserus-browser:intelSearch', payload),
+  runsList:         ()        => safeInvoke('oserus-browser:runsList'),
+  runsRunNow:       (payload) => safeInvoke('oserus-browser:runsRunNow', payload),
+  inboxFetch:       (payload) => safeInvoke('oserus-browser:inboxFetch', payload),
+  inboxReply:       (payload) => safeInvoke('oserus-browser:inboxReply', payload),
+  scriptsListSets:  ()        => safeInvoke('oserus-browser:scriptsListSets'),
+  scriptsGetSet:    (payload) => safeInvoke('oserus-browser:scriptsGetSet', payload),
+  scriptsReadMedia: (payload) => safeInvoke('oserus-browser:scriptsReadMedia', payload),
 });

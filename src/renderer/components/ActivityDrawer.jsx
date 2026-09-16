@@ -116,7 +116,7 @@ export default function ActivityDrawer({ navigate }) {
                 <div
                   key={e.id}
                   onClick={() => {
-                    if ((e.kind === 'post_fired' || e.kind === 'post_failed') && navigate) navigate('automation', { section: 'scheduler' });
+                    if ((e.kind === 'post_fired' || e.kind === 'post_failed') && navigate) navigate('scheduler');
                     else if ((e.kind === 'needs_attention' || e.kind === 'circuit_tripped') && navigate) navigate('profiles');
                     else if (e.kind === 'proxy_down' && navigate) navigate('proxies');
                     setOpen(false);

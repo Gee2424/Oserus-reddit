@@ -22,7 +22,7 @@ class CloakManagerBinary {
     this.githubConfig = {
       owner: 'Gee2424',
       repo: 'ctrldlogin',
-      assetName: 'ctrldlogin-x86_64-pc-windows-msvc.exe',
+      assetName: 'ctrldlogin-backend-windows.exe',
       // Only re-check GitHub this often (ms)
       checkIntervalMs: 24 * 60 * 60 * 1000, // 24 hours (daily)
     };

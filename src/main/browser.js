@@ -1206,6 +1206,109 @@ function registerTabIpc() {
     } catch {}
     return { ok: true, platform: at.platform, items };
   });
+
+  // ---------------------------------------------------------------------
+  // Side panel bridge — Intelligence / Automation / Inbox / Scripts mini
+  // tabs (Scheduler mini reuses contentList/addContent above as-is). Each
+  // handler resolves its own account/model from the active tab + this
+  // window's operator, then calls the SAME shared functions the standalone
+  // pages use (exported alongside each module's `register`) so behavior —
+  // permission checks included — never drifts between the two surfaces.
+
+  function currentUser() {
+    const { userFromToken } = require('./ipc/auth');
+    return userFromToken(operatorToken);
+  }
+
+  ipcMain.handle('oserus-browser:intelSearch', async (e, { keyword, subreddit }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const at = win && activeTabOf(win);
+    if (!at?.accountId) return { ok: false, error: 'No active account' };
+    try {
+      const user = currentUser();
+      const intel = require('./ipc/intelligence');
+      if (at.platform === 'reddit') {
+        return await intel.scrapePostsForUser(user, {
+          accountId: at.accountId, subreddit, query: keyword, sort: 'hot', t: 'week', limit: 25,
+        });
+      }
+      return await intel.discoverScrapeForUser(user, { accountId: at.accountId, platform: at.platform, keyword });
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('oserus-browser:runsList', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const st = win && windowState.get(win);
+    if (!st?.profileId) return { ok: false, error: 'No model on this window' };
+    try {
+      const user = currentUser();
+      const engagementRuns = require('./ipc/engagementRuns');
+      return { ok: true, runs: engagementRuns.listForUser(user, { profileId: st.profileId }) };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('oserus-browser:runsRunNow', async (e, { id, dryRun }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const at = win && activeTabOf(win);
+    if (!at?.accountId) return { ok: false, error: 'No active account' };
+    try {
+      const user = currentUser();
+      const engagementRuns = require('./ipc/engagementRuns');
+      return await engagementRuns.runNowForUser(user, { id, accountId: at.accountId, dryRun });
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('oserus-browser:inboxFetch', async (e, { folder }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const at = win && activeTabOf(win);
+    if (!at?.accountId) return { ok: false, error: 'No active account' };
+    try {
+      const user = currentUser();
+      const inbox = require('./ipc/inbox');
+      return await inbox.fetchForUser(user, { accountId: at.accountId, folder });
+    } catch (err) {
+      if (err.message === 'NOT_LOGGED_IN') return { ok: false, notLoggedIn: true, error: 'Not logged in.' };
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('oserus-browser:inboxReply', async (e, { parentFullname, text }) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const at = win && activeTabOf(win);
+    if (!at?.accountId) return { ok: false, error: 'No active account' };
+    try {
+      const user = currentUser();
+      const inbox = require('./ipc/inbox');
+      return await inbox.replyForUser(user, { accountId: at.accountId, parentFullname, text });
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('oserus-browser:scriptsListSets', async (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    const st = win && windowState.get(win);
+    if (!st?.profileId) return { ok: false, error: 'No model on this window' };
+    try {
+      const user = currentUser();
+      const scripts = require('./ipc/scripts');
+      return { ok: true, sets: scripts.listSetsForUser(user, { profileId: st.profileId }) };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('oserus-browser:scriptsGetSet', async (e, { id }) => {
+    try {
+      const user = currentUser();
+      const scripts = require('./ipc/scripts');
+      return { ok: true, ...scripts.getSetForUser(user, { id }) };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
+
+  ipcMain.handle('oserus-browser:scriptsReadMedia', async (e, { stepId }) => {
+    try {
+      const user = currentUser();
+      const scripts = require('./ipc/scripts');
+      return { ok: true, ...scripts.readMediaForUser(user, { stepId }) };
+    } catch (err) { return { ok: false, error: err.message }; }
+  });
 }
 
 function normalizeUrl(raw) {

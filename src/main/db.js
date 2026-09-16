@@ -429,6 +429,38 @@ function initDatabase() {
       updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Scripts: named content "Sets" per model (e.g. "Bikini Undressing Set"),
+    -- made of ordered "Steps" — one photo/video + its message text each.
+    -- Chatters open a Set from Inbox and send Steps in order during a chat,
+    -- keeping content consistent across chatters on the same model. Access
+    -- is gated the same way linked accounts are: profile_assignments +
+    -- canAccessProfile() (see lib/assignments.js) — a Set belongs to one
+    -- model, same as a linked account.
+    CREATE TABLE IF NOT EXISTS content_sets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      profile_id INTEGER NOT NULL REFERENCES model_profiles(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      created_by_user_id INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_content_sets_profile ON content_sets (profile_id);
+
+    -- One row per Step. media_path is a filesystem path under
+    -- userData/content_set_media/<set_id>/ (same convention as
+    -- account_example_images). ordinal is the send order within the Set;
+    -- reordering just rewrites ordinals.
+    CREATE TABLE IF NOT EXISTS content_set_steps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      set_id INTEGER NOT NULL REFERENCES content_sets(id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL DEFAULT 0,
+      media_path TEXT,
+      media_kind TEXT,   -- exact MIME type, e.g. 'image/jpeg' | 'video/mp4'
+      message_text TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_content_set_steps_set ON content_set_steps (set_id, ordinal);
+
     -- Editable per-job system prompts for the autopilot AI. NULL profile_id
     -- is the global default for that job; a row with a profile_id overrides
     -- for that model only. job ∈ ('post_sfw','post_nsfw','comment').
@@ -741,6 +773,18 @@ function initDatabase() {
     }
   } catch (e) {
     console.error('[db] Roles seed failed:', e.message);
+  }
+
+  // Manager now builds/assigns Scripts content Sets (appflow.md decision,
+  // post-v2-seed) — the v2 seed above only fires once per install and this
+  // database already ran it, so a plain code change to MANAGER_PERMISSIONS
+  // in shared/permissions.js never reaches an existing 'manager' role row.
+  // INSERT OR IGNORE is additive-only: never touches any other permission,
+  // so admin customizations to the role are untouched.
+  try {
+    db.prepare("INSERT OR IGNORE INTO role_permissions (role_key, perm_key) VALUES ('manager', 'scripts.manage')").run();
+  } catch (e) {
+    console.error('[db] manager scripts.manage top-up failed:', e.message);
   }
 
   // Migration: add 'platform' column to reddit_accounts if missing

@@ -114,7 +114,7 @@ export default function AnalyticsPage() {
             Karma values are manual snapshots for now — click <strong>Update</strong> on a row to record the latest counts from the Reddit profile page. Auto-pulling karma needs Reddit OAuth (coming next).
           </div>
         </div>
-        {redditAccounts.length === 0 ? (
+        {contentAccounts.length === 0 ? (
           <EmptyState icon="◧" title="No accounts yet" hint="Accounts will appear here once you've added them under Models." />
         ) : (
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>

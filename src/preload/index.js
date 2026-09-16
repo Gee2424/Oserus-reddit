@@ -204,6 +204,18 @@ const api = {
     update: (data) => ipcRenderer.invoke('docs:update', data),
     delete: (data) => ipcRenderer.invoke('docs:delete', data),
   },
+  scripts: {
+    listSets:     (data) => ipcRenderer.invoke('scripts:listSets', data),
+    getSet:       (data) => ipcRenderer.invoke('scripts:getSet', data),
+    createSet:    (data) => ipcRenderer.invoke('scripts:createSet', data),
+    renameSet:    (data) => ipcRenderer.invoke('scripts:renameSet', data),
+    deleteSet:    (data) => ipcRenderer.invoke('scripts:deleteSet', data),
+    addStep:      (data) => ipcRenderer.invoke('scripts:addStep', data),
+    updateStep:   (data) => ipcRenderer.invoke('scripts:updateStep', data),
+    deleteStep:   (data) => ipcRenderer.invoke('scripts:deleteStep', data),
+    reorderSteps: (data) => ipcRenderer.invoke('scripts:reorderSteps', data),
+    readMedia:    (data) => ipcRenderer.invoke('scripts:readMedia', data),
+  },
   scheduled: {
     list: (data) => ipcRenderer.invoke('scheduled:list', data),
     create: (data) => ipcRenderer.invoke('scheduled:create', data),

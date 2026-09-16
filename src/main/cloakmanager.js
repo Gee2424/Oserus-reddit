@@ -151,6 +151,29 @@ class CloakManagerClient {
         throw new Error(response.data?.error || 'Profile creation failed');
       }
     } catch (error) {
+      // A 409 means CloakManager already has a profile with this name — from
+      // an earlier attempt whose response never reached us (e.g. the caller
+      // crashed/retried before our DB write landed). ensureModelCmProfile /
+      // the account-override path both call createProfile as "create if
+      // missing"; treating 409 as a hard failure means the local
+      // cloakmanager_profiles row never gets written, so every future launch
+      // fails its ownership check forever even though the profile is real
+      // and usable. Confirm it actually exists, then succeed idempotently.
+      if (error.response?.status === 409) {
+        console.warn('[CloakManager] createProfile got 409 — profile already exists remotely, confirming and treating as success:', profileName);
+        try {
+          const info = await this.getProfileInfo(profileName);
+          return {
+            ok: true,
+            profileName: info?.name || profileName,
+            fingerprintSeed: info?.fingerprint_seed,
+            seedName: info?.seed_name,
+            message: `Profile ${profileName} already existed`,
+          };
+        } catch (infoErr) {
+          throw new Error(`Profile "${profileName}" already exists on CloakManager but couldn't be confirmed: ${infoErr.message}`);
+        }
+      }
       if (error.response) {
         throw new Error(error.response.data?.detail || error.response.data?.error || error.message);
       }

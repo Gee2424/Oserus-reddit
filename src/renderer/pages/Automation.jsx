@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
-import SchedulerProPage, { AISettings } from './SchedulerPro.jsx';
+import { AISettings } from './SchedulerPro.jsx';
 import AutopilotPage from './Autopilot.jsx';
 import EngagementRunsPanel from './AutomationRuns.jsx';
 import ErrorBoundary from '../components/ErrorBoundary.jsx';
@@ -118,7 +118,7 @@ export default function AutomationPage({ navigate, initialSection }) {
 
   return (
     <div>
-      <PageHeader eyebrow="Workspace" title="Automation" subtitle="One workspace for everything that runs while the app is open — scheduled posts, autopilot rules, AI settings, and run history.">
+      <PageHeader eyebrow="Workspace" title="Automation" subtitle="One workspace for everything that runs while the app is open — autopilot rules, AI settings, and run history. Post scheduling moved to its own Scheduler page.">
         <PopOutButton route={section === 'autopilot' ? 'autopilot' : 'scheduler-pro'} title="Automation" />
       </PageHeader>
 
@@ -127,7 +127,6 @@ export default function AutomationPage({ navigate, initialSection }) {
       <TabBar
         items={[
           { key: 'runs', label: 'Runs', hint: 'Named, reusable engagement presets. Build them here; the Browser side panel only picks from saved runs.' },
-          { key: 'scheduler', label: 'Scheduler', hint: 'Schedule posts for a specific account. Due posts fire automatically while the app is open.' },
           { key: 'autopilot', label: 'Autopilot', hint: 'One protocol per platform — engagement pacing + content mix, runs in the background.' },
           { key: 'ai', label: 'AI Settings', hint: 'Pick the model, tune the persona, and decide which platforms use AI-generated content.' },
           { key: 'history', label: 'Run History', hint: 'Automation execution log across all platforms' },
@@ -138,7 +137,6 @@ export default function AutomationPage({ navigate, initialSection }) {
       />
 
       {section === 'runs' && <ErrorBoundary label="Runs"><EngagementRunsPanel /></ErrorBoundary>}
-      {section === 'scheduler' && <ErrorBoundary label="Scheduler"><SchedulerProPage navigate={navigate} /></ErrorBoundary>}
       {section === 'autopilot' && <ErrorBoundary label="Autopilot"><AutopilotPage /></ErrorBoundary>}
       {section === 'ai' && (
         <ErrorBoundary label="AI Settings">

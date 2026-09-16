@@ -153,9 +153,10 @@ function Inner() {
       case 'analytics': return <AnalyticsPage />;
       case 'activity': return <DashboardPage navigate={navigate} />;
       case 'automation': return <AutomationPage navigate={navigate} initialSection={routeParams.section} />;
+      case 'scheduler': return <SchedulerProPage navigate={navigate} />;
       // Legacy routes — kept so deep links from older versions still resolve.
       case 'autopilot': return <AutomationPage navigate={navigate} initialSection="autopilot" />;
-      case 'scheduler-pro': return <AutomationPage navigate={navigate} initialSection="scheduler" />;
+      case 'scheduler-pro': return <SchedulerProPage navigate={navigate} />;
       case 'intel': return <IntelligencePage initialTab={routeParams.tab} />;
       case 'add-accounts': return <AddAccountsPage navigate={navigate} initialTab={routeParams.tab} />;
       case 'platforms': return <PlatformsPage navigate={navigate} />;
@@ -198,8 +199,8 @@ function Inner() {
           <ConfirmProvider>
             <InboxLiveProvider>
               <Shell route={route} navigate={navigate} goBack={goBack} canGoBack={canGoBack}>
-                <ErrorBoundary label={route}>
-                  <div className="page-wrap" key={route}>{page}</div>
+                <ErrorBoundary key={route} label={route}>
+                  <div className="page-wrap">{page}</div>
                 </ErrorBoundary>
               </Shell>
               <UpdateBanner />

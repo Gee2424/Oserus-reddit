@@ -89,7 +89,8 @@ const PERMISSION_KEYS = PERMISSIONS.map((p) => p.key);
 //   Inbox .................. Owner / Admin              (Chatter: assigned models)
 //   Browser/Automation/
 //     Scheduler/Intel ...... Owner / Admin / VA
-//   Scripts ................ Owner / Admin build        (Manager/Chatter use assigned)
+//   Scripts ................ Owner / Admin / Manager build + assign
+//                             (Chatter/VA: use assigned models only)
 //   Admin settings ......... Owner / Admin
 //
 // admin/owner get every key. Everyone gets 'page.settings' so they can
@@ -105,7 +106,7 @@ const MANAGER_PERMISSIONS = [
   'page.profiles', 'profiles.manage',
   'accounts.create', 'accounts.edit', 'accounts.delete', 'accounts.bulk_import',
   'page.team', 'team.schedule', 'users.manage',
-  'page.scripts', 'scripts.use',
+  'page.scripts', 'scripts.manage', 'scripts.use',
   'page.docs', 'docs.manage',
   'posts.publish', 'content.add',
   'activity.view',

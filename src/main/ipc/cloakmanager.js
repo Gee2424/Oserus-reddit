@@ -476,7 +476,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
         return { ok: false, error: 'Invalid token' };
       }
 
-      if (user.role !== 'admin') {
+      if (user.role !== 'admin' && user.role !== 'owner') {
         return { ok: false, error: 'Only admins can delete profiles' };
       }
 
@@ -621,7 +621,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
       console.log('[IPC] Manual trigger requested for profile:', profileName);
 
       const user = userFromToken(token);
-      if (!user || user.role !== 'admin') {
+      if (!user || (user.role !== 'admin' && user.role !== 'owner')) {
         return { ok: false, error: 'Unauthorized - admin only' };
       }
 
@@ -718,7 +718,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
   ipcMain.handle('cloakmanager:startBinary', async (event, { token }) => {
     try {
       const user = userFromToken(token);
-      if (!user || user.role !== 'admin') {
+      if (!user || (user.role !== 'admin' && user.role !== 'owner')) {
         return { ok: false, error: 'Admin only' };
       }
 
@@ -841,7 +841,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
   ipcMain.handle('cloakmanager:stopBinary', async (event, { token }) => {
     try {
       const user = userFromToken(token);
-      if (!user || user.role !== 'admin') {
+      if (!user || (user.role !== 'admin' && user.role !== 'owner')) {
         return { ok: false, error: 'Admin only' };
       }
 

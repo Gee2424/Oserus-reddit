@@ -22,6 +22,44 @@ function assertAccountAccess(user, accountId) {
   }
 }
 
+async function discoverScrapeForUser(user, { accountId, platform, keyword }) {
+  if (!user) throw new Error('Not authenticated');
+  if (!accountId) throw new Error('Pick a scraper account');
+  if (!platform) throw new Error('Platform required');
+  assertAccountAccess(user, accountId);
+  const { scrape } = require('../services/discover');
+  return scrape({ accountId, platform, keyword });
+}
+
+async function scrapePostsForUser(user, { accountId, subreddit, sort, t, limit, query }) {
+  if (!user) throw new Error('Not authenticated');
+  assertAccountAccess(user, accountId);
+  try { if (accountId) await prepareSessionForAccount(accountId); } catch {}
+  const acct = partitionFor(accountId);
+  if (!acct) throw new Error('Pick a scraper account');
+  const sub = cleanSub(subreddit);
+  if (!sub) throw new Error('Subreddit required');
+  const sortKey = ['hot', 'top', 'rising', 'new'].includes(sort) ? sort : 'hot';
+  const lim = Math.min(Math.max(Number(limit) || 25, 1), 100);
+  const tWindow = ['hour', 'day', 'week', 'month', 'year', 'all'].includes(t) ? t : 'day';
+  const q = String(query || '').trim();
+  let url;
+  if (q) {
+    // Reddit's per-sub search — works for keywords, hashtags (#tag), song
+    // titles, dance terms etc. restrict_sr keeps results in this sub.
+    const searchSort = sortKey === 'hot' ? 'relevance' : sortKey;
+    url = `https://www.reddit.com/r/${sub}/search.json?raw_json=1&restrict_sr=1`
+      + `&q=${encodeURIComponent(q)}&sort=${searchSort}&t=${tWindow}&limit=${lim}`;
+  } else if (sortKey === 'top') {
+    url = `https://www.reddit.com/r/${sub}/top.json?raw_json=1&limit=${lim}&t=${tWindow}`;
+  } else {
+    url = `https://www.reddit.com/r/${sub}/${sortKey}.json?raw_json=1&limit=${lim}`;
+  }
+  const data = await request(acct.partition, url);
+  const posts = (data?.data?.children || []).map(normalizePost);
+  return { ok: true, posts };
+}
+
 function ensureTable() {
   getDb().exec(`
     CREATE TABLE IF NOT EXISTS subreddit_intel (
@@ -157,16 +195,12 @@ function register(ipcMain) {
   // collected. Used by the Dashboard 'Trending in your subs' block.
   // Discover adapter for non-Reddit platforms — opens a hidden BrowserWindow
   // on the account's session and scrapes the platform's search/hashtag page.
+  // Shared with the Browser side panel's mini Intelligence tab (browser.js)
+  // so both call the exact same scrape path.
   ipcMain.handle('intel:discoverScrape', async (_e, { token, accountId, platform, keyword }) => {
     try {
       const user = userFromToken(token);
-      if (!user) throw new Error('Not authenticated');
-      if (!accountId) throw new Error('Pick a scraper account');
-      if (!platform) throw new Error('Platform required');
-      assertAccountAccess(user, accountId);
-      const { scrape } = require('../services/discover');
-      const res = await scrape({ accountId, platform, keyword });
-      return res;
+      return await discoverScrapeForUser(user, { accountId, platform, keyword });
     } catch (err) { return { ok: false, error: err.message }; }
   });
 
@@ -255,32 +289,7 @@ function register(ipcMain) {
   ipcMain.handle('intel:scrapePosts', async (_e, { token, accountId, subreddit, sort, t, limit, query }) => {
     try {
       const user = userFromToken(token);
-      if (!user) throw new Error('Not authenticated');
-      assertAccountAccess(user, accountId);
-      try { if (accountId) await prepareSessionForAccount(accountId); } catch {}
-      const acct = partitionFor(accountId);
-      if (!acct) throw new Error('Pick a scraper account');
-      const sub = cleanSub(subreddit);
-      if (!sub) throw new Error('Subreddit required');
-      const sortKey = ['hot', 'top', 'rising', 'new'].includes(sort) ? sort : 'hot';
-      const lim = Math.min(Math.max(Number(limit) || 25, 1), 100);
-      const tWindow = ['hour', 'day', 'week', 'month', 'year', 'all'].includes(t) ? t : 'day';
-      const q = String(query || '').trim();
-      let url;
-      if (q) {
-        // Reddit's per-sub search — works for keywords, hashtags (#tag), song
-        // titles, dance terms etc. restrict_sr keeps results in this sub.
-        const searchSort = sortKey === 'hot' ? 'relevance' : sortKey;
-        url = `https://www.reddit.com/r/${sub}/search.json?raw_json=1&restrict_sr=1`
-          + `&q=${encodeURIComponent(q)}&sort=${searchSort}&t=${tWindow}&limit=${lim}`;
-      } else if (sortKey === 'top') {
-        url = `https://www.reddit.com/r/${sub}/top.json?raw_json=1&limit=${lim}&t=${tWindow}`;
-      } else {
-        url = `https://www.reddit.com/r/${sub}/${sortKey}.json?raw_json=1&limit=${lim}`;
-      }
-      const data = await request(acct.partition, url);
-      const posts = (data?.data?.children || []).map(normalizePost);
-      return { ok: true, posts };
+      return await scrapePostsForUser(user, { accountId, subreddit, sort, t, limit, query });
     } catch (err) {
       if (err.message === 'NOT_LOGGED_IN') return { ok: false, error: 'Scraper account is not logged in.' };
       return { ok: false, error: err.message };
@@ -508,3 +517,5 @@ function register(ipcMain) {
 function safeParse(s) { try { return JSON.parse(s) || []; } catch { return []; } }
 
 module.exports = register;
+module.exports.discoverScrapeForUser = discoverScrapeForUser;
+module.exports.scrapePostsForUser = scrapePostsForUser;

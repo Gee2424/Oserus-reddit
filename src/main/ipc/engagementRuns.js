@@ -13,19 +13,38 @@ const { assignedProfileIds, canAccessProfile } = require('../lib/assignments');
 const engagementRuns = require('../services/engagementRuns');
 const autopilotProtocol = require('../services/autopilotProtocol');
 
+// Shared by the ipcMain route below AND the Browser side panel bridge
+// (browser.js), so both list runs the same way instead of drifting apart.
+function listForUser(user, { teamId, profileId } = {}) {
+  if (!user) throw new Error('Not authenticated');
+  let profileIds = null;
+  if (profileId) {
+    if (!canAccessProfile(user, profileId)) throw new Error('Not authorized for this model');
+    profileIds = [Number(profileId)];
+  } else if (!hasPermission(user, 'profiles.manage')) {
+    profileIds = assignedProfileIds(user, teamId);
+  }
+  return engagementRuns.list({ profileIds, teamId });
+}
+
+// Same run — used by the Runs page's "Run now" AND the Browser side panel's
+// mini picker (which only runs saved runs, never builds them).
+async function runNowForUser(user, { id, accountId, dryRun }) {
+  if (!user) throw new Error('Not authenticated');
+  requirePermission(user, 'protocols.run');
+  const run = engagementRuns.get(id);
+  if (!run) throw new Error('Run not found');
+  const row = getDb().prepare('SELECT profile_id FROM reddit_accounts WHERE id = ?').get(accountId);
+  if (!row || !canAccessProfile(user, row.profile_id)) throw new Error('Not authorized for this account');
+  const engagement = require('../services/engagement');
+  return engagement.runSession(Number(accountId), { dryRun: !!dryRun, runId: Number(id) });
+}
+
 function register(ipcMain) {
   ipcMain.handle('engagementRuns:list', (_e, { token, teamId, profileId }) => {
     try {
       const user = userFromToken(token);
-      if (!user) throw new Error('Not authenticated');
-      let profileIds = null;
-      if (profileId) {
-        if (!canAccessProfile(user, profileId)) throw new Error('Not authorized for this model');
-        profileIds = [Number(profileId)];
-      } else if (!hasPermission(user, 'profiles.manage')) {
-        profileIds = assignedProfileIds(user, teamId);
-      }
-      return { ok: true, runs: engagementRuns.list({ profileIds, teamId }) };
+      return { ok: true, runs: listForUser(user, { teamId, profileId }) };
     } catch (err) { return { ok: false, error: err.message }; }
   });
 
@@ -99,16 +118,11 @@ function register(ipcMain) {
   ipcMain.handle('engagementRuns:runNow', async (_e, { token, id, accountId, dryRun }) => {
     try {
       const user = userFromToken(token);
-      if (!user) throw new Error('Not authenticated');
-      requirePermission(user, 'protocols.run');
-      const run = engagementRuns.get(id);
-      if (!run) throw new Error('Run not found');
-      const row = getDb().prepare('SELECT profile_id FROM reddit_accounts WHERE id = ?').get(accountId);
-      if (!row || !canAccessProfile(user, row.profile_id)) throw new Error('Not authorized for this account');
-      const engagement = require('../services/engagement');
-      return await engagement.runSession(Number(accountId), { dryRun: !!dryRun, runId: Number(id) });
+      return await runNowForUser(user, { id, accountId, dryRun });
     } catch (err) { return { ok: false, error: err.message }; }
   });
 }
 
 module.exports = register;
+module.exports.listForUser = listForUser;
+module.exports.runNowForUser = runNowForUser;

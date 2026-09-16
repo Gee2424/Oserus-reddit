@@ -31,24 +31,24 @@ jobs:
           $tag = $release.tag_name
           Write-Host "Release tag: $tag"
 
-          $asset = $release.assets | Where-Object { $_.name -eq "ctrldlogin-x86_64-pc-windows-msvc.exe" }
+          $asset = $release.assets | Where-Object { $_.name -eq "ctrldlogin-backend-windows.exe" }
           if (-not $asset) {
-            Write-Error "Asset ctrldlogin-x86_64-pc-windows-msvc.exe not found in release $tag"
+            Write-Error "Asset ctrldlogin-backend-windows.exe not found in release $tag"
             exit 1
           }
 
           Write-Host "Downloading $($asset.name) ($([math]::Round($asset.size/1MB, 1)) MB)..."
           gh release download $tag `
             --repo Gee2424/ctrldlogin `
-            --pattern "ctrldlogin-x86_64-pc-windows-msvc.exe" `
+            --pattern "ctrldlogin-backend-windows.exe" `
             --dir build --clobber
 
-          if (-not (Test-Path "build\ctrldlogin-x86_64-pc-windows-msvc.exe")) {
+          if (-not (Test-Path "build\ctrldlogin-backend-windows.exe")) {
             Write-Error "Download failed -- binary not found"
             exit 1
           }
 
-          Move-Item "build\ctrldlogin-x86_64-pc-windows-msvc.exe" "build\backend.exe" -Force
+          Move-Item "build\ctrldlogin-backend-windows.exe" "build\backend.exe" -Force
 
           @{ backendVersion = $tag } | ConvertTo-Json | Out-File -Encoding ascii "build\bundled-version.json"
           Write-Host "Manifest written: build\bundled-version.json"

@@ -319,10 +319,10 @@ export default function BrowserShell() {
         </div>
       )}
 
-      {/* SIDEBAR (Content List) */}
+      {/* SIDEBAR — tabbed side panel scoped to the active tab's account */}
       {sidebarOpen && (
-        <ContentSidebar
-          accountPlatform={winInfo.activePlatform}
+        <SidePanel
+          winInfo={winInfo}
           chromeTop={CHROME_HEIGHT + (findOpen ? FIND_BAR_HEIGHT : 0)}
           canAdd={canAdd}
           addOpen={addOpen}
@@ -333,9 +333,63 @@ export default function BrowserShell() {
   );
 }
 
-// ---------------------------------------------------------- Content Sidebar
+// ---------------------------------------------------------------- Side Panel
+//
+// Tabbed side panel scoped to the active tab's account: Intelligence,
+// Automation (saved runs only — building/naming runs stays on the
+// standalone Automation page), Inbox, Scheduler, Scripts (click-through
+// viewer only — building Sets stays on the standalone Scripts page). Every
+// tab calls the same shared, permission-checked functions the standalone
+// pages use (see browser.js's bridge handlers) — no logic is duplicated.
 
-function ContentSidebar({ accountPlatform, chromeTop, canAdd, addOpen, setAddOpen }) {
+const PANEL_TABS = [
+  { key: 'intel',      label: 'Intel',  icon: '◎' },
+  { key: 'automation', label: 'Auto',   icon: '⟳' },
+  { key: 'inbox',      label: 'Inbox',  icon: '✉' },
+  { key: 'scheduler',  label: 'Sched',  icon: '◷' },
+  { key: 'scripts',    label: 'Scripts',icon: '◫' },
+];
+
+function SidePanel({ winInfo, chromeTop, canAdd, addOpen, setAddOpen }) {
+  const [tab, setTab] = useState('intel');
+  return (
+    <div style={{ ...sidebar, top: chromeTop }}>
+      <div style={sideTabRow}>
+        {PANEL_TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            style={{ ...sideTabBtn, ...(tab === t.key ? sideTabBtnActive : {}) }}
+            title={t.label}
+          >
+            <span style={{ fontSize: 13 }}>{t.icon}</span>
+            <span style={{ fontSize: 9 }}>{t.label}</span>
+          </button>
+        ))}
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {tab === 'intel'      && <IntelPanel platform={winInfo.activePlatform} />}
+        {tab === 'automation' && <RunsPanel />}
+        {tab === 'inbox'      && <InboxMiniPanel platform={winInfo.activePlatform} />}
+        {tab === 'scheduler'  && (
+          <SchedulerMiniPanel
+            accountPlatform={winInfo.activePlatform}
+            canAdd={canAdd}
+            addOpen={addOpen}
+            setAddOpen={setAddOpen}
+          />
+        )}
+        {tab === 'scripts' && <ScriptsMiniPanel />}
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------- Scheduler mini tab
+// (formerly the sidebar's only content — the "Content List" — now one of
+// five tabs. Same contentList/addContent bridge calls as before.)
+
+function SchedulerMiniPanel({ accountPlatform, canAdd, addOpen, setAddOpen }) {
   const [platform, setPlatform] = useState(accountPlatform || 'reddit');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -365,9 +419,9 @@ function ContentSidebar({ accountPlatform, chromeTop, canAdd, addOpen, setAddOpe
   }, [items]);
 
   return (
-    <div style={{ ...sidebar, top: chromeTop }}>
+    <div>
       <div style={sideHead}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: BRAND.text1 }}>Content List</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: BRAND.text1 }}>Scheduler</span>
         <div style={{ display: 'flex', gap: 4 }}>
           {canAdd && (
             <button
@@ -416,6 +470,245 @@ function ContentSidebar({ accountPlatform, chromeTop, canAdd, addOpen, setAddOpe
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------- Intel mini tab
+
+function IntelPanel({ platform }) {
+  const [keyword, setKeyword] = useState('');
+  const [subreddit, setSubreddit] = useState('');
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const isReddit = platform === 'reddit';
+
+  async function search() {
+    if (isReddit && !subreddit.trim()) { setErr('Subreddit required'); return; }
+    setLoading(true); setErr(null);
+    const r = await window.oserusBrowser.intelSearch({ keyword, subreddit });
+    setLoading(false);
+    if (r?.ok) setPosts(r.posts || []);
+    else setErr(r?.error || (r?.stale ? 'Layout may have changed — try again later.' : 'Search failed'));
+  }
+
+  return (
+    <div style={panelBody}>
+      <div style={panelHead}>Intelligence</div>
+      {isReddit && (
+        <input style={addInput} placeholder="Subreddit" value={subreddit}
+          onChange={(e) => setSubreddit(e.target.value)} />
+      )}
+      <div style={{ display: 'flex', gap: 4 }}>
+        <input
+          style={{ ...addInput, flex: 1 }}
+          placeholder={isReddit ? 'Keyword (optional)' : 'Keyword, #tag, or @handle'}
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') search(); }}
+        />
+        <button style={addSubmit} onClick={search} disabled={loading}>{loading ? '…' : 'Go'}</button>
+      </div>
+      {err && <div style={addErr}>{err}</div>}
+      {!loading && posts.length === 0 && !err && <div style={empty}>No results yet.</div>}
+      {posts.map((p) => (
+        <div key={p.id || p.url} style={card}>
+          <div style={cardTitle}>{p.title || '(no caption)'}</div>
+          <div style={cardWhen}>
+            {p.score != null ? `${p.score.toLocaleString()}↑ ` : ''}
+            {p.num_comments != null ? `${p.num_comments.toLocaleString()}💬` : ''}
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <a href={p.url} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: BRAND.gold }}>Open ↗</a>
+            <button style={sideRefresh} onClick={() => navigator.clipboard.writeText(p.permalink || p.url).catch(() => {})}>Copy</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// -------------------------------------------------------- Automation mini tab
+
+function RunsPanel() {
+  const [runs, setRuns] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [msg, setMsg] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    const r = await window.oserusBrowser.runsList();
+    setLoading(false);
+    if (r?.ok) setRuns(r.runs || []); else setMsg(r?.error || 'Failed to load runs');
+  }
+  useEffect(() => { load(); }, []);
+
+  async function run(id, dryRun) {
+    setBusyId(id); setMsg(null);
+    const r = await window.oserusBrowser.runsRunNow({ id, dryRun });
+    setBusyId(null);
+    setMsg(r?.ok ? (dryRun ? 'Dry run complete.' : 'Run started.') : (r?.error || 'Failed'));
+  }
+
+  return (
+    <div style={panelBody}>
+      <div style={panelHead}>Automation — saved runs</div>
+      {msg && <div style={addErr}>{msg}</div>}
+      {loading && <div style={empty}>Loading…</div>}
+      {!loading && runs.length === 0 && (
+        <div style={empty}>No saved runs for this model yet. Build one on the Automation page.</div>
+      )}
+      {runs.map((r) => (
+        <div key={r.id} style={card}>
+          <div style={cardTitle}>{r.name}</div>
+          <div style={cardWhen}>{r.platform || 'any platform'}</div>
+          <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+            <button style={sideRefresh} disabled={busyId === r.id} onClick={() => run(r.id, true)}>Dry run</button>
+            <button style={{ ...sideRefresh, background: BRAND.gold, color: BRAND.bg0 }} disabled={busyId === r.id} onClick={() => run(r.id, false)}>Run now</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------- Inbox mini tab
+
+function InboxMiniPanel({ platform }) {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const [replyTo, setReplyTo] = useState(null);
+  const [replyText, setReplyText] = useState('');
+  const isReddit = platform === 'reddit';
+
+  async function load() {
+    if (!isReddit) return;
+    setLoading(true); setErr(null);
+    const r = await window.oserusBrowser.inboxFetch({ folder: 'all' });
+    setLoading(false);
+    if (r?.ok) setMessages(r.messages || []); else setErr(r?.error || 'Failed to load');
+  }
+  useEffect(() => { load(); }, [platform]);
+
+  async function sendReply() {
+    if (!replyTo || !replyText.trim()) return;
+    const r = await window.oserusBrowser.inboxReply({ parentFullname: replyTo.name, text: replyText });
+    if (r?.ok) { setReplyTo(null); setReplyText(''); load(); } else setErr(r?.error || 'Reply failed');
+  }
+
+  if (!isReddit) {
+    return <div style={panelBody}><div style={empty}>Inbox mini only supports Reddit accounts right now.</div></div>;
+  }
+
+  return (
+    <div style={panelBody}>
+      <div style={panelHead}>Inbox <button style={sideRefresh} onClick={load} title="Refresh">↻</button></div>
+      {err && <div style={addErr}>{err}</div>}
+      {loading && <div style={empty}>Loading…</div>}
+      {!loading && messages.length === 0 && <div style={empty}>Nothing here.</div>}
+      {messages.map((m) => (
+        <div key={m.name} style={card}>
+          <div style={cardTop}>
+            <span style={cardSub}>{m.author}</span>
+            {m.isNew && <span style={cardTag('scheduled')}>new</span>}
+          </div>
+          <div style={cardBody}>{(m.body || '').slice(0, 160)}</div>
+          {replyTo?.name === m.name ? (
+            <div style={{ marginTop: 6 }}>
+              <textarea style={{ ...addInput, height: 50, width: '100%' }} value={replyText} onChange={(e) => setReplyText(e.target.value)} />
+              <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
+                <button style={addSubmit} onClick={sendReply}>Send</button>
+                <button style={addCancel} onClick={() => setReplyTo(null)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button style={sideRefresh} onClick={() => { setReplyTo(m); setReplyText(''); }}>Reply</button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ Scripts mini tab
+// Click-through viewer only — building Sets stays on the standalone page.
+
+function ScriptsMiniPanel() {
+  const [sets, setSets] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [activeSet, setActiveSet] = useState(null); // { set, steps }
+  const [stepIdx, setStepIdx] = useState(0);
+  const [preview, setPreview] = useState(null);
+
+  async function loadSets() {
+    setLoading(true);
+    const r = await window.oserusBrowser.scriptsListSets();
+    setLoading(false);
+    if (r?.ok) setSets(r.sets || []);
+  }
+  useEffect(() => { loadSets(); }, []);
+
+  async function openSet(id) {
+    const r = await window.oserusBrowser.scriptsGetSet({ id });
+    if (r?.ok) { setActiveSet(r); setStepIdx(0); setPreview(null); }
+  }
+
+  useEffect(() => {
+    if (!activeSet) return;
+    const step = activeSet.steps[stepIdx];
+    setPreview(null);
+    if (!step?.media_path) return;
+    let cancelled = false;
+    window.oserusBrowser.scriptsReadMedia({ stepId: step.id }).then((r) => {
+      if (!cancelled && r?.ok) setPreview(`data:${r.mediaKind || 'application/octet-stream'};base64,${r.dataBase64}`);
+    });
+    return () => { cancelled = true; };
+  }, [activeSet, stepIdx]);
+
+  if (activeSet) {
+    const step = activeSet.steps[stepIdx];
+    return (
+      <div style={panelBody}>
+        <div style={panelHead}>
+          <button style={sideRefresh} onClick={() => setActiveSet(null)} title="Back">‹</button>
+          {activeSet.set.name}
+        </div>
+        {step ? (
+          <div style={card}>
+            <div style={cardWhen}>Step {stepIdx + 1} / {activeSet.steps.length}</div>
+            {preview && (
+              String(step.media_kind).startsWith('video/')
+                ? <video src={preview} controls style={{ width: '100%', borderRadius: 6, margin: '6px 0' }} />
+                : <img src={preview} alt="" style={{ width: '100%', borderRadius: 6, margin: '6px 0' }} />
+            )}
+            <div style={cardBody}>{step.message_text || '(no message text)'}</div>
+            {step.message_text && (
+              <button style={sideRefresh} onClick={() => navigator.clipboard.writeText(step.message_text).catch(() => {})}>Copy text</button>
+            )}
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button style={sideRefresh} disabled={stepIdx === 0} onClick={() => setStepIdx((i) => i - 1)}>‹ Prev</button>
+              <button style={sideRefresh} disabled={stepIdx === activeSet.steps.length - 1} onClick={() => setStepIdx((i) => i + 1)}>Next ›</button>
+            </div>
+          </div>
+        ) : <div style={empty}>No steps in this Set.</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={panelBody}>
+      <div style={panelHead}>Scripts</div>
+      {loading && <div style={empty}>Loading…</div>}
+      {!loading && sets.length === 0 && <div style={empty}>No Sets for this model yet.</div>}
+      {sets.map((s) => (
+        <button key={s.id} onClick={() => openSet(s.id)} style={{ ...card, textAlign: 'left', width: '100%' }}>
+          <div style={cardTitle}>{s.name}</div>
+          <div style={cardWhen}>{s.step_count} step{s.step_count === 1 ? '' : 's'}</div>
+        </button>
+      ))}
     </div>
   );
 }
@@ -819,6 +1112,24 @@ const sidebar = {
 const sideHead = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
   padding: '8px 12px', borderBottom: `1px solid ${BRAND.bg4}`,
+};
+const sideTabRow = {
+  display: 'flex', flexShrink: 0,
+  borderBottom: `1px solid ${BRAND.bg4}`,
+};
+const sideTabBtn = {
+  flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+  padding: '8px 0', background: 'transparent', color: BRAND.text2,
+};
+const sideTabBtnActive = {
+  color: BRAND.gold,
+  boxShadow: `inset 0 -2px 0 0 ${BRAND.gold}`,
+  background: BRAND.bg2,
+};
+const panelBody = { padding: 10, display: 'flex', flexDirection: 'column', gap: 8 };
+const panelHead = {
+  fontSize: 12, fontWeight: 600, color: BRAND.text1,
+  display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2,
 };
 const sideRefresh = {
   width: 22, height: 22, borderRadius: 4, background: 'transparent',

@@ -24,8 +24,9 @@ export default function CloakManagerStatus() {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
 
-  // Check if user is admin
-  if (user?.role !== 'admin') {
+  // Check if user is admin (owner has the same access — see appflow.md's
+  // permission table: "Admin settings ... Owner/Admin only")
+  if (user?.role !== 'admin' && user?.role !== 'owner') {
     return (
       <div style={{
         padding: '20px 24px',
