@@ -80,9 +80,11 @@ export default function ModelDetailPage({ modelId, navigate }) {
   const can = useCan();
   const canManage = can('profiles.manage');
   const {
-    isAvailable, checkAvailability, launchProgress, cloakStatus, isAccountRunning,
+    isAvailable, checkAvailability, checkAvailabilityWithRetry, startCloakManager,
+    launchProgress, cloakStatus, isAccountRunning,
     getLaunchPhase, getAttention, clearAttentionLocal,
   } = useCloakManagerLaunch();
+  const [startingCm, setStartingCm] = useState(false);
   const [accountOperation, setAccountOperation] = useState(null); // { type: 'creating' | 'launching', accountId: null }
   const [operationMessage, setOperationMessage] = useState(null);
   const [launchingId, setLaunchingId] = useState(null);
@@ -167,8 +169,25 @@ export default function ModelDetailPage({ modelId, navigate }) {
 
   useEffect(() => {
     load();
-    if (token) checkAvailability(token);
-  }, [modelId, token, activeTeamId, checkAvailability]);
+    // Retry-aware: app startup spawns/health-checks the CloakManager backend
+    // asynchronously and that can take up to ~60s, so a check that lands
+    // right on mount can easily race ahead of it actually being ready. A
+    // plain one-shot check that comes back false would otherwise get stuck
+    // showing "Unavailable" forever with nothing to re-trigger it.
+    if (token) checkAvailabilityWithRetry(token);
+  }, [modelId, token, activeTeamId, checkAvailabilityWithRetry]);
+
+  async function handleStartCloakManager() {
+    setStartingCm(true);
+    setOperationMessage('Starting CloakManager…');
+    try {
+      const res = await startCloakManager(token);
+      setOperationMessage(res?.ok ? 'CloakManager started' : `Failed: ${friendlyCmError(res?.error)}`);
+    } finally {
+      setStartingCm(false);
+      setTimeout(() => setOperationMessage(null), 4000);
+    }
+  }
 
   function startAddFor(platform) {
     setEditing(null);
@@ -377,6 +396,14 @@ export default function ModelDetailPage({ modelId, navigate }) {
           background: isAvailable ? 'var(--online-green)' : 'var(--danger-fg)'
         }} />
         CloakManager: {isAvailable ? 'Available' : 'Unavailable'}
+        {!isAvailable && (user?.role === 'admin' || user?.role === 'owner') && (
+          <button className="ghost" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 'auto' }}
+            disabled={startingCm}
+            onClick={handleStartCloakManager}
+            title="Retry the availability check, or start the CloakManager backend if it isn't running">
+            {startingCm ? 'Starting…' : '↻ Start CloakManager'}
+          </button>
+        )}
       </div>
 
       {/* Model Browser Mode Selector */}

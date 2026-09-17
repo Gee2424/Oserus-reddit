@@ -22,6 +22,7 @@ let _storeSnapshot = {
   wsConnected: false,
 };
 const _listeners = new Set(); // onStoreChange callbacks
+let _retryingAvailability = false; // module-level so concurrent mounts share one retry loop
 
 function _updateSnapshot(partial) {
   _storeSnapshot = { ..._storeSnapshot, ...partial };
@@ -144,6 +145,46 @@ export function useCloakManagerLaunch() {
     }
   }, []);
 
+  // The app's own CloakManager backend startup (spawn + seed + health check)
+  // runs async at app launch and can legitimately take up to ~60s (longer
+  // on a first-ever run needing self-extraction). checkAvailability() above
+  // is normally called exactly once, on page mount — if that lands before
+  // startup finishes, the resulting `false` sits in this module-level store
+  // forever, since nothing re-checks it. This wraps it with a short retry
+  // window so a temporarily-still-starting backend self-corrects instead of
+  // permanently showing "Unavailable" for a backend that comes up moments
+  // later. Guarded so concurrent callers (Profiles + ModelDetail both
+  // mounted) share one retry loop instead of racing separate ones.
+  const checkAvailabilityWithRetry = useCallback(async (token, { attempts = 8, delayMs = 4000 } = {}) => {
+    const first = await checkAvailability(token);
+    if (first || _retryingAvailability) return first;
+    _retryingAvailability = true;
+    try {
+      for (let i = 0; i < attempts; i++) {
+        await new Promise((r) => setTimeout(r, delayMs));
+        const ok = await checkAvailability(token);
+        if (ok) return true;
+      }
+      return false;
+    } finally {
+      _retryingAvailability = false;
+    }
+  }, [checkAvailability]);
+
+  // Explicit user-triggered action — "Start CloakManager" on the
+  // availability badge, so a genuinely-not-running backend isn't a dead
+  // end. Backend-gated the same as the rest of CloakManager management
+  // (admin or owner); a lesser role gets a clear error back, not a crash.
+  const startCloakManager = useCallback(async (token) => {
+    try {
+      const res = await window.api.cloakmanager.startBinary({ token });
+      if (res?.ok) await checkAvailability(token);
+      return res;
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  }, [checkAvailability]);
+
   const isAccountRunning = useCallback((profileName) => {
     return state.runningProfiles.has(profileName) && state.cloakStatus[profileName] === 'running';
   }, [state]);
@@ -191,6 +232,8 @@ export function useCloakManagerLaunch() {
   return {
     isAvailable,
     checkAvailability,
+    checkAvailabilityWithRetry,
+    startCloakManager,
     wsConnected,
     cloakStatus,
     launchProgress,

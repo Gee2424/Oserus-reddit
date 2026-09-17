@@ -13,7 +13,9 @@ const COLORS = ['#c8553d', 'var(--gold)', 'var(--green-bright)', '#5a7a9a', '#9a
 
 export default function ProfilesPage({ navigate }) {
   const { token, user, activeTeamId } = useAuth();
-  const { isAvailable, checkAvailability } = useCloakManagerLaunch();
+  const { isAvailable, checkAvailability, checkAvailabilityWithRetry, startCloakManager } = useCloakManagerLaunch();
+  const [startingCm, setStartingCm] = useState(false);
+  const [cmMsg, setCmMsg] = useState(null);
   const { toast } = useToast();
   const { confirm } = useConfirm();
   const [profiles, setProfiles] = useState([]);
@@ -58,8 +60,24 @@ export default function ProfilesPage({ navigate }) {
   }
   useEffect(() => {
     load();
-    checkAvailability(token);
+    // Retry-aware: the app's own CloakManager backend startup is async and
+    // can take up to ~60s, so a check landing right on mount can race ahead
+    // of it — without a retry, that would get stuck showing "Unavailable"
+    // forever with nothing to re-trigger it.
+    checkAvailabilityWithRetry(token);
   }, [token, activeTeamId]);
+
+  async function handleStartCloakManager() {
+    setStartingCm(true);
+    setCmMsg('Starting CloakManager…');
+    try {
+      const res = await startCloakManager(token);
+      setCmMsg(res?.ok ? 'CloakManager started' : `Failed: ${res?.error || 'Unknown error'}`);
+    } finally {
+      setStartingCm(false);
+      setTimeout(() => setCmMsg(null), 4000);
+    }
+  }
   useCloudReload(['model_profiles', 'proxies', 'roles', 'role_permissions'], () => { load(); });
 
   async function addProfile(e) {
@@ -160,6 +178,15 @@ export default function ProfilesPage({ navigate }) {
             background: isAvailable ? 'var(--online-green)' : 'var(--danger-fg)'
           }} />
           CloakManager: {isAvailable ? 'Available' : 'Unavailable'}
+          {!isAvailable && (user?.role === 'admin' || user?.role === 'owner') && (
+            <button className="ghost" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 'auto' }}
+              disabled={startingCm}
+              onClick={handleStartCloakManager}
+              title="Retry the availability check, or start the CloakManager backend if it isn't running">
+              {startingCm ? 'Starting…' : '↻ Start CloakManager'}
+            </button>
+          )}
+          {cmMsg && <span className="muted" style={{ fontSize: 11 }}>{cmMsg}</span>}
         </div>
       )}
 
