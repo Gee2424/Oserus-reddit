@@ -198,12 +198,18 @@ class CloakManagerClient {
       console.log('[CloakManager] 🚀 Launching profile:', profileName);
       console.log('[CloakManager] POST URL:', `${this.baseUrl}/api/profiles/${profileName}/launch`);
 
-      // CRITICAL: Profile launch can take 90+ seconds due to Google navigation timeout
-      // Use extended timeout for launch operations
+      // CRITICAL: on the very first launch of ANY profile, CloakManager
+      // downloads ~550MB of CloakBrowser before it does anything else —
+      // that alone can take several minutes on a typical connection (way
+      // past the 90s "Google navigation timeout" this used to be sized
+      // for). A short timeout here doesn't make the download fail; it just
+      // makes US give up on an HTTP request that was still going to
+      // succeed. 10 minutes comfortably covers a slow-but-real connection
+      // without being unbounded.
       const response = await axios.post(
         `${this.baseUrl}/api/profiles/${profileName}/launch`,
         {},  // Empty body - launch doesn't need parameters
-        { timeout: 120000 }  // 2 minute timeout for launch (can take 90+ seconds)
+        { timeout: 600000 }  // 10 minutes — covers first-run CloakBrowser download
       );
       console.log('[CloakManager] POST response:', response.status, response.data);
 

@@ -19,6 +19,11 @@ import React from 'react';
 
 const STAGE_LABEL = {
   launching: 'Launching…',
+  // First-ever launch only: CloakManager downloads ~550MB of CloakBrowser
+  // before it can start anything. Can take minutes — showing the real
+  // percent here (not a generic "Launching…") is the difference between
+  // this looking broken and looking like it's doing something.
+  downloading_browser: 'Downloading browser…',
   warming: 'Warming up…',
   cdp_connecting: 'Connecting…',
   running_scripts: 'Logging in…',
@@ -91,7 +96,7 @@ export default function LaunchStatus({
     return (
       <span style={{ ...wrap, color: 'var(--gold-bright)' }}>
         <Dot color="var(--gold)" pulse />
-        <span>{STAGE_LABEL[stage] || 'Launching…'}{pct != null && stage === 'warming' ? ` ${pct}%` : ''}</span>
+        <span>{STAGE_LABEL[stage] || 'Launching…'}{pct != null && (stage === 'warming' || stage === 'downloading_browser') ? ` ${pct}%` : ''}</span>
       </span>
     );
   }

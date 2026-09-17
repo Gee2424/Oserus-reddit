@@ -27,9 +27,17 @@ class CloakManagerBinary {
       checkIntervalMs: 24 * 60 * 60 * 1000, // 24 hours (daily)
     };
 
-    // Health check configuration
+    // Health check configuration. `timeout` is how long we wait for the
+    // spawned backend PROCESS itself to report healthy — separate from
+    // (and before) any profile launch. The backend is a Nuitka-compiled
+    // binary (confirmed via ctrldlogin's own IS_COMPILED check); on a
+    // freshly-installed machine, first run may need to self-extract and
+    // can also get slowed by antivirus scanning a brand-new unsigned exe.
+    // 30s was tuned for an already-warm binary; 60s gives real first-run
+    // headroom without meaningfully delaying detection of an actually
+    // broken launch.
     this.healthConfig = {
-      timeout: 30000, // How long to wait for backend to report healthy
+      timeout: 60000,
       retryInterval: 500, // Check every 500ms
       requestTimeout: 2000, // Timeout per health check request
     };
@@ -440,12 +448,20 @@ class CloakManagerBinary {
 
     console.log(`[CloakManager] Spawning backend on port ${port}...`);
 
-    // Prepare environment variables
+    // Prepare environment variables. The backend (ctrldlogin) only reads
+    // CTRLDLOGIN_* — it has no idea what CLOAKMANAGER_* means, so those
+    // names silently no-op and it falls back to its own defaults (port
+    // 7331, OS-default %APPDATA%/~/.local/share data dir). That mismatch
+    // meant we were health-checking a port nothing was ever listening on.
+    // See core/config.py in the ctrldlogin backend — CTRLDLOGIN_DATA_DIR is
+    // explicitly documented there as "set by Tauri sidecar", i.e. this is
+    // the actual supported integration contract for a parent app spawning
+    // this binary, just under the real project's env var prefix.
     const env = {
       ...process.env,
-      CLOAKMANAGER_PORT: port.toString(),
-      CLOAKMANAGER_HOST: '127.0.0.1',
-      CLOAKMANAGER_DATA_DIR: dataDir,
+      CTRLDLOGIN_PORT: port.toString(),
+      CTRLDLOGIN_HOST: '127.0.0.1',
+      CTRLDLOGIN_DATA_DIR: dataDir,
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
     };

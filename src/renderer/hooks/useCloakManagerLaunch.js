@@ -74,7 +74,8 @@ function _ensureWS() {
           [data.profile]: {
             progress: data.data?.percent ? data.data.percent / 100 : (data.progress || 0),
             stage: data.stage || 'launching',
-            message: data.message || ''
+            message: data.message || '',
+            at: Date.now(),
           }
         }
       });
@@ -155,12 +156,26 @@ export function useCloakManagerLaunch() {
     return state.cloakStatus[profileName] || null;
   }, [state]);
 
-  // Combined launch phase for a profile: our orchestrator's cdp:progress wins
-  // (it covers login/setup), else CloakManager's own launch_progress.
+  // Combined launch phase for a profile. Whichever signal updated most
+  // recently wins — NOT a blanket "our orchestrator always wins" rule.
+  // Our orchestrator sets one cdp:progress phase ('launching') right before
+  // the launchProfile() HTTP call and doesn't touch it again until that
+  // call resolves — which, on a first-ever launch, can be minutes later
+  // while CloakManager silently downloads ~550MB of CloakBrowser first. If
+  // cdp:progress always won, that stale "Starting browser…" message would
+  // sit on screen for the whole download, completely hiding CloakManager's
+  // own live launch_progress events (stage: 'downloading_browser', with a
+  // real percent) that arrive over the same window. Comparing timestamps
+  // lets the more specific, actively-updating signal surface instead.
   const getLaunchPhase = useCallback((profileName) => {
     const cdp = state.cdpProgress[profileName];
-    if (cdp) return cdp; // { stage, ok, reason, message }
     const lp = state.launchProgress[profileName];
+    if (cdp && lp) {
+      return (lp.at || 0) > (cdp.at || 0)
+        ? { stage: lp.stage || 'launching', ok: true, message: lp.message || '', progress: lp.progress }
+        : cdp;
+    }
+    if (cdp) return cdp; // { stage, ok, reason, message }
     if (lp) return { stage: lp.stage || 'launching', ok: true, message: lp.message || '', progress: lp.progress };
     return null;
   }, [state]);
