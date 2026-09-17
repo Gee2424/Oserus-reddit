@@ -31,24 +31,34 @@ jobs:
           $tag = $release.tag_name
           Write-Host "Release tag: $tag"
 
-          $asset = $release.assets | Where-Object { $_.name -eq "ctrldlogin-backend-windows.exe" }
+          # ctrldlogin ships Windows as a zip of its Nuitka --standalone
+          # output (backend.exe plus the DLLs/extension modules it needs to
+          # load) -- the exe alone can't start without those siblings.
+          $asset = $release.assets | Where-Object { $_.name -eq "ctrldlogin-backend-windows.zip" }
           if (-not $asset) {
-            Write-Error "Asset ctrldlogin-backend-windows.exe not found in release $tag"
+            Write-Error "Asset ctrldlogin-backend-windows.zip not found in release $tag"
             exit 1
           }
 
           Write-Host "Downloading $($asset.name) ($([math]::Round($asset.size/1MB, 1)) MB)..."
           gh release download $tag `
             --repo Gee2424/ctrldlogin `
-            --pattern "ctrldlogin-backend-windows.exe" `
+            --pattern "ctrldlogin-backend-windows.zip" `
             --dir build --clobber
 
-          if (-not (Test-Path "build\ctrldlogin-backend-windows.exe")) {
-            Write-Error "Download failed -- binary not found"
+          if (-not (Test-Path "build\ctrldlogin-backend-windows.zip")) {
+            Write-Error "Download failed -- archive not found"
             exit 1
           }
 
-          Move-Item "build\ctrldlogin-backend-windows.exe" "build\backend.exe" -Force
+          if (Test-Path "build\backend") { Remove-Item "build\backend" -Recurse -Force }
+          Expand-Archive -Path "build\ctrldlogin-backend-windows.zip" -DestinationPath "build\backend" -Force
+          Remove-Item "build\ctrldlogin-backend-windows.zip" -Force
+
+          if (-not (Test-Path "build\backend\backend.exe")) {
+            Write-Error "Extraction failed -- build\backend\backend.exe not found"
+            exit 1
+          }
 
           @{ backendVersion = $tag } | ConvertTo-Json | Out-File -Encoding ascii "build\bundled-version.json"
           Write-Host "Manifest written: build\bundled-version.json"

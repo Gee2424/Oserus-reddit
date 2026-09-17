@@ -18,11 +18,18 @@ class CloakManagerBinary {
     this.currentPort = null;
     this.version = null;
 
-    // GitHub configuration
+    // GitHub configuration. Note: the release asset is now a zip of the
+    // whole Nuitka --standalone output (backend.exe needs its sibling DLLs
+    // to load at all — see getBundledDir()/getBinaryPath()). downloadBinary()/
+    // checkForUpdates() below predate that and still fetch+save a single
+    // file; nothing calls them today (backend updates ship bundled with
+    // each Oserus release via CI instead), but if that runtime auto-update
+    // path is ever wired up, downloadBinary() needs to extract the zip
+    // into a folder the same way ensureRunning()'s seeding step does.
     this.githubConfig = {
       owner: 'Gee2424',
       repo: 'ctrldlogin',
-      assetName: 'ctrldlogin-backend-windows.exe',
+      assetName: 'ctrldlogin-backend-windows.zip',
       // Only re-check GitHub this often (ms)
       checkIntervalMs: 24 * 60 * 60 * 1000, // 24 hours (daily)
     };
@@ -55,11 +62,27 @@ class CloakManagerBinary {
   }
 
   /**
-   * Get the path to the stored binary
+   * Get the path to the stored binary. Nuitka's --standalone build isn't a
+   * single self-contained exe -- backend.exe needs the DLLs/extension
+   * modules that ship alongside it in the same folder, or the OS loader
+   * fails it outright (STATUS_DLL_NOT_FOUND) before any of its own code
+   * runs. So this lives one level down, in its own folder, not directly
+   * under storageDir.
    * @returns {string} Path to backend.exe
    */
   getBinaryPath() {
-    return path.join(this.getStorageDir(), 'backend.exe');
+    return path.join(this.getStorageDir(), 'backend', 'backend.exe');
+  }
+
+  /**
+   * Get the folder containing the bundled backend (backend.exe + its
+   * required DLLs), shipped as a unit inside the installer's resources.
+   * Only relevant in production (app.isPackaged)
+   * @returns {string|null} Path to bundled backend folder or null
+   */
+  getBundledDir() {
+    if (!this.app || !this.app.isPackaged) return null;
+    return path.join(process.resourcesPath, 'backend');
   }
 
   /**
@@ -68,8 +91,8 @@ class CloakManagerBinary {
    * @returns {string|null} Path to bundled binary or null
    */
   getBundledBinaryPath() {
-    if (!this.app || !this.app.isPackaged) return null;
-    return path.join(process.resourcesPath, 'backend.exe');
+    const dir = this.getBundledDir();
+    return dir ? path.join(dir, 'backend.exe') : null;
   }
 
   /**
@@ -593,7 +616,8 @@ class CloakManagerBinary {
         (bundledManifest && (!userVersion || userVersion.backendVersion !== bundledManifest.backendVersion));
 
       if (needsSeed) {
-        if (!bundledPath || !fs.existsSync(bundledPath)) {
+        const bundledDir = this.getBundledDir();
+        if (!bundledPath || !bundledDir || !fs.existsSync(bundledPath)) {
           throw new Error(
             'CloakManager binary is missing from the application bundle. ' +
             'Please reinstall Oserus Management.'
@@ -601,8 +625,13 @@ class CloakManagerBinary {
         }
 
         const storageDir = this.getStorageDir();
+        const runtimeDir = path.dirname(binaryPath);
         fs.mkdirSync(storageDir, { recursive: true });
-        fs.copyFileSync(bundledPath, binaryPath);
+        // Copy the whole folder (backend.exe + its DLLs), not just the exe --
+        // see getBinaryPath(). Re-seeding on a version bump replaces it clean
+        // so a stale DLL from a previous version can't linger next to it.
+        fs.rmSync(runtimeDir, { recursive: true, force: true });
+        fs.cpSync(bundledDir, runtimeDir, { recursive: true });
 
         const versionInfo = {
           backendVersion: bundledManifest?.backendVersion || 'unknown',
@@ -619,7 +648,7 @@ class CloakManagerBinary {
       if (!fs.existsSync(binaryPath)) {
         throw new Error(
           'CloakManager binary not found. ' +
-          'In development mode, place backend.exe in the cloak-manager directory or run CloakManager separately.'
+          `In development mode, place backend.exe (with its DLLs) in ${path.dirname(binaryPath)} or run CloakManager separately.`
         );
       }
     }

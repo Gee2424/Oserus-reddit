@@ -746,6 +746,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
         emitProgress('starting', 'Initializing CloakManager binary...');
 
         const fs = require('fs');
+        const path = require('path');
 
         if (cmBinary.app.isPackaged) {
           // Production: seed from bundled binary
@@ -769,9 +770,14 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
           if (needsSeed) {
             emitProgress('installing', 'Installing CloakManager from bundle...', 50);
 
+            const bundledDir = cmBinary.getBundledDir();
             const storageDir = cmBinary.getStorageDir();
+            const runtimeDir = path.dirname(binaryPath);
             fs.mkdirSync(storageDir, { recursive: true });
-            fs.copyFileSync(bundledPath, binaryPath);
+            // Copy the whole folder (backend.exe + its DLLs) — the exe alone
+            // can't load without them. See cloakManagerBinary.js getBinaryPath().
+            fs.rmSync(runtimeDir, { recursive: true, force: true });
+            fs.cpSync(bundledDir, runtimeDir, { recursive: true });
 
             const versionInfo = {
               backendVersion: bundledManifest?.backendVersion || 'unknown',
@@ -790,7 +796,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
             emitProgress('error', 'Binary not found — install manually in development mode');
             return {
               ok: false,
-              error: 'CloakManager binary not found. In development mode, place backend.exe in the cloak-manager directory or run CloakManager separately.'
+              error: `CloakManager binary not found. In development mode, place backend.exe (with its DLLs) in ${path.dirname(binaryPath)} or run CloakManager separately.`
             };
           }
         }
