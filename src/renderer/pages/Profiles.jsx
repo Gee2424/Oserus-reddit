@@ -13,7 +13,7 @@ const COLORS = ['#c8553d', 'var(--gold)', 'var(--green-bright)', '#5a7a9a', '#9a
 
 export default function ProfilesPage({ navigate }) {
   const { token, user, activeTeamId } = useAuth();
-  const { isAvailable, checkAvailability, checkAvailabilityWithRetry, startCloakManager } = useCloakManagerLaunch();
+  const { isAvailable, cmBaseUrl, checkAvailability, checkAvailabilityWithRetry, startCloakManager } = useCloakManagerLaunch();
   const [startingCm, setStartingCm] = useState(false);
   const [cmMsg, setCmMsg] = useState(null);
   const { toast } = useToast();
@@ -178,6 +178,18 @@ export default function ProfilesPage({ navigate }) {
             background: isAvailable ? 'var(--online-green)' : 'var(--danger-fg)'
           }} />
           CloakManager: {isAvailable ? 'Available' : 'Unavailable'}
+          {isAvailable && cmBaseUrl && (
+            <a
+              href="#"
+              className="mono dim"
+              style={{ fontSize: 11, textDecoration: 'underline', cursor: 'pointer' }}
+              title="Open the CloakManager backend's own dashboard in your browser"
+              onClick={(e) => {
+                e.preventDefault();
+                window.api.windows.openExternalTabs({ urls: [cmBaseUrl] });
+              }}
+            >{cmBaseUrl}</a>
+          )}
           {!isAvailable && (user?.role === 'admin' || user?.role === 'owner') && (
             <button className="ghost" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 'auto' }}
               disabled={startingCm}

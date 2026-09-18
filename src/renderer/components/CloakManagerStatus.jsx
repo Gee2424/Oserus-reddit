@@ -320,7 +320,23 @@ export default function CloakManagerStatus() {
           CloakManager Ready
         </div>
         <div style={{ fontSize: 12, color: 'var(--text-2)' }}>
-          Running on port {status?.port} • Version {status?.currentVersion?.backendVersion || status?.currentVersion?.version || 'unknown'}
+          Running on port {status?.port}
+          {status?.baseUrl && (
+            <>
+              {' '}(
+              <a
+                href="#"
+                style={{ textDecoration: 'underline', cursor: 'pointer' }}
+                title="Open the CloakManager backend's own dashboard in your browser"
+                onClick={(e) => {
+                  e.preventDefault();
+                  window.api.windows.openExternalTabs({ urls: [status.baseUrl] });
+                }}
+              >{status.baseUrl}</a>
+              )
+            </>
+          )}
+          {' '}• Version {status?.currentVersion?.backendVersion || status?.currentVersion?.version || 'unknown'}
         </div>
       </div>
       <button

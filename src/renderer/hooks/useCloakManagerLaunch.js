@@ -19,6 +19,7 @@ let _storeSnapshot = {
   attention: {},        // per accountId — { code, reason, at }
   runningProfiles: new Set(),
   isAvailable: null,
+  cmBaseUrl: null,       // e.g. http://127.0.0.1:53214 -- wherever the backend actually landed
   wsConnected: false,
 };
 const _listeners = new Set(); // onStoreChange callbacks
@@ -132,12 +133,12 @@ export function useCloakManagerLaunch() {
     () => _storeSnapshot
   );
 
-  const { cloakStatus, launchProgress, cdpProgress, attention, runningProfiles, isAvailable, wsConnected } = state;
+  const { cloakStatus, launchProgress, cdpProgress, attention, runningProfiles, isAvailable, cmBaseUrl, wsConnected } = state;
 
   const checkAvailability = useCallback(async (token) => {
     try {
       const res = await window.api.cloakmanager.checkAvailable({ token });
-      _updateSnapshot({ isAvailable: res.available });
+      _updateSnapshot({ isAvailable: res.available, cmBaseUrl: res.baseUrl || null });
       return res.available;
     } catch (err) {
       _updateSnapshot({ isAvailable: false });
@@ -231,6 +232,7 @@ export function useCloakManagerLaunch() {
 
   return {
     isAvailable,
+    cmBaseUrl,
     checkAvailability,
     checkAvailabilityWithRetry,
     startCloakManager,

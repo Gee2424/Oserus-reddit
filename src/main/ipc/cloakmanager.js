@@ -191,7 +191,7 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
       const client = getCloakManagerClient();
       const available = await client.isAvailable();
       console.log('[IPC] CloakManager availability result:', available);
-      return { ok: true, available };
+      return { ok: true, available, baseUrl: client.baseUrl };
     } catch (error) {
       console.error('[IPC] CloakManager availability check failed:', error);
       return { ok: false, available: false, error: error.message };
@@ -695,13 +695,15 @@ function registerCloakmanagerHandlers(ipcMain, mainWindow, app) {
       }
 
       const status = cmBinary.getStatus();
-      const health = await getCloakManagerClient().isAvailable();
+      const client = getCloakManagerClient();
+      const health = await client.isAvailable();
 
       return {
         ok: true,
         status: {
           ...status,
           backendAvailable: health,
+          baseUrl: client.baseUrl,
           autoStartEnabled: app.isPackaged
         }
       };
